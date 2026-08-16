@@ -1,0 +1,74 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environments
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+.venv/
+
+# Environment Variables & Secrets (CRITICAL FOR GITHUB)
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+*.env
+
+# Video Data & LanceDB Storage (Large Binary Files)
+backend/data/raw_videos/*
+!backend/data/raw_videos/.gitkeep
+backend/data/keyframes/*
+!backend/data/keyframes/.gitkeep
+backend/data/lancedb/*
+!backend/data/lancedb/.gitkeep
+backend/data/clips/*
+!backend/data/clips/.gitkeep
+backend/data/*.log
+*.log
+
+# Evaluation Datasets
+evaluation/datasets/*.json
+evaluation/datasets/*.mp4
+
+# Node & Next.js Frontend
+frontend/node_modules/
+frontend/.pnp
+frontend/.pnp.js
+frontend/.next/
+frontend/out/
+frontend/build/
+frontend/dist/
+frontend/.env*.local
+
+# IDEs & OS Files
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+Desktop.ini
