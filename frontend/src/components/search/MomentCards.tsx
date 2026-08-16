@@ -1,21 +1,50 @@
 "use client";
 
-import React from "react";
+import React, { useState } from "react";
 import { MomentItem } from "@/lib/types";
-import { Play, Sparkles, MessageSquare, Image as ImageIcon } from "lucide-react";
+import { Play, Sparkles, MessageSquare, Image as ImageIcon, Download, Check, Loader2, Subtitles } from "lucide-react";
 import { apiClient } from "@/lib/api";
 
 interface MomentCardsProps {
   moments: MomentItem[];
+  videoId?: string;
   onSelectMoment: (moment: MomentItem) => void;
   activeMoment?: MomentItem | null;
 }
 
 export const MomentCards: React.FC<MomentCardsProps> = ({
   moments,
+  videoId,
   onSelectMoment,
   activeMoment,
 }) => {
+  const [exportingIndex, setExportingIndex] = useState<number | null>(null);
+  const [exportedMap, setExportedMap] = useState<Record<number, string>>({});
+
+  const handleExport = async (e: React.MouseEvent, m: MomentItem, idx: number, withSubtitles: boolean) => {
+    e.stopPropagation();
+    if (!videoId) return;
+
+    setExportingIndex(idx);
+    try {
+      const res = await apiClient.exportClip(videoId, m.t_start, m.t_end, withSubtitles);
+      if (res && res.download_url) {
+        setExportedMap((prev) => ({ ...prev, [idx]: res.download_url }));
+        // Trigger direct browser download
+        const a = document.createElement("a");
+        a.href = `http://localhost:8000${res.download_url}`;
+        a.download = res.clip_filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+      }
+    } catch (err) {
+      console.error("Failed to export clip:", err);
+    } finally {
+      setExportingIndex(null);
+    }
+  };
+
   if (!moments || moments.length === 0) {
     return (
       <div className="glass-panel rounded-2xl p-8 text-center text-gray-400 space-y-2">
@@ -35,7 +64,7 @@ export const MomentCards: React.FC<MomentCardsProps> = ({
           <Sparkles className="w-4 h-4 text-cyan-400" />
           Retrieved Moments ({moments.length})
         </h3>
-        <span className="text-xs text-gray-500">Ranked by Hybrid Confidence</span>
+        <span className="text-xs text-gray-500">Multi-Scale SOTA Ranked</span>
       </div>
 
       <div className="grid grid-cols-1 gap-3">
@@ -82,9 +111,11 @@ export const MomentCards: React.FC<MomentCardsProps> = ({
                   <span className="text-xs font-semibold text-cyan-400 bg-cyan-950/60 px-2 py-0.5 rounded-full border border-cyan-800/40">
                     Match #{idx + 1}
                   </span>
-                  <span className="text-xs font-mono font-medium text-amber-400">
-                    Score: {(m.score * 100).toFixed(1)}%
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs font-mono font-medium text-emerald-400">
+                      {(m.score * 100).toFixed(1)}% Match
+                    </span>
+                  </div>
                 </div>
 
                 {m.caption_preview && (
@@ -94,12 +125,32 @@ export const MomentCards: React.FC<MomentCardsProps> = ({
                   </p>
                 )}
 
-                {m.transcript_preview && (
-                  <p className="text-xs text-gray-400 flex items-start gap-1 line-clamp-1 italic">
-                    <MessageSquare className="w-3 h-3 mt-0.5 text-indigo-400 flex-shrink-0" />
-                    "{m.transcript_preview}"
-                  </p>
-                )}
+                {/* Clip Exporter Action Buttons */}
+                <div className="flex items-center gap-2 pt-1">
+                  <button
+                    type="button"
+                    disabled={exportingIndex === idx}
+                    onClick={(e) => handleExport(e, m, idx, false)}
+                    className="px-2 py-1 rounded-md bg-surfaceBorder hover:bg-gray-700 text-[11px] text-gray-300 flex items-center gap-1 transition-colors"
+                  >
+                    {exportingIndex === idx ? (
+                      <Loader2 className="w-3 h-3 animate-spin text-cyan-400" />
+                    ) : (
+                      <Download className="w-3 h-3 text-cyan-400" />
+                    )}
+                    Cut Clip
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={exportingIndex === idx}
+                    onClick={(e) => handleExport(e, m, idx, true)}
+                    className="px-2 py-1 rounded-md bg-indigo-950/80 hover:bg-indigo-900 text-[11px] text-indigo-200 border border-indigo-700/50 flex items-center gap-1 transition-colors"
+                  >
+                    <Subtitles className="w-3 h-3 text-indigo-400" />
+                    Burn Subtitles
+                  </button>
+                </div>
               </div>
             </div>
           );

@@ -1,11 +1,12 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { Search, Sparkles, Film, Loader2, ArrowRight } from "lucide-react";
+import { Search, Sparkles, Film, Loader2, MessageSquare, ListFilter } from "lucide-react";
 import { VideoMetadata, MomentItem, SearchResponse } from "@/lib/types";
 import { apiClient } from "@/lib/api";
 import { VideoPlayer } from "@/components/player/VideoPlayer";
 import { MomentCards } from "@/components/search/MomentCards";
+import { VideoQAPanel } from "@/components/rag/VideoQAPanel";
 import { Dropzone } from "@/components/upload/Dropzone";
 
 export default function DashboardPage() {
@@ -17,6 +18,7 @@ export default function DashboardPage() {
   const [seekTime, setSeekTime] = useState<number | null>(null);
   const [highlightInterval, setHighlightInterval] = useState<[number, number] | null>(null);
   const [activeMoment, setActiveMoment] = useState<MomentItem | null>(null);
+  const [activeTab, setActiveTab] = useState<"moments" | "rag">("moments");
 
   // Load videos on mount
   const fetchVideos = async () => {
@@ -40,6 +42,7 @@ export default function DashboardPage() {
     if (!searchQuery.trim()) return;
 
     setIsSearching(true);
+    setActiveTab("moments");
     try {
       const res = await apiClient.searchMoments(searchQuery, selectedVideo?.id);
       setSearchResult(res);
@@ -59,6 +62,11 @@ export default function DashboardPage() {
     setActiveMoment(m);
     setSeekTime(m.t_start);
     setHighlightInterval([m.t_start, m.t_end]);
+  };
+
+  const handleSeekFromQA = (time: number) => {
+    setSeekTime(time);
+    setHighlightInterval([time, time + 4.0]);
   };
 
   return (
@@ -142,7 +150,7 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Main Content Layout: Player & Moment List */}
+      {/* Main Content Layout: Player & Tabs */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         {/* Left Column: Video Player & Uploader (7 cols) */}
         <div className="lg:col-span-7 space-y-6">
@@ -171,10 +179,37 @@ export default function DashboardPage() {
           />
         </div>
 
-        {/* Right Column: Ranked Moments & Insights (5 cols) */}
-        <div className="lg:col-span-5 space-y-6">
-          {searchResult && (
-            <div className="glass-panel p-3.5 rounded-xl border border-surfaceBorder flex items-center justify-between text-xs text-gray-400">
+        {/* Right Column: Tab Navigation (Moments vs Video-RAG QA) (5 cols) */}
+        <div className="lg:col-span-5 space-y-4">
+          {/* Mode Switcher Tabs */}
+          <div className="flex items-center gap-2 p-1 bg-surface border border-surfaceBorder rounded-xl">
+            <button
+              type="button"
+              onClick={() => setActiveTab("moments")}
+              className={`flex-1 py-2 px-3 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all ${
+                activeTab === "moments"
+                  ? "bg-gradient-to-r from-indigo-600 to-cyan-600 text-white shadow-md"
+                  : "text-gray-400 hover:text-gray-200"
+              }`}
+            >
+              <ListFilter className="w-3.5 h-3.5" /> Retrieved Moments
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab("rag")}
+              className={`flex-1 py-2 px-3 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all ${
+                activeTab === "rag"
+                  ? "bg-gradient-to-r from-indigo-600 to-cyan-600 text-white shadow-md"
+                  : "text-gray-400 hover:text-gray-200"
+              }`}
+            >
+              <MessageSquare className="w-3.5 h-3.5" /> Video-RAG QA
+            </button>
+          </div>
+
+          {/* Search Result Latency Badge */}
+          {searchResult && activeTab === "moments" && (
+            <div className="glass-panel p-3 rounded-xl border border-surfaceBorder flex items-center justify-between text-xs text-gray-400">
               <span>
                 Query: <span className="text-white font-medium">"{searchResult.query}"</span>
               </span>
@@ -182,11 +217,20 @@ export default function DashboardPage() {
             </div>
           )}
 
-          <MomentCards
-            moments={searchResult?.moments || []}
-            onSelectMoment={handleSelectMoment}
-            activeMoment={activeMoment}
-          />
+          {/* Tab Content */}
+          {activeTab === "moments" ? (
+            <MomentCards
+              moments={searchResult?.moments || []}
+              videoId={selectedVideo?.id}
+              onSelectMoment={handleSelectMoment}
+              activeMoment={activeMoment}
+            />
+          ) : (
+            <VideoQAPanel
+              videoId={selectedVideo?.id}
+              onSeekToTimestamp={handleSeekFromQA}
+            />
+          )}
         </div>
       </div>
     </div>

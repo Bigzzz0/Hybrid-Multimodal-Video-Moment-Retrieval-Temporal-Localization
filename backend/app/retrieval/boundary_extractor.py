@@ -1,26 +1,60 @@
 import numpy as np
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from app.core.config import settings
 
 class TemporalBoundaryExtractor:
-    """Extracts continuous temporal moment intervals [t_start, t_end] from smoothed score timeline."""
+    """
+    SOTA Adaptive Valley Boundary Extractor.
+    Extracts continuous temporal moment intervals [t_start, t_end] by detecting
+    local peaks and snapping boundaries to local valley minima.
+    """
 
     def __init__(self, threshold_factor: float = settings.DYNAMIC_THRESHOLD_FACTOR):
         self.threshold_factor = threshold_factor
+
+    def _find_valley_boundaries(
+        self,
+        scores: np.ndarray,
+        peak_idx: int,
+        floor_threshold: float
+    ) -> (int, int):
+        """Expand outward from peak_idx to the nearest local minima (valleys)."""
+        n = len(scores)
+        
+        # Expand backwards (start boundary)
+        left = peak_idx
+        while left > 0:
+            if scores[left - 1] > scores[left] and scores[left] <= floor_threshold:
+                break
+            if scores[left - 1] < floor_threshold * 0.7:
+                left -= 1
+                break
+            left -= 1
+
+        # Expand forwards (end boundary)
+        right = peak_idx
+        while right < n - 1:
+            if scores[right + 1] > scores[right] and scores[right] <= floor_threshold:
+                break
+            if scores[right + 1] < floor_threshold * 0.7:
+                right += 1
+                break
+            right += 1
+
+        return max(0, left), min(n - 1, right)
 
     def extract_moments(
         self,
         time_axis: np.ndarray,
         smoothed_scores: np.ndarray,
-        threshold_factor: float = None,
+        threshold_factor: Optional[float] = None,
         min_duration_sec: float = 1.5,
         max_duration_sec: float = 60.0
     ) -> List[Dict[str, Any]]:
         """
-        Calculates dynamic threshold theta = mu + lambda * sigma,
-        and groups contiguous indices into moment intervals [t_start, t_end].
+        Calculates dynamic threshold and uses Valley Detection to extract precise boundaries.
         """
-        if len(smoothed_scores) == 0:
+        if len(smoothed_scores) == 0 or len(time_axis) == 0:
             return []
 
         if threshold_factor is None:
@@ -41,13 +75,12 @@ class TemporalBoundaryExtractor:
                 "score": float(smoothed_scores[best_idx])
             }]
 
-        # Group contiguous index clusters
+        # Group contiguous clusters
         clusters: List[List[int]] = []
         current_cluster = [above_indices[0]]
 
         for idx in above_indices[1:]:
-            # If gap between indices is <= 2 steps (allows small 1-step dip)
-            if idx - current_cluster[-1] <= 2:
+            if idx - current_cluster[-1] <= 3:
                 current_cluster.append(idx)
             else:
                 clusters.append(current_cluster)
@@ -56,20 +89,43 @@ class TemporalBoundaryExtractor:
 
         moments = []
         for grp in clusters:
-            t_start = float(time_axis[grp[0]])
-            t_end = float(time_axis[grp[-1]])
+            peak_local_idx = grp[int(np.argmax(smoothed_scores[grp]))]
+            left_valley, right_valley = self._find_valley_boundaries(
+                smoothed_scores, peak_local_idx, floor_threshold=threshold
+            )
             
-            # Ensure minimum duration padding
+            t_start = float(time_axis[left_valley])
+            t_end = float(time_axis[right_valley])
+
+            # Clamp durations
             if (t_end - t_start) < min_duration_sec:
                 t_end = min(float(time_axis[-1]), t_start + min_duration_sec)
+            if (t_end - t_start) > max_duration_sec:
+                t_end = t_start + max_duration_sec
 
-            peak_score = float(np.max(smoothed_scores[grp]))
+            peak_score = float(smoothed_scores[peak_local_idx])
             moments.append({
                 "t_start": round(t_start, 2),
                 "t_end": round(t_end, 2),
                 "score": round(peak_score, 4)
             })
 
-        # Sort moments by score descending
+        # Remove overlapping duplicate intervals and sort by score
         moments.sort(key=lambda m: m["score"], reverse=True)
-        return moments
+        unique_moments = []
+        for m in moments:
+            overlap = False
+            for u in unique_moments:
+                # Check IoU or substantial overlap
+                inter_s = max(m["t_start"], u["t_start"])
+                inter_e = min(m["t_end"], u["t_end"])
+                if inter_e > inter_s:
+                    overlap_len = inter_e - inter_s
+                    m_len = m["t_end"] - m["t_start"]
+                    if overlap_len / max(1e-5, m_len) > 0.6:
+                        overlap = True
+                        break
+            if not overlap:
+                unique_moments.append(m)
+
+        return unique_moments
