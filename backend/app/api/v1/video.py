@@ -1,4 +1,5 @@
 import os
+import shutil
 import subprocess
 from pathlib import Path
 from typing import List, Optional
@@ -11,6 +12,17 @@ from app.db.schemas import VideoMetadata
 from app.utils.video_stream import range_requests_response
 
 router = APIRouter()
+
+def _get_ffmpeg_bin() -> str:
+    """Finds FFmpeg binary from PATH or fallback to imageio_ffmpeg bundled binary."""
+    exe = shutil.which("ffmpeg")
+    if exe:
+        return exe
+    try:
+        import imageio_ffmpeg
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:
+        return "ffmpeg"
 
 def _format_srt_time(seconds: float) -> str:
     """Format seconds into SRT timestamp HH:MM:SS,mmm"""
@@ -131,19 +143,20 @@ async def cut_video_clip(
 
     # 2. Execute FFmpeg
     try:
+        ffmpeg_bin = _get_ffmpeg_bin()
         if burn_subtitles and srt_path and srt_path.exists():
             # Burn subtitles into video stream
-            srt_escaped = str(srt_path).replace("\\", "/").replace(":", "\\:")
+            srt_escaped = str(srt_path.resolve()).replace("\\", "/").replace(":", "\\:")
             vf_filter = f"subtitles='{srt_escaped}'"
             cmd = [
-                "ffmpeg", "-y", "-ss", str(t_start), "-i", src_path,
+                ffmpeg_bin, "-y", "-ss", str(t_start), "-i", src_path,
                 "-t", str(duration), "-vf", vf_filter,
                 "-c:v", "libx264", "-c:a", "aac", "-preset", "fast", str(out_path)
             ]
         else:
             # Fast stream copy without re-encoding
             cmd = [
-                "ffmpeg", "-y", "-ss", str(t_start), "-i", src_path,
+                ffmpeg_bin, "-y", "-ss", str(t_start), "-i", src_path,
                 "-t", str(duration), "-c", "copy", str(out_path)
             ]
 
@@ -166,3 +179,80 @@ async def cut_video_clip(
     except Exception as e:
         logger.error(f"FFmpeg clipping failed: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to export clip: {str(e)}")
+
+@router.delete("/{video_id}")
+async def delete_video(video_id: str):
+    """
+    Cascade deletes video metadata, vector embeddings, transcripts, scene records, and physical files.
+    """
+    tbl_videos = db_manager.get_table("videos")
+    try:
+        matches = tbl_videos.search().where(f"id = '{video_id}'").limit(1).to_list()
+    except Exception:
+        matches = [r for r in tbl_videos.to_arrow().to_pylist() if r.get("id") == video_id]
+
+    if not matches:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Video not found.")
+
+    video_record = matches[0]
+    filename = str(video_record.get("filename", "video"))
+    filepath = str(video_record.get("filepath", ""))
+
+    # 1. Delete from LanceDB tables
+    tables_to_clean = [
+        ("videos", f"id = '{video_id}'"),
+        ("video_frames", f"video_id = '{video_id}'"),
+        ("scenes", f"video_id = '{video_id}'"),
+        ("transcripts", f"video_id = '{video_id}'"),
+        ("search_logs", f"video_id = '{video_id}'"),
+    ]
+
+    for tbl_name, filter_expr in tables_to_clean:
+        try:
+            tbl = db_manager.get_table(tbl_name)
+            tbl.delete(filter_expr)
+        except Exception as e:
+            logger.warning(f"Notice while deleting from {tbl_name}: {e}")
+
+    # 2. Delete raw video file
+    if filepath and os.path.exists(filepath):
+        try:
+            os.remove(filepath)
+            logger.info(f"Removed raw video file: {filepath}")
+        except Exception as e:
+            logger.warning(f"Could not remove raw video {filepath}: {e}")
+    else:
+        for ext in [".mp4", ".mkv", ".mov", ".webm", ".avi"]:
+            possible_path = settings.RAW_VIDEOS_DIR / f"{video_id}{ext}"
+            if possible_path.exists():
+                try:
+                    os.remove(possible_path)
+                except Exception:
+                    pass
+
+    # 3. Delete keyframe directory
+    keyframe_dir = settings.KEYFRAMES_DIR / video_id
+    if keyframe_dir.exists():
+        try:
+            shutil.rmtree(keyframe_dir, ignore_errors=True)
+            logger.info(f"Removed keyframes folder: {keyframe_dir}")
+        except Exception as e:
+            logger.warning(f"Could not remove keyframes {keyframe_dir}: {e}")
+
+    # 4. Clean up any exported clips for this video
+    clips_dir = settings.DATA_DIR / "clips"
+    if clips_dir.exists():
+        prefix = f"moment_{video_id[:8]}_"
+        for clip_file in clips_dir.glob(f"{prefix}*"):
+            try:
+                os.remove(clip_file)
+            except Exception:
+                pass
+
+    logger.info(f"Successfully deleted video {video_id} ('{filename}')")
+    return {
+        "status": "success",
+        "message": f"Video '{filename}' and all associated indexed data removed successfully.",
+        "deleted_id": video_id
+    }
+

@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { Search, Sparkles, Film, Loader2, MessageSquare, ListFilter } from "lucide-react";
+import { Search, Sparkles, Film, Loader2, MessageSquare, ListFilter, Trash2, AlertTriangle } from "lucide-react";
 import { VideoMetadata, MomentItem, SearchResponse } from "@/lib/types";
 import { apiClient } from "@/lib/api";
 import { VideoPlayer } from "@/components/player/VideoPlayer";
@@ -19,6 +19,9 @@ export default function DashboardPage() {
   const [highlightInterval, setHighlightInterval] = useState<[number, number] | null>(null);
   const [activeMoment, setActiveMoment] = useState<MomentItem | null>(null);
   const [activeTab, setActiveTab] = useState<"moments" | "rag">("moments");
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   // Load videos on mount
   const fetchVideos = async () => {
@@ -69,32 +72,76 @@ export default function DashboardPage() {
     setHighlightInterval([time, time + 4.0]);
   };
 
+  const handleDeleteVideo = async () => {
+    if (!selectedVideo) return;
+
+    setIsDeleting(true);
+    setDeleteError(null);
+    try {
+      await apiClient.deleteVideo(selectedVideo.id);
+      setShowDeleteConfirm(false);
+
+      // Clear search and playback states
+      setSearchResult(null);
+      setHighlightInterval(null);
+      setActiveMoment(null);
+      setSeekTime(null);
+
+      // Refresh list and select next video
+      const remainingVideos = await apiClient.getVideos();
+      setVideos(remainingVideos);
+      if (remainingVideos.length > 0) {
+        setSelectedVideo(remainingVideos[0]);
+      } else {
+        setSelectedVideo(null);
+      }
+    } catch (err: any) {
+      console.error("Delete video failed:", err);
+      setDeleteError(err?.response?.data?.detail || "Failed to delete video. Please try again.");
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Top Search Bar & Video Selector */}
       <div className="glass-panel rounded-2xl p-4 shadow-xl space-y-3 border border-surfaceBorder">
         <form onSubmit={handleSearch} className="flex items-center gap-3">
-          {/* Video Selector Dropdown */}
-          <div className="relative min-w-[200px]">
-            <select
-              value={selectedVideo?.id || ""}
-              onChange={(e) => {
-                const vid = videos.find((v) => v.id === e.target.value);
-                if (vid) {
-                  setSelectedVideo(vid);
-                  setSearchResult(null);
-                  setHighlightInterval(null);
-                }
-              }}
-              className="w-full bg-surface border border-surfaceBorder rounded-xl px-3.5 py-3 text-sm text-white font-medium focus:outline-none focus:border-cyan-500 transition-colors"
-            >
-              {videos.length === 0 && <option value="">No videos uploaded</option>}
-              {videos.map((v) => (
-                <option key={v.id} value={v.id}>
-                  📹 {v.filename.length > 25 ? v.filename.substring(0, 22) + "..." : v.filename}
-                </option>
-              ))}
-            </select>
+          {/* Video Selector Dropdown & Delete Action */}
+          <div className="flex items-center gap-2">
+            <div className="relative min-w-[200px]">
+              <select
+                value={selectedVideo?.id || ""}
+                onChange={(e) => {
+                  const vid = videos.find((v) => v.id === e.target.value);
+                  if (vid) {
+                    setSelectedVideo(vid);
+                    setSearchResult(null);
+                    setHighlightInterval(null);
+                  }
+                }}
+                className="w-full bg-surface border border-surfaceBorder rounded-xl px-3.5 py-3 text-sm text-white font-medium focus:outline-none focus:border-cyan-500 transition-colors"
+              >
+                {videos.length === 0 && <option value="">No videos uploaded</option>}
+                {videos.map((v) => (
+                  <option key={v.id} value={v.id}>
+                    📹 {v.filename.length > 25 ? v.filename.substring(0, 22) + "..." : v.filename}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {selectedVideo && (
+              <button
+                type="button"
+                onClick={() => setShowDeleteConfirm(true)}
+                title="Delete this video and indexed data"
+                className="p-3 rounded-xl bg-red-500/10 hover:bg-red-500/20 text-red-400 hover:text-red-300 border border-red-500/30 transition-all flex items-center justify-center flex-shrink-0"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+            )}
           </div>
 
           {/* Natural Language Query Input */}
@@ -233,6 +280,65 @@ export default function DashboardPage() {
           )}
         </div>
       </div>
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteConfirm && selectedVideo && (
+        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="glass-panel border border-red-500/30 rounded-2xl max-w-md w-full p-6 shadow-2xl space-y-4 animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center gap-3 text-red-400">
+              <div className="p-2.5 rounded-xl bg-red-500/10 border border-red-500/20">
+                <AlertTriangle className="w-6 h-6 text-red-400" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-white">Delete Video</h3>
+                <p className="text-xs text-gray-400">Permanently delete video & indexed vectors</p>
+              </div>
+            </div>
+
+            <p className="text-sm text-gray-300">
+              Are you sure you want to delete <span className="font-semibold text-white">"{selectedVideo.filename}"</span>?
+            </p>
+
+            <p className="text-xs text-red-400/90 bg-red-950/40 p-3 rounded-xl border border-red-900/50">
+              ⚠️ This will permanently remove all SigLIP 2 visual vectors, Whisper speech transcripts, MiniCPM-V captions, and video files from LanceDB.
+            </p>
+
+            {deleteError && (
+              <p className="text-xs text-red-400 font-medium">{deleteError}</p>
+            )}
+
+            <div className="flex items-center justify-end gap-3 pt-2">
+              <button
+                type="button"
+                disabled={isDeleting}
+                onClick={() => {
+                  setShowDeleteConfirm(false);
+                  setDeleteError(null);
+                }}
+                className="px-4 py-2 rounded-xl bg-surface hover:bg-surfaceBorder text-gray-300 text-sm font-medium border border-surfaceBorder transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isDeleting}
+                onClick={handleDeleteVideo}
+                className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white text-sm font-semibold shadow-lg shadow-red-600/30 transition-colors flex items-center gap-2 disabled:opacity-50"
+              >
+                {isDeleting ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" /> Deleting...
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-4 h-4" /> Confirm Delete
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
