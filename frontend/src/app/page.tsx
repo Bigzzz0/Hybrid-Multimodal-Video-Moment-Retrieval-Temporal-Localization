@@ -1,13 +1,14 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { Search, Sparkles, Film, Loader2, MessageSquare, ListFilter, Trash2, AlertTriangle } from "lucide-react";
+import { Search, Sparkles, Film, Loader2, MessageSquare, ListFilter, Trash2, AlertTriangle, Terminal, Cpu } from "lucide-react";
 import { VideoMetadata, MomentItem, SearchResponse } from "@/lib/types";
 import { apiClient } from "@/lib/api";
 import { VideoPlayer } from "@/components/player/VideoPlayer";
 import { MomentCards } from "@/components/search/MomentCards";
 import { VideoQAPanel } from "@/components/rag/VideoQAPanel";
 import { Dropzone } from "@/components/upload/Dropzone";
+import { DevPanel } from "@/components/dev/DevPanel";
 
 export default function DashboardPage() {
   const [videos, setVideos] = useState<VideoMetadata[]>([]);
@@ -20,6 +21,7 @@ export default function DashboardPage() {
   const [activeMoment, setActiveMoment] = useState<MomentItem | null>(null);
   const [activeTab, setActiveTab] = useState<"moments" | "rag">("moments");
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showDevPanel, setShowDevPanel] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
@@ -160,7 +162,7 @@ export default function DashboardPage() {
           <button
             type="submit"
             disabled={isSearching}
-            className="px-6 py-3 rounded-xl bg-gradient-to-r from-indigo-600 to-cyan-500 text-white font-semibold text-sm shadow-lg shadow-cyan-500/20 hover:opacity-95 transition-opacity flex items-center gap-2 disabled:opacity-50"
+            className="px-6 py-3 rounded-xl bg-gradient-to-r from-indigo-600 to-cyan-500 text-white font-semibold text-sm shadow-lg shadow-cyan-500/20 hover:opacity-95 transition-opacity flex items-center gap-2 disabled:opacity-50 flex-shrink-0"
           >
             {isSearching ? (
               <>
@@ -171,6 +173,17 @@ export default function DashboardPage() {
                 <Sparkles className="w-4 h-4" /> Retrieve Moments
               </>
             )}
+          </button>
+
+          {/* Dev & Telemetry Panel Button */}
+          <button
+            type="button"
+            onClick={() => setShowDevPanel(true)}
+            className="px-3.5 py-3 rounded-xl bg-surface hover:bg-surfaceBorder text-gray-300 hover:text-cyan-300 border border-surfaceBorder hover:border-cyan-500/40 text-xs font-mono font-semibold transition-all flex items-center gap-2 flex-shrink-0 shadow-sm"
+            title="Open Developer & System Telemetry Panel"
+          >
+            <Terminal className="w-4 h-4 text-cyan-400" />
+            <span className="hidden sm:inline">Dev Panel</span>
           </button>
         </form>
 
@@ -339,6 +352,10 @@ export default function DashboardPage() {
           </div>
         </div>
       )}
+
+      {/* Developer & System Telemetry Panel Modal */}
+      <DevPanel isOpen={showDevPanel} onClose={() => setShowDevPanel(false)} />
     </div>
   );
 }
+

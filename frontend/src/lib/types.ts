@@ -69,3 +69,34 @@ export interface ClipExportResponse {
   download_url: string;
   burned_subtitles: boolean;
 }
+
+export interface SystemTelemetry {
+  status: string;
+  gpu: {
+    available: boolean;
+    device_name: string;
+    device_count: number;
+    allocated_vram_mb: number;
+    reserved_vram_mb: number;
+    total_vram_mb: number;
+    compute_capability: string;
+  };
+  system: {
+    cpu_percent: number;
+    cpu_count_logical: number;
+    cpu_count_physical: number;
+    ram_total_gb: number;
+    ram_used_gb: number;
+    ram_percent: number;
+    platform: string;
+    python_version: string;
+  };
+  lancedb: {
+    tables: Record<string, number>;
+    total_records: number;
+    storage_path: string;
+  };
+  models: Record<string, any>;
+  recent_logs: string[];
+}
+

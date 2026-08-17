@@ -6,9 +6,10 @@ import {
   UploadResponse,
   ProgressStatus,
   ClipExportResponse,
+  SystemTelemetry,
 } from "./types";
 
-export type { VideoQAResult, UploadResponse, ProgressStatus, ClipExportResponse };
+export type { VideoQAResult, UploadResponse, ProgressStatus, ClipExportResponse, SystemTelemetry };
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -108,5 +109,12 @@ export const apiClient = {
     const res = await api.delete<{ status: string; message: string; deleted_id: string }>(`/videos/${videoId}`);
     return res.data;
   },
+
+  // 10. Developer Panel System Telemetry
+  async getSystemTelemetry(): Promise<SystemTelemetry> {
+    const res = await api.get<SystemTelemetry>("/system/telemetry");
+    return res.data;
+  },
 };
+
 
