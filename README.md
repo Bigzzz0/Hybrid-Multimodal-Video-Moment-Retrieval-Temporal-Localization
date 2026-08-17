@@ -261,6 +261,32 @@ python -m evaluation.run_benchmark
 
 ---
 
+## 🧠 AI Agent Context Layer (NanoNets Graft)
+
+โปรเจกต์นี้ได้รับการผสานเข้ากับ **[NanoNets Graft](https://github.com/nanonets/graft)** ซึ่งเป็นระบบ Context Layer & Code Graph สำหรับ AI Coding Agents (Gemini, Antigravity, Claude Code, Cursor, Copilot, Codex, Windsurf) ช่วยให้โมเดลเข้าใจแผนผังซอร์สโค้ด ฟังก์ชัน และ Call Graph ของทั้งโปรเจกต์ได้อย่างแม่นยำโดยไม่ต้องอ่านไฟล์ทั้งหมด
+
+### คำสั่งใช้งาน Graft CLI:
+
+```bash
+# สร้าง/อัปเดต Code Graph ทันที ($0, No API Key required)
+npx @nanonets/graft build
+
+# แสดงแผนภาพสรุป Cluster และ Hubs สำคัญในระบบ
+npx @nanonets/graft map
+
+# ค้นหาตำแหน่งฟังก์ชันหรือโค้ดตามความหมาย
+npx @nanonets/graft ask "ingestion pipeline"
+
+# ตรวจสอบว่ามีฟังก์ชันไหนเรียกใช้งาน symbol นี้บ้าง (Call Graph Blast Radius)
+npx @nanonets/graft callers ProgressiveIngestionManager
+
+# เปิดหน้าต่าง Interactive Web Visualizer แผนผังโค้ด
+npx @nanonets/graft viz
+```
+
+
+---
+
 ## 📜 การอ้างอิงทางวิชาการ (Academic Citation)
 
 ```bibtex

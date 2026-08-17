@@ -90,6 +90,19 @@ class MiniCPMDenseCaptioner:
                 )
                 self.model = None
 
+    def _is_refusal_response(self, text: str) -> bool:
+        """Checks if the LLM output is a canned refusal response instead of a scene description."""
+        if not text:
+            return True
+        t_low = text.lower()
+        refusal_phrases = [
+            "sorry", "cannot browse", "can't browse", "unable to browse", 
+            "not able to browse", "large language model", "training data", 
+            "cutoff date", "as an ai", "i am an ai", "don't have access",
+            "not sure what you are asking", "clarify your question"
+        ]
+        return any(phrase in t_low for phrase in refusal_phrases)
+
     def generate_scene_caption(self, keyframes: List[Image.Image]) -> str:
         """
         Generate dense action and interaction caption for a sequence of keyframes in a scene using MiniCPM-V 2.6.
@@ -98,28 +111,56 @@ class MiniCPMDenseCaptioner:
         if not keyframes:
             return ""
 
+        fallback_caption = f"Scene showing keyframe visuals with {len(keyframes)} frames, subjects and ongoing activity."
+
         if self.model is None:
-            return f"Video scene with {len(keyframes)} keyframe visuals showing activities and objects."
+            return fallback_caption
 
         try:
-            # Subsample up to 4 representative frames for MiniCPM-V 2.6
-            sample_count = min(4, len(keyframes))
+            # Subsample up to 3 representative frames for MiniCPM-V 2.6
+            sample_count = min(3, len(keyframes))
             step = len(keyframes) // sample_count if sample_count > 0 else 1
             sampled = [keyframes[i] for i in range(0, len(keyframes), max(1, step))][:sample_count]
 
-            # Construct multi-image chat format for MiniCPM-V 2.6
+            prompt_text = "Describe what is happening in this video scene concisely in 1-2 sentences. Focus on subjects, clothing colors, actions, and objects."
+            
+            # MiniCPM-V 2.6 multi-modal input format
             msgs = [{
                 "role": "user",
-                "content": [
-                    *([{"type": "image", "image": img} for img in sampled]),
-                    {"type": "text", "text": "Describe the main actions, subjects, interactions, and visible text in this video scene concisely in 1-2 sentences."}
-                ]
+                "content": (*sampled, prompt_text)
             }]
 
             with torch.no_grad():
-                res = self.model.chat(image=None, msgs=msgs, tokenizer=self.tokenizer)
-                return str(res).strip()
+                res = self.model.chat(
+                    image=None, 
+                    msgs=msgs, 
+                    tokenizer=self.tokenizer,
+                    system_prompt="You are a computer vision video analysis model. Directly describe the visible people, clothing, colors, and actions in the given images."
+                )
+                caption_str = str(res).strip()
+                
+                # Check for refusal responses
+                if self._is_refusal_response(caption_str):
+                    logger.warning(f"MiniCPM-V returned refusal/canned response. Discarding: {caption_str[:60]}...")
+                    return fallback_caption
+                
+                return caption_str
 
         except Exception as ex:
-            logger.error(f"MiniCPM-V 2.6 captioning notice: {ex}")
-            return "Activity and visual interactions in video scene."
+            logger.error(f"MiniCPM-V 2.6 captioning error ({ex}); attempting single-frame fallback...")
+            try:
+                # Single frame fallback
+                if sampled:
+                    with torch.no_grad():
+                        res = self.model.chat(
+                            image=sampled[0],
+                            msgs=[{"role": "user", "content": "Describe this video frame concisely in 1 sentence focusing on subjects, clothing colors, and actions."}],
+                            tokenizer=self.tokenizer
+                        )
+                        caption_str = str(res).strip()
+                        if not self._is_refusal_response(caption_str):
+                            return caption_str
+            except Exception as single_err:
+                logger.debug(f"Single frame caption fallback failed: {single_err}")
+
+            return fallback_caption

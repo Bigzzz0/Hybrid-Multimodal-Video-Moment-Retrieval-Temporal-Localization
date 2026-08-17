@@ -147,12 +147,28 @@ class HybridMomentSearchEngine:
             use_multiscale=True
         )
 
-        # 8. Dynamic Contrast Expansion
-        min_s, max_s = np.min(smoothed_scores), np.max(smoothed_scores)
+        # 8. Absolute Confidence Floor & Dynamic Contrast Calibration
+        min_s, max_s = float(np.min(smoothed_scores)), float(np.max(smoothed_scores))
+        
+        # If maximum relevance across the video is very weak (< 0.12), no genuine match exists
+        if max_s < 0.12:
+            logger.info(f"Query '{query}' max relevance ({max_s:.3f}) below confidence floor (0.12). No match.")
+            return SearchResponse(
+                query=query,
+                video_id=actual_video_id,
+                moments=[],
+                timeline_heatmap=[round(float(s), 3) for s in smoothed_scores[::2]],
+                total_duration=round(duration_sec, 2),
+                latency_ms=round((time.time() - t0) * 1000.0, 2),
+                top_k=top_k
+            )
+
         if max_s > min_s:
             contrast_smoothed = (smoothed_scores - min_s) / (max_s - min_s)
+            raw_peak_factor = min(1.0, max(0.40, max_s / 0.35))
         else:
             contrast_smoothed = smoothed_scores
+            raw_peak_factor = min(1.0, max(0.40, max_s / 0.35))
 
         # 9. Adaptive Valley Boundary Extraction
         extracted_moments = self.boundary_extractor.extract_moments(
@@ -177,12 +193,23 @@ class HybridMomentSearchEngine:
                     closest_frame = f.get("frame_path")
                     closest_caption = f.get("vlm_caption")
 
+            # Clean and sanitize caption preview
+            clean_caption = closest_caption
+            if clean_caption:
+                c_low = clean_caption.lower()
+                if any(w in c_low for w in ["sorry", "cannot browse", "can't browse", "unable to browse", "large language model", "training data"]):
+                    clean_caption = "Relevant multimodal scene matching query keywords."
+            else:
+                clean_caption = "Relevant multimodal scene matching query keywords."
+
+            calibrated_score = round(float(m["score"] * raw_peak_factor), 3)
+
             moments_response.append(MomentItem(
                 t_start=m["t_start"],
                 t_end=m["t_end"],
-                score=round(m["score"], 3),
+                score=calibrated_score,
                 preview_frame_path=closest_frame,
-                caption_preview=closest_caption or "Relevant multimodal activity matched in scene.",
+                caption_preview=clean_caption,
                 transcript_preview=None
             ))
 

@@ -66,14 +66,8 @@ class TemporalBoundaryExtractor:
 
         above_indices = np.where(smoothed_scores >= threshold)[0]
         if len(above_indices) == 0:
-            # Fallback: Top peak point
-            best_idx = int(np.argmax(smoothed_scores))
-            t_s = float(time_axis[best_idx])
-            return [{
-                "t_start": t_s,
-                "t_end": min(float(time_axis[-1]), t_s + 3.0),
-                "score": float(smoothed_scores[best_idx])
-            }]
+            # No points exceeded dynamic confidence threshold
+            return []
 
         # Group contiguous clusters
         clusters: List[List[int]] = []
