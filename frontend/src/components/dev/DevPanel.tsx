@@ -211,16 +211,16 @@ export const DevPanel: React.FC<DevPanelProps> = ({ isOpen, onClose }) => {
                   </div>
 
                   <div className="p-3.5 rounded-lg bg-background/70 border border-surfaceBorder/80">
-                    <span className="text-[11px] text-gray-400 uppercase tracking-wider block">Allocated VRAM</span>
+                    <span className="text-[11px] text-gray-400 uppercase tracking-wider block">VRAM in Use (Hardware)</span>
                     <span className="text-sm font-bold text-white font-mono block mt-1">
                       {telemetry?.gpu?.allocated_vram_mb || 0} MB <span className="text-xs text-gray-500 font-normal">/ {telemetry?.gpu?.total_vram_mb || 0} MB</span>
                     </span>
                   </div>
 
                   <div className="p-3.5 rounded-lg bg-background/70 border border-surfaceBorder/80">
-                    <span className="text-[11px] text-gray-400 uppercase tracking-wider block">Reserved VRAM</span>
-                    <span className="text-sm font-bold text-white font-mono block mt-1">
-                      {telemetry?.gpu?.reserved_vram_mb || 0} MB
+                    <span className="text-[11px] text-gray-400 uppercase tracking-wider block">Free VRAM</span>
+                    <span className="text-sm font-bold text-emerald-300 font-mono block mt-1">
+                      {Math.max(0, (telemetry?.gpu?.total_vram_mb || 0) - (telemetry?.gpu?.allocated_vram_mb || 0)).toFixed(1)} MB
                     </span>
                   </div>
 
@@ -236,13 +236,13 @@ export const DevPanel: React.FC<DevPanelProps> = ({ isOpen, onClose }) => {
                 {telemetry?.gpu?.total_vram_mb && (
                   <div className="space-y-1.5 pt-1">
                     <div className="flex justify-between text-xs font-mono text-gray-400">
-                      <span>VRAM Consumption</span>
-                      <span>{((telemetry.gpu.allocated_vram_mb / telemetry.gpu.total_vram_mb) * 100).toFixed(1)}%</span>
+                      <span>Live VRAM Consumption</span>
+                      <span className="text-cyan-300 font-bold">{((telemetry.gpu.allocated_vram_mb / telemetry.gpu.total_vram_mb) * 100).toFixed(1)}%</span>
                     </div>
                     <div className="w-full bg-background rounded-full h-2 overflow-hidden border border-surfaceBorder">
                       <div
-                        className="bg-gradient-to-r from-cyan-500 to-emerald-400 h-2 rounded-full transition-all duration-300"
-                        style={{ width: `${Math.min(100, Math.max(2, (telemetry.gpu.allocated_vram_mb / telemetry.gpu.total_vram_mb) * 100))}%` }}
+                        className="bg-gradient-to-r from-cyan-500 via-indigo-500 to-emerald-400 h-2 rounded-full transition-all duration-300 shadow-sm"
+                        style={{ width: `${Math.min(100, Math.max(1, (telemetry.gpu.allocated_vram_mb / telemetry.gpu.total_vram_mb) * 100))}%` }}
                       />
                     </div>
                   </div>
