@@ -96,12 +96,16 @@ class MiniCPMDenseCaptioner:
             return True
         t_low = text.lower()
         refusal_phrases = [
+            # English phrases
             "sorry", "cannot browse", "can't browse", "unable to browse", 
             "not able to browse", "large language model", "training data", 
             "cutoff date", "as an ai", "i am an ai", "don't have access",
-            "not sure what you are asking", "clarify your question"
+            "not sure what you are asking", "clarify your question", "how can i help",
+            # Chinese phrases (MiniCPM-V native defaults)
+            "对不起", "抱歉", "语言模型", "无法访问", "没有访问", "作为ai",
+            "作为一个ai", "你好", "提供帮助", "误解了", "代码", "javascript"
         ]
-        return any(phrase in t_low for phrase in refusal_phrases)
+        return any(phrase in t_low or phrase in text for phrase in refusal_phrases)
 
     def generate_scene_caption(self, keyframes: List[Image.Image]) -> str:
         """

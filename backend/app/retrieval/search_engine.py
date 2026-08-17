@@ -195,12 +195,18 @@ class HybridMomentSearchEngine:
 
             # Clean and sanitize caption preview
             clean_caption = closest_caption
+            refusal_check_list = [
+                "sorry", "cannot browse", "can't browse", "unable to browse", 
+                "large language model", "training data", "cutoff date",
+                "对不起", "抱歉", "语言模型", "无法访问", "没有访问", "作为ai",
+                "你好", "提供帮助", "javascript", "const numbers"
+            ]
             if clean_caption:
                 c_low = clean_caption.lower()
-                if any(w in c_low for w in ["sorry", "cannot browse", "can't browse", "unable to browse", "large language model", "training data"]):
-                    clean_caption = "Relevant multimodal scene matching query keywords."
+                if any(w in c_low or w in clean_caption for w in refusal_check_list):
+                    clean_caption = "Visual keyframe capturing scene activity and subjects."
             else:
-                clean_caption = "Relevant multimodal scene matching query keywords."
+                clean_caption = "Visual keyframe capturing scene activity and subjects."
 
             calibrated_score = round(float(m["score"] * raw_peak_factor), 3)
 
