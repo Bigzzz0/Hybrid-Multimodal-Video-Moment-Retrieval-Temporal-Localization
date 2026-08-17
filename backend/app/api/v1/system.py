@@ -29,10 +29,17 @@ def get_system_telemetry():
     if torch.cuda.is_available():
         gpu_info["device_count"] = torch.cuda.device_count()
         gpu_info["device_name"] = torch.cuda.get_device_name(0)
-        gpu_info["allocated_vram_mb"] = round(torch.cuda.memory_allocated(0) / (1024 ** 2), 1)
+        
+        # Query true physical VRAM from NVIDIA CUDA Driver / NVML
+        free_bytes, total_bytes = torch.cuda.mem_get_info(0)
+        used_bytes = total_bytes - free_bytes
+        
+        gpu_info["used_vram_mb"] = round(used_bytes / (1024 ** 2), 1)
+        gpu_info["allocated_vram_mb"] = round(used_bytes / (1024 ** 2), 1)
+        gpu_info["free_vram_mb"] = round(free_bytes / (1024 ** 2), 1)
+        gpu_info["total_vram_mb"] = round(total_bytes / (1024 ** 2), 1)
         gpu_info["reserved_vram_mb"] = round(torch.cuda.memory_reserved(0) / (1024 ** 2), 1)
-        total_mem = torch.cuda.get_device_properties(0).total_memory / (1024 ** 2)
-        gpu_info["total_vram_mb"] = round(total_mem, 1)
+        
         cc = torch.cuda.get_device_capability(0)
         gpu_info["compute_capability"] = f"sm_{cc[0]}{cc[1]}"
 
