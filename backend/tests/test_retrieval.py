@@ -1,8 +1,19 @@
+import os
+import sys
+from pathlib import Path
+
+# Add backend and workspace root to path
+backend_dir = Path(__file__).resolve().parent.parent
+workspace_dir = backend_dir.parent
+sys.path.insert(0, str(backend_dir))
+sys.path.insert(0, str(workspace_dir))
+
 import numpy as np
 import pytest
 from app.retrieval.rank_fusion import ReciprocalRankFusion
 from app.retrieval.temporal_smoother import TemporalSmoother
 from app.retrieval.boundary_extractor import TemporalBoundaryExtractor
+from app.pipeline.dense_captioner import QwenVLDenseCaptioner
 from evaluation.compute_metrics import compute_temporal_iou, evaluate_moment_retrieval
 
 def test_reciprocal_rank_fusion():
@@ -58,3 +69,15 @@ def test_evaluation_benchmark_metrics():
     assert results["R@1@IoU=0.5"] == 100.0
     assert results["mIoU"] == 1.0
     assert results["mean_delta_t_start_sec"] == 0.0
+
+def test_qwen_vl_dense_captioner_init():
+    captioner = QwenVLDenseCaptioner(device="cpu")
+    assert captioner.model_id == "Qwen/Qwen2.5-VL-7B-Instruct"
+    # Empty frames should safely return empty string
+    empty_cap = captioner.generate_scene_caption([])
+    assert empty_cap == ""
+    # With dummy keyframe on cpu (disabled), should return fallback caption
+    from PIL import Image
+    dummy_img = Image.new("RGB", (64, 64), color="blue")
+    cap = captioner.generate_scene_caption([dummy_img])
+    assert "Scene showing keyframe visuals" in cap

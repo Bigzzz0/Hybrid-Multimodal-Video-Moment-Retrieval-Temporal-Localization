@@ -7,7 +7,7 @@ from app.core.config import settings
 from app.core.logger import logger
 from app.db.connection import db_manager
 from app.pipeline.visual_encoder import SigLIP2VisualEncoder
-from app.pipeline.dense_captioner import MiniCPMDenseCaptioner
+from app.pipeline.dense_captioner import QwenVLDenseCaptioner
 
 class VideoQARequest(BaseModel):
     video_id: str
@@ -33,7 +33,7 @@ class VideoRAGEngine:
 
     def __init__(self):
         self.text_encoder = SigLIP2VisualEncoder()
-        self.captioner = MiniCPMDenseCaptioner()
+        self.captioner = QwenVLDenseCaptioner()
 
     def answer_question(self, video_id: str, question: str) -> VideoQAResponse:
         t0 = time.time()

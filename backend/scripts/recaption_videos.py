@@ -1,6 +1,6 @@
 """
 Recaptioning Utility:
-Runs MiniCPM-V 2.6 across all keyframes in LanceDB to populate genuine, high-quality
+Runs Qwen2.5-VL-7B across all keyframes in LanceDB to populate genuine, high-quality
 dense action & scene captions for all videos in the database.
 """
 import os
@@ -11,12 +11,12 @@ from PIL import Image
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from app.db.connection import db_manager
-from app.pipeline.dense_captioner import MiniCPMDenseCaptioner
+from app.pipeline.dense_captioner import QwenVLDenseCaptioner
 from app.core.logger import logger
 
 def recaption_all_frames():
-    logger.info("Initializing MiniCPMDenseCaptioner for full database recaptioning...")
-    captioner = MiniCPMDenseCaptioner()
+    logger.info("Initializing QwenVLDenseCaptioner for full database recaptioning...")
+    captioner = QwenVLDenseCaptioner()
     
     tbl_frames = db_manager.get_table("video_frames")
     frames = tbl_frames.to_arrow().to_pylist()

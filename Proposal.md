@@ -18,12 +18,12 @@
 
 ในช่วงปี 2025–2026 วงการปัญญาประดิษฐ์มัลติโมดัลได้ก้าวเข้าสู่ยุคใหม่ด้วยการเปิดตัวเทคโนโลยีระดับ State-of-the-Art (SOTA) สำคัญ ได้แก่:
 1. **`SigLIP 2` (Google DeepMind, 2025):** โมเดล Vision-Language Encoder เจเนอเรชันใหม่ที่ผสานการฝึกแบบ Masked Prediction, Self-Distillation และรองรับ **NaFlex (Native Flexible Dynamic Resolution)** ทำให้เข้าใจตำแหน่งเชิงพื้นที่ (Spatial Awareness) และรายละเอียดภาพวิดีโออัตราส่วน 16:9 ได้เหนือกว่า CLIP และ SigLIP 1 อย่างก้าวกระโดด
-2. **`MiniCPM-V 2.6` (OpenBMB):** โมเดลภาษาภาพขนาดกะทัดรัดที่ออกแบบสำหรับ **Video Understanding** โดยเฉพาะ มีกลไกบีบอัด Token ภาพ ช่วยให้ประมวลผลเฟรมวิดีโอต่อเนื่องได้อย่างแม่นยำสูงกว่า GPT-4V บนวิดีโอยาว และใช้ VRAM เพียง 5–6 GB
+2. **`Qwen2.5-VL-7B` (Alibaba Cloud, 2025):** โมเดลภาษาภาพ SOTA ที่ออกแบบสำหรับ **Video & Image Understanding** โดยเฉพาะ รองรับ Native Dynamic Resolution, การวิเคราะห์การกระทำตามเส้นเวลา (Temporal Sequence) และการอ่านตัวหนังสือในวิดีโอ (Video OCR) อย่างแม่นยำสูง พร้อมบีบอัด 4-bit NF4 ใช้ VRAM เพียง ~5.5 GB
 3. **`Whisper-Large-v3-Turbo` (OpenAI / Faster-Whisper):** แบบจำลองถอดเสียงพูดความเร็วสูงที่ให้ความแม่นยำระดับโมเดล Large แต่มีความเร็วในการประมวลผลสูงกว่าเดิมหลายเท่า
 4. **`Decord` (GPU-Accelerated Video Decoding):** ไลบรารีถอดรหัสวิดีโอบนชิปฮาร์ดแวร์ NVIDIA NVDEC โดยตรง เร็วกว่าการใช้ OpenCV บน CPU ถึง 5–10 เท่า
 5. **`LanceDB` (Serverless Columnar Vector Database):** ฐานข้อมูลเวกเตอร์แบบฝังตัว (Embedded) สร้างบนสถาปัตยกรรม Apache Arrow จัดเก็บข้อมูลแบบ Columnar และสร้างดัชนี Disk-based IVF-PQ ทำให้สืบค้นเวกเตอร์และข้อความได้ด้วยความเร็วระดับมิลลิวินาที ($< 5\text{ ms}$) โดยไม่ต้องติดตั้ง Database Server ภายนอก
 
-โครงงานนี้จึงนำเสนอการพัฒนา **"ระบบสืบค้นและระบุตำแหน่งช่วงเวลาในวิดีโอด้วยภาษาธรรมชาติแบบไฮบริดหลายมิติระดับ SOTA (State-of-the-Art Hybrid Multimodal Video Moment Retrieval & Temporal Localization)"** โดยผสานจุดเด่นของ SigLIP 2, MiniCPM-V 2.6, Whisper-Large-v3-Turbo, Decord, และ LanceDB เข้าด้วยกัน พร้อมประมวลผลผ่านอัลกอริทึม **Reciprocal Rank Fusion (RRF)** และ **1D Gaussian Temporal Convolution** เพื่อระบุช่วงเวลา $[t_{start}, t_{end}]$ และควบคุมเครื่องเล่นวิดีโอให้กระโดดข้ามไปยังจุดเกิดเหตุได้ทันทีในระดับ Local On-Premise อย่างสมบูรณ์
+โครงงานนี้จึงนำเสนอการพัฒนา **"ระบบสืบค้นและระบุตำแหน่งช่วงเวลาในวิดีโอด้วยภาษาธรรมชาติแบบไฮบริดหลายมิติระดับ SOTA (State-of-the-Art Hybrid Multimodal Video Moment Retrieval & Temporal Localization)"** โดยผสานจุดเด่นของ SigLIP 2, Qwen2.5-VL-7B, Whisper-Large-v3-Turbo, Decord, และ LanceDB เข้าด้วยกัน พร้อมประมวลผลผ่านอัลกอริทึม **Reciprocal Rank Fusion (RRF)** และ **1D Gaussian Temporal Convolution** เพื่อระบุช่วงเวลา $[t_{start}, t_{end}]$ และควบคุมเครื่องเล่นวิดีโอให้กระโดดข้ามไปยังจุดเกิดเหตุได้ทันทีในระดับ Local On-Premise อย่างสมบูรณ์
 
 ---
 
@@ -31,9 +31,9 @@
 
 * **คำถามวิจัยที่ 1 (RQ1 - SOTA Visual Embedding vs Legacy):** การประยุกต์ใช้โมเดล `SigLIP 2` (Dynamic Resolution NaFlex) จะช่วยเพิ่มความแม่นยำในการสืบค้นระดับเฟรมและช่วงเวลา ($R@1@\text{IoU}=0.5$) สูงกว่า `SigLIP 1` และ `CLIP` ดั้งเดิมอย่างมีนัยสำคัญทางสถิติหรือไม่ ($p < 0.05$)?
   * *สมมติฐาน (H1):* ด้วยกลไก Masked Prediction และ NaFlex ของ SigLIP 2 จะช่วยเพิ่มค่า $R@1@\text{IoU}=0.5$ ได้สูงขึ้นไม่น้อยกว่า $+12\%$ เมื่อเทียบกับ SigLIP 1
-* **คำถามวิจัยที่ 2 (RQ2 - Tri-Modal Hybrid Fusion Impact):** การผสานข้อมูล 3 มิติ (SigLIP 2 Visual Vector + MiniCPM-V Dense Action Caption + Whisper-Turbo Transcript) ผ่าน RRF Fusion และ 1D Gaussian Smoothing จะสามารถลดความคลาดเคลื่อนเวลา ($\Delta t_{start}$) และเพิ่มค่า Mean IoU ($\text{mIoU}$) ได้เหนือกว่าการใช้โมเดลเดี่ยวหรือไม่?
+* **คำถามวิจัยที่ 2 (RQ2 - Tri-Modal Hybrid Fusion Impact):** การผสานข้อมูล 3 มิติ (SigLIP 2 Visual Vector + Qwen2.5-VL Dense Action Caption & OCR + Whisper-Turbo Transcript) ผ่าน RRF Fusion และ 1D Gaussian Smoothing จะสามารถลดความคลาดเคลื่อนเวลา ($\Delta t_{start}$) และเพิ่มค่า Mean IoU ($\text{mIoU}$) ได้เหนือกว่าการใช้โมเดลเดี่ยวหรือไม่?
   * *สมมติฐาน (H2):* สถาปัตยกรรม Tri-Modal Hybrid Fusion จะทำให้ค่า $\text{mIoU} \ge 0.58$ และควบคุมความคลาดเคลื่อนของจุดเริ่มต้น $\Delta t_{start} \le \pm 1.2$ วินาที
-* **คำถามวิจัยที่ 3 (RQ3 - Ingestion Throughput & Storage Efficiency):** การใช้ `Decord (GPU Decoding)` ควบคู่กับ `LanceDB (Apache Arrow)` และโมเดล Quantized MiniCPM-V จะสามารถเร่งความเร็วการทำดัชนีให้อยู่ในระดับ $\text{RTF} \le 0.15$ (วิดีโอ 1 ชม. ทำดัชนีเสร็จใน $\le 9$ นาที) ภายใต้หน่วยความจำ GPU $\le 7.0\text{ GB}$ ได้หรือไม่?
+* **คำถามวิจัยที่ 3 (RQ3 - Ingestion Throughput & Storage Efficiency):** การใช้ `Decord (GPU Decoding)` ควบคู่กับ `LanceDB (Apache Arrow)` และโมเดล Quantized Qwen2.5-VL จะสามารถเร่งความเร็วการทำดัชนีให้อยู่ในระดับ $\text{RTF} \le 0.15$ (วิดีโอ 1 ชม. ทำดัชนีเสร็จใน $\le 9$ นาที) ภายใต้หน่วยความจำ GPU $\le 7.0\text{ GB}$ ได้หรือไม่?
   * *สมมติฐาน (H3):* Decord และ LanceDB จะลดเวลา Ingestion Latency ลงได้มากกว่า 60% เมื่อเทียบกับสถาปัตยกรรม CPU OpenCV + Traditional Vector DB โดยผู้ใช้เริ่มค้นหาได้ใน Phase 1 ภายในเวลาไม่เกิน 45–60 วินาที
 
 ---
@@ -41,7 +41,7 @@
 ## 2. วัตถุประสงค์ของโครงงาน (Objectives)
 
 1. **เพื่อออกแบบและพัฒนาระบบสกัดข้อมูลวิดีโอเร่งความเร็วด้วยฮาร์ดแวร์ (Hardware-Accelerated Progressive Ingestion Pipeline)** โดยใช้ `Decord` สำหรับการถอดรหัสวิดีโอบน GPU ควบคู่กับการตัดแบ่งฉากและคีย์เฟรมอย่างปรับตัว (Adaptive SSIM Filtering)
-2. **เพื่อประยุกต์ใช้แบบจำลองปัญญาประดิษฐ์ระดับ SOTA (2025/2026 Foundation Models)** ได้แก่ `SigLIP 2` สำหรับการแปลงภาพ-ข้อความเป็นเวกเตอร์, `MiniCPM-V 2.6` (4-bit Quantization) สำหรับการสร้างคำบรรยายเหตุการณ์เชิงลึก, และ `Whisper-Large-v3-Turbo` สำหรับการถอดเสียงพูดพร้อมเวลา
+2. **เพื่อประยุกต์ใช้แบบจำลองปัญญาประดิษฐ์ระดับ SOTA (2025/2026 Foundation Models)** ได้แก่ `SigLIP 2` สำหรับการแปลงภาพ-ข้อความเป็นเวกเตอร์, `Qwen2.5-VL-7B` (4-bit Quantization) สำหรับการสร้างคำบรรยายเหตุการณ์เชิงลึกและอ่านตัวหนังสือในวิดีโอ (OCR), และ `Whisper-Large-v3-Turbo` สำหรับการถอดเสียงพูดพร้อมเวลา
 3. **เพื่อพัฒนาฐานข้อมูลเวกเตอร์และระบบสืบค้นประสิทธิภาพสูง (Serverless Columnar Vector Database)** โดยใช้ `LanceDB` จัดเก็บเวกเตอร์แบบ Zero-Copy บน Apache Arrow ร่วมกับดัชนี Disk-based IVF-PQ และ Full-Text Search (Tantivy FTS)
 4. **เพื่อพัฒนาระบบคำนวณและจัดกลุ่มช่วงเวลาเหตุการณ์ (Temporal Boundary Localization & Smoothing Engine)** ที่ผสานคะแนนผ่าน Reciprocal Rank Fusion (RRF) และ 1D Gaussian Convolution เพื่อระบุขอบเขตเวลา $[t_{start}, t_{end}]$ ได้อย่างแม่นยำ
 5. **เพื่อพัฒนาเว็บแอปพลิเคชันต้นแบบ (Full-Stack Modern Web Application)** ด้วย Next.js 14+ และ FastAPI ที่มีแถบแสดงความหนาแน่นของความเกี่ยวข้อง (Relevance Heatmap), Moment Cards, และ Custom Video Player ที่ Seek ไปยังช่วงเวลาเป้าหมายอัตโนมัติ
@@ -62,7 +62,7 @@
 
 ### 3.2 ขอบเขตด้านโมเดลปัญญาประดิษฐ์ (AI & Multimodal Stack)
 * **โมเดลเวกเตอร์ภาพและข้อความ:** **`SigLIP 2`** (`google/siglip2-base-patch16-256` และ `siglip2-so400m-patch14-384 / NaFlex`) สกัดเวกเตอร์ขนาด 768 / 1152 มิติ
-* **โมเดลภาษาภาพ (Vision-Language Model):** **`MiniCPM-V 2.6`** (หรือ `Qwen2.5-VL-3B`) ผ่านการบีบอัด 4-bit Quantization (AWQ/GGUF) ทำหน้าที่สร้างคำบรรยายเหตุการณ์ ปฏิสัมพันธ์ และการอ่านตัวหนังสือในภาพ (OCR)
+* **โมเดลภาษาภาพ (Vision-Language Model):** **`Qwen2.5-VL-7B-Instruct`** ผ่านการบีบอัด 4-bit Quantization (BitsAndBytes NF4) ทำหน้าที่สร้างคำบรรยายเหตุการณ์ ปฏิสัมพันธ์ และการอ่านตัวหนังสือในภาพ (OCR)
 * **โมเดลแปลงเสียงพูดเป็นข้อความ:** **`Whisper-Large-v3-Turbo`** ผ่าน CTranslate2 Engine สกัดข้อความคำพูดพร้อมพิกัดเวลาแบบ Word-level และ Segment-level รองรับภาษาไทยและอังกฤษ
 
 ### 3.3 ขอบเขตด้านฐานข้อมูลและการสืบค้น (Database & Retrieval Engine)
@@ -108,8 +108,8 @@ SigLIP 2 Architecture & Joint Latent Space:
 └────────────────────────────────────────────────────────────────────────┘
 ```
 
-### 4.3 แบบจำลอง MiniCPM-V 2.6 สำหรับงาน Video Understanding
-MiniCPM-V 2.6 (OpenBMB, 2024) ใช้สถาปัตยกรรม Vision-Language ที่ออกแบบเฉพาะสำหรับวิดีโอ โดยมีเทคโนโลยี **Spatial-Temporal Token Compression** บีบอัดจำนวน Vision Tokens ลงกว่า 70% ทำให้โมเดลสามารถรับลำดับเฟรมต่อเนื่องของวิดีโอและสร้างคำบรรยายเชิงเหตุการณ์ (Dense Action Captions) ได้อย่างรวดเร็วและประหยัด VRAM
+### 4.3 แบบจำลอง Qwen2.5-VL-7B สำหรับงาน Video & Visual OCR Understanding
+Qwen2.5-VL-7B-Instruct (Alibaba Cloud / Qwen Team, 2025) ใช้สถาปัตยกรรม Vision-Language ที่ออกแบบเฉพาะสำหรับวิดีโอและภาพหลายมิติ โดยมีเทคโนโลยี **Native Dynamic Resolution** และ **Temporal Sequence Attention** ทำให้โมเดลสามารถรับลำดับเฟรมต่อเนื่องของวิดีโอ สกัดคำบรรยายเชิงเหตุการณ์ (Dense Action Captions) และอ่านข้อความ/ตัวหนังสือในวิดีโอ (Video OCR) ได้อย่างแม่นยำสูง และเมื่อบีบอัดด้วย 4-bit NormalFloat (NF4) จะใช้หน่วยความจำ VRAM เพียง $\le 5.5\text{ GB}$
 
 ### 4.4 สถาปัตยกรรม LanceDB และ Apache Arrow Columnar Storage
 LanceDB ใช้รูปแบบไฟล์แบบ **Lance** ซึ่งเป็น Columnar Data Format ที่สร้างขึ้นสำหรับ AI และ Multimodal Data โดยเฉพาะ:
@@ -119,7 +119,7 @@ LanceDB ใช้รูปแบบไฟล์แบบ **Lance** ซึ่ง�
 ### 4.5 การผสานคะแนนและการสกัดขอบเขตเวลา (RRF & Temporal Gaussian Convolution)
 1. **Reciprocal Rank Fusion (RRF):**
    $$RRF(d) = \sum_{m \in M} \frac{w_m}{k + r_m(d)}$$
-   โดย $M = \{\text{Visual (SigLIP 2)}, \text{Caption (MiniCPM-V)}, \text{Audio (Whisper-Turbo)}\}$, $k=60$ และ $\sum w_m = 1.0$
+   โดย $M = \{\text{Visual (SigLIP 2)}, \text{Caption (Qwen2.5-VL)}, \text{Audio (Whisper-Turbo)}\}$, $k=60$ และ $\sum w_m = 1.0$
 
 2. **1D Gaussian Temporal Convolution (กำจัดสัญญาณรบกวนระหว่างเฟรม):**
    $$\tilde{\mathcal{S}}(t) = \sum_{\tau = -W}^{W} \mathcal{S}_{raw}(t + \tau) \cdot \frac{1}{\sigma \sqrt{2\pi}} \exp\left(-\frac{\tau^2}{2\sigma^2}\right)$$
@@ -149,8 +149,8 @@ LanceDB ใช้รูปแบบไฟล์แบบ **Lance** ซึ่ง�
         │                                                      ▼
    ┌────┴─────────────────────────────┐               [ Transcript Segments ]
    ▼                                  ▼                 (Text, Speaker, t_s, t_e)
-[ SigLIP 2 Visual Encoder ]  [ MiniCPM-V 2.6 (4-bit) ]         │
- (NaFlex Image Vectors)       (Dense Video Captions)           │
+[ SigLIP 2 Visual Encoder ]  [ Qwen2.5-VL-7B (4-bit) ]          │
+ (NaFlex Image Vectors)       (Dense Captions & OCR)           │
    │                                  │                        │
    └──────────────────┬───────────────┘                        │
                       ▼                                        ▼
@@ -265,7 +265,7 @@ erDiagram
    * ส่งคีย์เฟรมเข้า `SigLIP 2` เพื่อสร้างเวกเตอร์ภาพ และบันทึกลง `LanceDB`
    * **ผลลัพธ์:** ผู้ใช้สามารถพิมพ์ค้นหาภาพและเสียงพูดได้ทันทีในเวลาไม่ถึง 1 นาทีหลังอัปโหลด
 2. **Phase 2: Deep Context Background:**
-   * รันเบื้องหลังส่งคีย์เฟรมหลักเข้า `MiniCPM-V 2.6` เพื่อสกัดคำบรรยายการกระทำเชิงลึก
+   * รันเบื้องหลังส่งคีย์เฟรมหลักเข้า `Qwen2.5-VL-7B` เพื่อสกัดคำบรรยายการกระทำเชิงลึกและอ่านตัวหนังสือในวิดีโอ (OCR)
    * อัปเดตข้อมูลลงตาราง `video_frames` ใน LanceDB อัตโนมัติ ช่วยเสริมความแม่นยำในการค้นหาเชิงความสัมพันธ์ที่ซับซ้อน
 
 ---
@@ -308,7 +308,7 @@ erDiagram
 │ 2. SigLIP 1 Only    │ SigLIP 1 Base    │ -               │ -            │ No           │
 │ 3. SigLIP 2 Only    │ SigLIP 2 NaFlex  │ -               │ -            │ Yes          │
 │ 4. Dual-Modal       │ SigLIP 2 NaFlex  │ -               │ Whisper-Turbo│ Yes          │
-│ 5. Proposed SOTA    │ SigLIP 2 NaFlex  │ MiniCPM-V 2.6   │ Whisper-Turbo│ Yes (RRF)    │
+│ 5. Proposed SOTA    │ SigLIP 2 NaFlex  │ Qwen2.5-VL-7B   │ Whisper-Turbo│ Yes (RRF)    │
 └─────────────────────┴──────────────────┴─────────────────┴──────────────┴──────────────┘
 ```
 
@@ -331,9 +331,9 @@ erDiagram
 
 | ลำดับ | ความเสี่ยงทางเทคนิค (Risk) | ผลกระทบ | โอกาสเกิด | มาตรการป้องกันและแก้ไข (Mitigation Strategy) |
 | :---: | :--- | :---: | :---: | :--- |
-| 1 | **GPU VRAM เต็มขณะรันโมเดล** | สูง | ปานกลาง | โหลดโมเดลแบบ 4-bit Quantization, รันแบบ Sequential Pipeline (รัน Whisper จบแล้วปล่อยหน่วยความจำ ก่อนรัน SigLIP 2 และ MiniCPM-V) |
+| 1 | **GPU VRAM เต็มขณะรันโมเดล** | สูง | ปานกลาง | โหลดโมเดลแบบ 4-bit Quantization, รันแบบ Sequential Pipeline (รัน Whisper จบแล้วปล่อยหน่วยความจำ ก่อนรัน SigLIP 2 และ Qwen2.5-VL) |
 | 2 | **วิดีโอความยาวสูงมาก (> 2 ชั่วโมง) ทำให้ระบบช้า** | สูง | ปานกลาง | ใช้ Decord Batch Streaming ร่วมกับ LanceDB Columnar Append บันทึกข้อมูลเป็นบล็อกละ 10 นาที ป้องกันการค้าง |
-| 3 | **เสียงพูดภาษาไทยมีศัพท์เฉพาะหรือเสียงรบกวน** | ปานกลาง | ปานกลาง | ใช้อัลกอริทึม Dynamic Weighting ใน RRF เพื่อปรับลดน้ำหนักเสียงและเพิ่มน้ำหนักฝั่งภาพ (SigLIP 2 / MiniCPM-V) อัตโนมัติเมื่อ ASR Confidence ต่ำ |
+| 3 | **เสียงพูดภาษาไทยมีศัพท์เฉพาะหรือเสียงรบกวน** | ปานกลาง | ปานกลาง | ใช้อัลกอริทึม Dynamic Weighting ใน RRF เพื่อปรับลดน้ำหนักเสียงและเพิ่มน้ำหนักฝั่งภาพ (SigLIP 2 / Qwen2.5-VL) อัตโนมัติเมื่อ ASR Confidence ต่ำ |
 | 4 | **การสตรีมวิดีโอขนาดใหญ่บน Web Player** | ปานกลาง | ต่ำ | ใช้ FastAPI HTTP Byte-Range Streaming ทำให้เล่นและ Seek วิดีโอได้ทันทีโดยไม่ต้องดาวน์โหลดไฟล์ทั้งหมด |
 
 ---
@@ -342,9 +342,9 @@ erDiagram
 
 | ลำดับกิจกรรม / สัปดาห์ที่ | 1–4 | 5–8 | 9–12 | 13–16 | 17–20 | 21–24 | 25–28 | 29–32 |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| **1. ศึกษางานวิจัยและเตรียมสภาพแวดล้อม:** ทบทวนวรรณกรรม SigLIP 2, MiniCPM-V, LanceDB, Decord และจัดเตรียมฮาร์ดแวร์ | █ | | | | | | | |
+| **1. ศึกษางานวิจัยและเตรียมสภาพแวดล้อม:** ทบทวนวรรณกรรม SigLIP 2, Qwen2.5-VL, LanceDB, Decord และจัดเตรียมฮาร์ดแวร์ | █ | | | | | | | |
 | **2. พัฒนา Ingestion Pipeline:** สร้างระบบ Decord GPU Decoding, Scene Detection, และ Whisper-Turbo | | █ | | | | | | |
-| **3. พัฒนาระบบ Feature Extraction & DB:** ติดตั้ง SigLIP 2, MiniCPM-V (4-bit) และสร้างตารางบน LanceDB | | | █ | | | | | |
+| **3. พัฒนาระบบ Feature Extraction & DB:** ติดตั้ง SigLIP 2, Qwen2.5-VL (4-bit) และสร้างตารางบน LanceDB | | | █ | | | | | |
 | **4. นำเสนอเค้าโครงโครงงาน (Proposal Defense):** จัดทำเล่มข้อเสนอและสอบวัดความก้าวหน้าภาคเรียนที่ 1 | | | | █ | | | | |
 | **5. พัฒนาระบบ Hybrid Retrieval & Temporal Smoothing:** พัฒนา RRF Fusion และ Gaussian Smoothing บน FastAPI | | | | | █ | | | |
 | **6. พัฒนาเว็บแอปพลิเคชันส่วนหน้า (Full-Stack UI):** สร้าง UI ด้วย Next.js 14, Heatmap Bar, และ Video Player | | | | | | █ | | |
@@ -355,7 +355,7 @@ erDiagram
 
 ## 9. ประโยชน์และผลลัพธ์ที่คาดว่าจะได้รับ (Expected Deliverables & Impact)
 
-1. **ระบบซอฟต์แวร์ต้นแบบระดับ State-of-the-Art (Production-Ready Working Prototype):** เว็บแอปพลิเคชันแบบครบวงจรที่ผสานโมเดล AI รุ่นล่าสุด (SigLIP 2, MiniCPM-V, Whisper-Turbo, LanceDB) สามารถค้นหาเหตุการณ์ในวิดีโอด้วยภาษาธรรมชาติได้อย่างแม่นยำและรวดเร็ว
+1. **ระบบซอฟต์แวร์ต้นแบบระดับ State-of-the-Art (Production-Ready Working Prototype):** เว็บแอปพลิเคชันแบบครบวงจรที่ผสานโมเดล AI รุ่นล่าสุด (SigLIP 2, Qwen2.5-VL, Whisper-Turbo, LanceDB) สามารถค้นหาเหตุการณ์ในวิดีโอด้วยภาษาธรรมชาติได้อย่างแม่นยำและรวดเร็ว
 2. **การยกระดับประสิทธิภาพการทำงานกับสื่อวิดีโอ (Productivity Gain):** ช่วยลดเวลาในการค้นหาเนื้อหาในวิดีโอยาวลงมากกว่า 85–90% เมื่อเทียบกับการเลื่อนหาด้วยตนเอง
 3. **ความเป็นส่วนตัวและประหยัดต้นทุน 100% (Local On-Premise & Zero API Cost):** สถาปัตยกรรมทำงานบนเครื่องเฉพาะที่ ไม่ส่งข้อมูลออกนอกองค์กร ปลอดภัยและไม่มีค่าใช้จ่าย API รายเดือน
 4. **ผลงานวิจัยพร้อมส่งตีพิมพ์ในงานประชุมวิชาการ (Conference-Ready Paper):** มีการเปรียบเทียบกับโมเดลรุ่นเดิมอย่างเป็นระบบ (Ablation Study) และมีตัวชี้วัดตามมาตรฐานสากล พร้อมสำหรับการจัดทำบทความวิจัยส่งตีพิมพ์ในการประชุมวิชาการ เช่น JCSSE, ECTI-CON หรือ IEEE Conferences

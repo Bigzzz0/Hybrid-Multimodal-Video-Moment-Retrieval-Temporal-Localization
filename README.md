@@ -11,7 +11,7 @@
 
 <p align="center">
   <b>Natural Language Video Moment Retrieval & Temporal Boundary Localization System</b><br />
-  Powered by <b>SigLIP 2 (NaFlex)</b>, <b>MiniCPM-V 2.6 (4-bit)</b>, <b>Whisper-Large-v3-Turbo</b>, and <b>LanceDB (IVF-PQ & FTS)</b>.<br />
+  Powered by <b>SigLIP 2 (NaFlex)</b>, <b>Qwen2.5-VL-7B (4-bit)</b>, <b>Whisper-Large-v3-Turbo</b>, and <b>LanceDB (IVF-PQ & FTS)</b>.<br />
   <i>100% Local On-Premise Execution on Consumer GPUs (&le; 8GB VRAM) with Zero Cloud API Costs.</i>
 </p>
 
@@ -21,7 +21,7 @@
 
 * 🔒 **100% Local On-Premise & Complete Data Privacy:** ประมวลผลและจัดเก็บข้อมูลเวกเตอร์ภายในเครื่องทั้งหมด ข้อมูลวิดีโอไม่รั่วไหลสู่คลาวด์ภายนอก และไม่มีค่าใช้จ่าย API รายเดือน
 * ⚡ **Consumer GPU Optimized ($\le 8\text{ GB}$ VRAM):** ทำงานได้อย่างเสถียรบนการ์ดจอระดับผู้บริโภคทั่วไป (NVIDIA RTX 3060, RTX 4060, RTX 5070) ด้วยการบีบอัดโมเดล 4-bit Quantization (NF4) และ CTranslate2 FP16
-* 🚀 **Progressive Two-Phase Ingestion:** ค้นหาวิดีโอได้ทันทีภายใน ~45 วินาทีหลังอัปโหลด (Phase 1: Visual + Speech ASR) พร้อมระบบประมวลผลคำบรรยายเชิงลึกแบบ Background Task (Phase 2: Dense Action Captioning)
+* 🚀 **Progressive Two-Phase Ingestion:** ค้นหาวิดีโอได้ทันทีภายใน ~45 วินาทีหลังอัปโหลด (Phase 1: Visual + Speech ASR) พร้อมระบบประมวลผลคำบรรยายเชิงลึกและ OCR แบบ Background Task (Phase 2: Qwen2.5-VL Dense Action Captioning)
 * 📈 **Dynamic Relevance Density Heatmap:** แถบเรืองแสงแสดงระดับความเกี่ยวข้องของเนื้อหาตลอดทั้งวิดีโอแบบ 1-Hz Canvas Visualizer ช่วยให้ผู้ใช้เห็นภาพรวมของทั้งคลิปได้ในเสี้ยววินาที
 * ⏱️ **Sub-Second Temporal Localization & Auto-Seek:** สกัดช่วงเวลาเริ่มต้น-สิ้นสุด $[t_{start}, t_{end}]$ ด้วย 1D Gaussian Temporal Convolution และกระโดดไปยังฉากเหตุการณ์ทันทีที่คลิกผลลัพธ์
 
@@ -47,8 +47,8 @@
                   │                                                             │
         ┌─────────┴──────────────────────┐                                      │
         ▼                                ▼                                      │
- [ SigLIP 2 (NaFlex) ]         [ MiniCPM-V 2.6 (4-bit) ]                        │
-  (768-dim Embeddings)          (Action Dense Captions)                         │
+ [ SigLIP 2 (NaFlex) ]         [ Qwen2.5-VL-7B (4-bit) ]                        │
+  (768-dim Embeddings)          (Action Dense Captions & OCR)                   │
         │                                │                                      │
         └────────────────┬───────────────┘                                      │
                          ▼                                                      ▼
@@ -96,7 +96,7 @@
 | ส่วนประกอบ | เทคโนโลยีที่เลือกใช้ | บทบาทและจุดเด่น |
 | :--- | :--- | :--- |
 | **Visual-Text Backbone** | `google/siglip2-base-patch16-256` | สกัดเวกเตอร์หลายมิติ 768-dim ด้วย Pairwise Sigmoid Loss |
-| **Dense Action Captioner**| `openbmb/MiniCPM-V-2_6` (4-bit) | โมเดล VLM วิเคราะห์การกระทำต่อเนื่องในฉาก (VRAM $\le 4.5\text{GB}$) |
+| **Dense Action Captioner**| `Qwen/Qwen2.5-VL-7B-Instruct` (4-bit) | โมเดล VLM SOTA วิเคราะห์การกระทำต่อเนื่องและ OCR ในฉาก (VRAM $\le 5.5\text{GB}$) |
 | **Speech-to-Text (ASR)**  | `Whisper-Large-v3-Turbo` (CTranslate2) | ถอดเสียงพูดพร้อมระบุ Word-Level Timestamps เร็วกว่าเดิม 7 เท่า |
 | **Video Decoding**        | `Decord` (NVDEC GPU Hardware Fallback) | ถอดรหัสเฟรมวิดีโอระดับฮาร์ดแวร์ GPU เร็วกว่า OpenCV $>3\times$ |
 | **Vector Storage**        | `LanceDB` (Apache Arrow Format) | Vector DB แบบ Serverless บน SSD พร้อมดัชนี IVF-PQ และ FTS |
@@ -135,11 +135,10 @@ pip install -r requirements.txt
 #### การตั้งค่า `.env`:
 สร้างไฟล์ `backend/.env` (หรือแก้ไขจาก `.env.example`):
 ```env
-# Hugging Face Access Token (สำหรับดาวน์โหลด MiniCPM-V 2.6)
 HF_TOKEN=hf_your_token_here
 
 SIGLIP2_MODEL_ID=google/siglip2-base-patch16-256
-MINICPMV_MODEL_ID=openbmb/MiniCPM-V-2_6
+QWEN_VL_MODEL_ID=Qwen/Qwen2.5-VL-7B-Instruct
 WHISPER_MODEL_SIZE=large-v3-turbo
 ```
 
@@ -218,7 +217,7 @@ Video Event Retrieval/
 │   │   │   └── router.py
 │   │   ├── core/                        # Config, Logger, Device Maps
 │   │   ├── db/                          # LanceDB Schemas & Tables Init
-│   │   ├── pipeline/                    # Decord, SceneDetect, SSIM, Whisper, SigLIP 2, MiniCPM-V
+│   │   ├── pipeline/                    # Decord, SceneDetect, SSIM, Whisper, SigLIP 2, Qwen2.5-VL
 │   │   ├── retrieval/                   # RRF, Gaussian Smoother, Boundary Extractor
 │   │   └── utils/                       # HTTP 206 Byte-Range Video Streaming
 │   ├── tests/                           # Pytest Test Suite

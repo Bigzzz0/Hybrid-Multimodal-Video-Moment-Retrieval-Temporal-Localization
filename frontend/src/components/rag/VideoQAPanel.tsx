@@ -43,7 +43,7 @@ export const VideoQAPanel: React.FC<VideoQAPanelProps> = ({
           Video-RAG Intelligence QA
         </h3>
         <span className="text-[11px] px-2 py-0.5 rounded-full bg-cyan-950 text-cyan-300 border border-cyan-800 font-mono">
-          MiniCPM-V 2.6 Grounded
+          Qwen2.5-VL Grounded
         </span>
       </div>
 

@@ -12,7 +12,7 @@ from app.pipeline.scene_detector import AdaptiveSceneDetector
 from app.pipeline.keyframe_filter import SSIMKeyframeFilter
 from app.pipeline.audio_asr import WhisperAudioASR
 from app.pipeline.visual_encoder import SigLIP2VisualEncoder
-from app.pipeline.dense_captioner import MiniCPMDenseCaptioner
+from app.pipeline.dense_captioner import QwenVLDenseCaptioner
 
 class ProgressiveIngestionManager:
     """Orchestrates Progressive Two-Phase Video Ingestion and Feature Extraction."""
@@ -22,7 +22,7 @@ class ProgressiveIngestionManager:
         self.keyframe_filter = SSIMKeyframeFilter()
         self.audio_asr = WhisperAudioASR()
         self.visual_encoder = SigLIP2VisualEncoder()
-        self.dense_captioner = MiniCPMDenseCaptioner()
+        self.dense_captioner = QwenVLDenseCaptioner()
 
     def process_video_phase1(
         self,
@@ -219,11 +219,11 @@ class ProgressiveIngestionManager:
         progress_callback: Optional[Callable[[str, int, str, str, Dict[str, Any]], None]] = None
     ):
         """
-        Phase 2: Deep Context Ingestion (Background) - Generates MiniCPM-V 2.6 Action Captions.
+        Phase 2: Deep Context Ingestion (Background) - Generates Qwen2.5-VL-7B Action & OCR Captions.
         """
         logger.info(f"=== Starting Phase 2 Background Captioning for Video ID: {video_id} ===")
         if progress_callback:
-            progress_callback(video_id, 10, "Generating MiniCPM-V 2.6 Action Captions (Background)...", "minicpmv_caption", {})
+            progress_callback(video_id, 10, "Generating Qwen2.5-VL Action & OCR Captions (Background)...", "vlm_caption", {})
 
         try:
             from collections import defaultdict
@@ -266,8 +266,8 @@ class ProgressiveIngestionManager:
                     progress_callback(
                         video_id,
                         sub_pct,
-                        f"Generating MiniCPM-V 2.6 Action Captions: Scene {s_idx + 1}/{total_scene_groups} ({sub_pct}%)",
-                        "minicpmv_caption",
+                        f"Generating Qwen2.5-VL Action Captions: Scene {s_idx + 1}/{total_scene_groups} ({sub_pct}%)",
+                        "vlm_caption",
                         {
                             "sub_percent": sub_pct,
                             "scene_idx": s_idx + 1,

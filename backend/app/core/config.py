@@ -41,7 +41,8 @@ class Settings(BaseSettings):
     
     # Model Configurations
     SIGLIP2_MODEL_ID: str = os.environ.get("SIGLIP2_MODEL_ID", "google/siglip2-base-patch16-256")
-    MINICPMV_MODEL_ID: str = os.environ.get("MINICPMV_MODEL_ID", "openbmb/MiniCPM-V-2_6")
+    QWEN_VL_MODEL_ID: str = os.environ.get("QWEN_VL_MODEL_ID", "Qwen/Qwen2.5-VL-7B-Instruct")
+    MINICPMV_MODEL_ID: str = os.environ.get("QWEN_VL_MODEL_ID", "Qwen/Qwen2.5-VL-7B-Instruct")  # Backward-compat
     WHISPER_MODEL_SIZE: str = os.environ.get("WHISPER_MODEL_SIZE", "large-v3-turbo")
     
     # Ingestion & Sampling Parameters

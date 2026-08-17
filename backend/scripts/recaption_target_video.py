@@ -1,7 +1,7 @@
 """
 Fast Target Video Recaptioning:
-Directly generates high-quality MiniCPM-V 2.6 captions for video 408691dd-ea27-4a30-9982-4c44e6b66fdc
-(the 14s demo video with computer desks and orange/green polo shirts).
+Directly generates high-quality Qwen2.5-VL-7B captions for target video
+(e.g., demo video with computer desks and orange/green polo shirts).
 """
 import os
 import sys
@@ -11,14 +11,14 @@ from PIL import Image
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from app.db.connection import db_manager
-from app.pipeline.dense_captioner import MiniCPMDenseCaptioner
+from app.pipeline.dense_captioner import QwenVLDenseCaptioner
 from app.core.logger import logger
 
 def recaption_demo_video():
     target_vid = "408691dd-ea27-4a30-9982-4c44e6b66fdc"
     logger.info(f"Targeted recaptioning for video: {target_vid}")
     
-    captioner = MiniCPMDenseCaptioner()
+    captioner = QwenVLDenseCaptioner()
     tbl_frames = db_manager.get_table("video_frames")
     frames = tbl_frames.to_arrow().to_pylist()
     

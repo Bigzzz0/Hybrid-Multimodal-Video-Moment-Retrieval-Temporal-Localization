@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "VideoMoment AI - SOTA Multimodal Video Retrieval",
-  description: "Natural Language Video Moment Retrieval & Temporal Localization using SigLIP 2, MiniCPM-V 2.6, Whisper-Turbo, and LanceDB",
+  description: "Natural Language Video Moment Retrieval & Temporal Localization using SigLIP 2, Qwen2.5-VL 7B, Whisper-Turbo, and LanceDB",
 };
 
 export default function RootLayout({
@@ -25,7 +25,7 @@ export default function RootLayout({
               <h1 className="text-base font-bold tracking-tight text-white flex items-center gap-2">
                 VideoMoment <span className="text-xs px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">SOTA AI</span>
               </h1>
-              <p className="text-[11px] text-gray-400">SigLIP 2 • MiniCPM-V 2.6 • Whisper-Turbo • LanceDB</p>
+              <p className="text-[11px] text-gray-400">SigLIP 2 • Qwen2.5-VL 7B • Whisper-Turbo • LanceDB</p>
             </div>
           </div>
 

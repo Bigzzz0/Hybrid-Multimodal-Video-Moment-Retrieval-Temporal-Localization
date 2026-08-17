@@ -32,8 +32,7 @@ const PIPELINE_STAGES: PipelineStage[] = [
   { id: "asr_whisper", name: "3. Speech Transcription", desc: "Whisper-Large-v3-Turbo on CUDA FP16", icon: Mic },
   { id: "keyframe_ssim", name: "4. Keyframe Sampling", desc: "SSIM structural difference filtering", icon: Film },
   { id: "siglip2_embedding", name: "5. Multimodal Embedding", desc: "SigLIP 2 NaFlex 768-dim vectors", icon: Cpu },
-  { id: "lancedb_commit", name: "6. LanceDB Storage & Indexing", desc: "Disk-based IVF-PQ & Tantivy FTS", icon: Database },
-  { id: "minicpmv_caption", name: "7. Dense Action Captioning", desc: "MiniCPM-V 2.6 4-bit scene understanding", icon: Sparkles }
+  { id: "vlm_caption", name: "7. Dense Action & OCR Captioning", desc: "Qwen2.5-VL-7B 4-bit scene understanding", icon: Sparkles }
 ];
 
 export const Dropzone: React.FC<DropzoneProps> = ({ onUploadSuccess }) => {
@@ -78,9 +77,10 @@ export const Dropzone: React.FC<DropzoneProps> = ({ onUploadSuccess }) => {
       setStageDetails(data.details);
     }
     if (data.stage) {
-      setCurrentStage(data.stage);
-      const stageOrder = ["decoding", "scene_detect", "asr_whisper", "keyframe_ssim", "siglip2_embedding", "lancedb_commit", "minicpmv_caption", "complete"];
-      const currentIdx = stageOrder.indexOf(data.stage);
+      const normalizedStage = data.stage === "minicpmv_caption" ? "vlm_caption" : data.stage;
+      setCurrentStage(normalizedStage);
+      const stageOrder = ["decoding", "scene_detect", "asr_whisper", "keyframe_ssim", "siglip2_embedding", "lancedb_commit", "vlm_caption", "complete"];
+      const currentIdx = stageOrder.indexOf(normalizedStage);
       if (currentIdx > 0) {
         const done = stageOrder.slice(0, currentIdx);
         setCompletedStages(done);
@@ -296,7 +296,7 @@ export const Dropzone: React.FC<DropzoneProps> = ({ onUploadSuccess }) => {
                             {stg.id === "siglip2_embedding" && stageDetails?.processed_frames !== undefined && (
                               <>⚡ Encoded: <b className="text-cyan-300">{stageDetails.processed_frames}</b> / {stageDetails.total_frames} frames (Batch {stageDetails.batch}/{stageDetails.total_batches})</>
                             )}
-                            {stg.id === "minicpmv_caption" && stageDetails?.scene_idx !== undefined && (
+                            {(stg.id === "vlm_caption" || stg.id === "minicpmv_caption") && stageDetails?.scene_idx !== undefined && (
                               <>🤖 Captioned: Scene <b className="text-cyan-300">{stageDetails.scene_idx}</b> / {stageDetails.total_scenes}</>
                             )}
                             {stg.id === "scene_detect" && stageDetails?.duration_sec !== undefined && (

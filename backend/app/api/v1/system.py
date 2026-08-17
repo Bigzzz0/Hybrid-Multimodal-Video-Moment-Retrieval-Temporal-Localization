@@ -78,8 +78,8 @@ def get_system_telemetry():
             "vad_filter": True
         },
         "dense_captioner": {
-            "name": "MiniCPM-V 2.6",
-            "model_id": settings.MINICPMV_MODEL_ID,
+            "name": "Qwen2.5-VL-7B-Instruct",
+            "model_id": settings.QWEN_VL_MODEL_ID,
             "quantization": "4-bit NormalFloat (NF4) BitsAndBytes"
         },
         "temporal_localizer": {

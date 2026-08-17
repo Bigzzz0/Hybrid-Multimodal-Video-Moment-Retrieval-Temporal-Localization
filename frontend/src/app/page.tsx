@@ -313,7 +313,7 @@ export default function DashboardPage() {
             </p>
 
             <p className="text-xs text-red-400/90 bg-red-950/40 p-3 rounded-xl border border-red-900/50">
-              ⚠️ This will permanently remove all SigLIP 2 visual vectors, Whisper speech transcripts, MiniCPM-V captions, and video files from LanceDB.
+              ⚠️ This will permanently remove all SigLIP 2 visual vectors, Whisper speech transcripts, Qwen2.5-VL captions, and video files from LanceDB.
             </p>
 
             {deleteError && (

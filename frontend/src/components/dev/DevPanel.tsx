@@ -380,19 +380,19 @@ export const DevPanel: React.FC<DevPanelProps> = ({ isOpen, onClose }) => {
                 </div>
               </div>
 
-              {/* MiniCPM-V 2.6 */}
+              {/* Qwen2.5-VL-7B */}
               <div className="p-5 rounded-xl bg-surface border border-surfaceBorder space-y-3">
                 <div className="flex items-center gap-2.5">
                   <div className="w-8 h-8 rounded-lg bg-blue-500/20 text-blue-400 flex items-center justify-center">
                     <Code2 className="w-4 h-4" />
                   </div>
                   <div>
-                    <h4 className="text-sm font-bold text-white">Dense Captioner: MiniCPM-V 2.6</h4>
-                    <p className="text-xs text-gray-400">Phase 2 Background Action Reasoner</p>
+                    <h4 className="text-sm font-bold text-white">Dense Captioner: Qwen2.5-VL-7B</h4>
+                    <p className="text-xs text-gray-400">Phase 2 Action Reasoning & OCR</p>
                   </div>
                 </div>
                 <div className="p-3 rounded-lg bg-background/80 border border-surfaceBorder space-y-1 text-xs font-mono">
-                  <p className="text-gray-300">Model ID: <span className="text-blue-300">openbmb/MiniCPM-V-2_6</span></p>
+                  <p className="text-gray-300">Model ID: <span className="text-blue-300">Qwen/Qwen2.5-VL-7B-Instruct</span></p>
                   <p className="text-gray-300">Quantization: <span className="text-emerald-300">4-bit NF4 (BitsAndBytes)</span></p>
                   <p className="text-gray-300">Execution: <span className="text-white">Background Worker</span></p>
                 </div>
