@@ -1,3 +1,24 @@
+import sys
+import os
+from pathlib import Path
+
+# Auto-register NVIDIA CUDA DLL directories on Windows
+if sys.platform == "win32":
+    try:
+        import site
+        site_packages_dirs = site.getsitepackages()
+        for sp in site_packages_dirs:
+            nvidia_dir = Path(sp) / "nvidia"
+            if nvidia_dir.exists():
+                for bin_dir in nvidia_dir.glob("*/bin"):
+                    if bin_dir.exists():
+                        try:
+                            os.add_dll_directory(str(bin_dir))
+                        except Exception:
+                            pass
+    except Exception:
+        pass
+
 import uvicorn
 import asyncio
 from contextlib import asynccontextmanager

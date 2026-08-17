@@ -23,3 +23,6 @@ pytest>=8.0.0
 httpx>=0.27.0
 aiofiles>=23.2.1
 imageio-ffmpeg>=0.5.1
+nvidia-cublas-cu12>=12.1.0
+nvidia-cudnn-cu12>=9.0.0
+nvidia-cuda-nvrtc-cu12>=12.1.0
