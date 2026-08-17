@@ -43,9 +43,9 @@ class WhisperAudioASR:
                 logger.warning(f"CUDA initialization notice: {cuda_err}. Falling back to CPU...")
                 self.model = WhisperModel(self.model_size, device="cpu", compute_type="int8")
 
-    def transcribe(self, video_or_audio_path: str) -> List[Dict[str, Any]]:
+    def transcribe(self, video_or_audio_path: str, progress_callback=None) -> List[Dict[str, Any]]:
         """
-        Transcribe speech from video file.
+        Transcribe speech from video file with real-time sub-progress telemetry.
         Returns list of segment dicts: [{"t_start": float, "t_end": float, "spoken_text": str}, ...]
         """
         self._lazy_load()
@@ -59,7 +59,10 @@ class WhisperAudioASR:
                 vad_filter=True
             )
 
+            total_duration = max(1.0, float(getattr(info, "duration", 0.0)))
             results = []
+            last_report_sec = -1.0
+
             for seg in segments:
                 text = seg.text.strip()
                 if text:
@@ -68,6 +71,25 @@ class WhisperAudioASR:
                         "t_end": float(seg.end),
                         "spoken_text": text
                     })
+
+                curr_end = float(seg.end)
+                if progress_callback and (curr_end - last_report_sec >= 1.0 or curr_end >= total_duration):
+                    last_report_sec = curr_end
+                    sub_pct = min(100, int((curr_end / total_duration) * 100))
+                    macro_pct = min(58, 25 + int((curr_end / total_duration) * 33))
+                    msg = f"Transcribing Speech: {curr_end:.1f}s / {total_duration:.1f}s ({sub_pct}%) • {len(results)} segments"
+                    progress_callback(
+                        macro_pct,
+                        msg,
+                        "asr_whisper",
+                        {
+                            "sub_percent": sub_pct,
+                            "current_sec": round(curr_end, 1),
+                            "total_sec": round(total_duration, 1),
+                            "segment_count": len(results),
+                            "language": getattr(info, "language", "th")
+                        }
+                    )
 
             logger.info(f"Transcribed {len(results)} speech segments (Language: {info.language}, Prob: {info.language_probability:.2f})")
             return results

@@ -47,9 +47,9 @@ class SigLIP2VisualEncoder:
                 self.model = AutoModel.from_pretrained(fallback_id, torch_dtype=dtype).to(self.device).eval()
                 self.processor = AutoProcessor.from_pretrained(fallback_id)
 
-    def encode_images(self, images: List[Image.Image], batch_size: int = 16) -> List[List[float]]:
+    def encode_images(self, images: List[Image.Image], batch_size: int = 16, progress_callback=None) -> List[List[float]]:
         """
-        Encode list of PIL images into normalized 768-dim vector embeddings.
+        Encode list of PIL images into normalized 768-dim vector embeddings with live batch progress.
         Returns: list of 768-float vectors.
         """
         self._lazy_load()
@@ -57,7 +57,10 @@ class SigLIP2VisualEncoder:
             return []
 
         all_embeddings = []
-        for i in range(0, len(images), batch_size):
+        total_images = len(images)
+        total_batches = max(1, (total_images + batch_size - 1) // batch_size)
+
+        for b_idx, i in enumerate(range(0, total_images, batch_size)):
             batch = images[i : i + batch_size]
             inputs = self.processor(images=batch, return_tensors="pt").to(self.model.device)
             
@@ -66,6 +69,24 @@ class SigLIP2VisualEncoder:
                 tensor_features = _extract_tensor(features)
                 norm_features = F.normalize(tensor_features, p=2, dim=-1)
                 all_embeddings.extend(norm_features.cpu().to(torch.float32).tolist())
+
+            if progress_callback:
+                processed = min(total_images, i + len(batch))
+                sub_pct = int((processed / total_images) * 100)
+                macro_pct = min(94, 78 + int((processed / total_images) * 16))
+                msg = f"Generating SigLIP 2 Embeddings: {processed}/{total_images} frames ({sub_pct}%)"
+                progress_callback(
+                    macro_pct,
+                    msg,
+                    "siglip2_embedding",
+                    {
+                        "sub_percent": sub_pct,
+                        "processed_frames": processed,
+                        "total_frames": total_images,
+                        "batch": b_idx + 1,
+                        "total_batches": total_batches
+                    }
+                )
 
         return all_embeddings
 

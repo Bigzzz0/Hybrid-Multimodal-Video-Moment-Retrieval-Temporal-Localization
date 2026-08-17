@@ -50,30 +50,35 @@ class ProgressiveIngestionManager:
         # 2. Scene Detection
         if progress_callback:
             progress_callback(
-                video_id, 25,
+                video_id, 15,
                 f"Detecting Scene Cuts (Adaptive Content Detection)...",
                 "scene_detect",
-                {"duration_sec": duration, "fps": fps, "resolution": resolution}
+                {"duration_sec": duration, "fps": fps, "resolution": resolution, "sub_percent": 20}
             )
         scenes = self.scene_detector.detect_scenes(video_path)
 
-        # 3. Audio ASR Transcription (Concurrent/Sequential)
         if progress_callback:
             progress_callback(
-                video_id, 45,
-                "Transcribing Speech with Whisper-Large-v3-Turbo (CUDA FP16)...",
-                "asr_whisper",
-                {"scene_count": len(scenes)}
+                video_id, 25,
+                f"Detected {len(scenes)} scenes. Starting Speech Transcription...",
+                "scene_detect",
+                {"scene_count": len(scenes), "sub_percent": 100}
             )
-        transcripts = self.audio_asr.transcribe(video_path)
+
+        # 3. Audio ASR Transcription (Concurrent/Sequential)
+        def asr_sub_progress(macro_pct, msg, stg, details):
+            if progress_callback:
+                progress_callback(video_id, macro_pct, msg, stg, details)
+
+        transcripts = self.audio_asr.transcribe(video_path, progress_callback=asr_sub_progress)
 
         # 4. Keyframe Sampling & SSIM Filtering
         if progress_callback:
             progress_callback(
                 video_id, 60,
-                "Extracting & Filtering Keyframes with SSIM...",
+                f"Sampling Keyframes across {len(scenes)} scenes with SSIM...",
                 "keyframe_ssim",
-                {"transcript_count": len(transcripts)}
+                {"transcript_count": len(transcripts), "sub_percent": 0}
             )
         
         video_keyframe_dir = settings.KEYFRAMES_DIR / video_id
@@ -83,6 +88,7 @@ class ProgressiveIngestionManager:
         frame_records = []
         all_sampled_images = []
         all_sampled_meta = []
+        total_scenes = max(1, len(scenes))
 
         for s_idx, (t_start, t_end) in enumerate(scenes):
             scene_id = str(uuid.uuid4())
@@ -122,16 +128,28 @@ class ProgressiveIngestionManager:
                     "has_dense_caption": False
                 })
 
+            if progress_callback and (s_idx % max(1, total_scenes // 15) == 0 or s_idx == total_scenes - 1):
+                sub_pct = int(((s_idx + 1) / total_scenes) * 100)
+                macro_pct = min(77, 60 + int(((s_idx + 1) / total_scenes) * 17))
+                progress_callback(
+                    video_id,
+                    macro_pct,
+                    f"Sampling Keyframes: Scene {s_idx + 1}/{total_scenes} ({sub_pct}%) • {len(all_sampled_images)} frames",
+                    "keyframe_ssim",
+                    {
+                        "sub_percent": sub_pct,
+                        "scene_idx": s_idx + 1,
+                        "total_scenes": total_scenes,
+                        "frame_count": len(all_sampled_images)
+                    }
+                )
+
         # 5. SigLIP 2 Visual Embedding
-        if progress_callback:
-            progress_callback(
-                video_id, 80,
-                f"Generating SigLIP 2 Embeddings for {len(all_sampled_images)} keyframes...",
-                "siglip2_embedding",
-                {"keyframe_count": len(all_sampled_images)}
-            )
-        
-        embeddings = self.visual_encoder.encode_images(all_sampled_images, batch_size=16)
+        def siglip_sub_progress(macro_pct, msg, stg, details):
+            if progress_callback:
+                progress_callback(video_id, macro_pct, msg, stg, details)
+
+        embeddings = self.visual_encoder.encode_images(all_sampled_images, batch_size=16, progress_callback=siglip_sub_progress)
         
         for meta, emb in zip(all_sampled_meta, embeddings):
             meta["siglip2_vector"] = emb
@@ -140,10 +158,10 @@ class ProgressiveIngestionManager:
         # 6. Commit to LanceDB (Phase 1 Ready)
         if progress_callback:
             progress_callback(
-                video_id, 95,
-                "Building LanceDB IVF-PQ Vector & Full-Text Indices...",
+                video_id, 96,
+                f"Building LanceDB IVF-PQ Vector & Full-Text Indices ({len(frame_records)} frames)...",
                 "lancedb_commit",
-                {}
+                {"frame_count": len(frame_records), "transcript_count": len(transcripts), "sub_percent": 60}
             )
 
         # Insert Video Metadata
@@ -225,7 +243,8 @@ class ProgressiveIngestionManager:
             for f in all_frames:
                 scenes_grouped[f.get("scene_id")].append(f)
 
-            for scene_id, group in scenes_grouped.items():
+            total_scene_groups = max(1, len(scenes_grouped))
+            for s_idx, (scene_id, group) in enumerate(scenes_grouped.items()):
                 frame_paths = [g.get("frame_path") for g in group if g.get("frame_path")]
                 images = [Image.open(fp) for fp in frame_paths if os.path.exists(fp)]
                 
@@ -241,6 +260,20 @@ class ProgressiveIngestionManager:
                                 )
                             except Exception as up_err:
                                 logger.debug(f"Update frame caption error: {up_err}")
+
+                if progress_callback:
+                    sub_pct = int(((s_idx + 1) / total_scene_groups) * 100)
+                    progress_callback(
+                        video_id,
+                        sub_pct,
+                        f"Generating MiniCPM-V 2.6 Action Captions: Scene {s_idx + 1}/{total_scene_groups} ({sub_pct}%)",
+                        "minicpmv_caption",
+                        {
+                            "sub_percent": sub_pct,
+                            "scene_idx": s_idx + 1,
+                            "total_scenes": total_scene_groups
+                        }
+                    )
 
             # Update video phase status
             tbl_videos = db_manager.get_table("videos")

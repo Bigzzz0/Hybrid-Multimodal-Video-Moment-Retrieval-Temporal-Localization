@@ -43,6 +43,7 @@ export const Dropzone: React.FC<DropzoneProps> = ({ onUploadSuccess }) => {
   const [statusMessage, setStatusMessage] = useState("");
   const [currentStage, setCurrentStage] = useState<string>("decoding");
   const [completedStages, setCompletedStages] = useState<string[]>([]);
+  const [stageDetails, setStageDetails] = useState<Record<string, any>>({});
   const [error, setError] = useState<string | null>(null);
   
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -73,6 +74,9 @@ export const Dropzone: React.FC<DropzoneProps> = ({ onUploadSuccess }) => {
     if (data.message) {
       setStatusMessage(data.message);
     }
+    if (data.details) {
+      setStageDetails(data.details);
+    }
     if (data.stage) {
       setCurrentStage(data.stage);
       const stageOrder = ["decoding", "scene_detect", "asr_whisper", "keyframe_ssim", "siglip2_embedding", "lancedb_commit", "minicpmv_caption", "complete"];
@@ -100,6 +104,7 @@ export const Dropzone: React.FC<DropzoneProps> = ({ onUploadSuccess }) => {
     setStatusMessage("Uploading video file to server...");
     setCurrentStage("decoding");
     setCompletedStages([]);
+    setStageDetails({});
     setError(null);
 
     try {
@@ -216,63 +221,102 @@ export const Dropzone: React.FC<DropzoneProps> = ({ onUploadSuccess }) => {
           {/* Current Action Banner */}
           <div className="p-3 rounded-lg bg-background/80 border border-surfaceBorder text-xs text-gray-300 flex items-start gap-2.5">
             <span className="w-2 h-2 rounded-full bg-cyan-400 mt-1 animate-ping flex-shrink-0" />
-            <div>
+            <div className="space-y-0.5 flex-1">
               <span className="font-semibold text-white">Current Action: </span>
-              <span className="text-cyan-300">{statusMessage || "Processing video pipeline..."}</span>
+              <span className="text-cyan-300 font-medium">{statusMessage || "Processing video pipeline..."}</span>
             </div>
           </div>
 
           {/* Multi-Stage Pipeline Step Checklist */}
           <div className="space-y-2 pt-1">
             <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Pipeline Steps</p>
-            <div className="grid grid-cols-1 gap-2">
+            <div className="grid grid-cols-1 gap-2.5">
               {PIPELINE_STAGES.map((stg) => {
                 const isDone = completedStages.includes(stg.id) || progress >= 100;
                 const isRunning = currentStage === stg.id && progress < 100;
                 const IconComponent = stg.icon;
+                const subPct = isRunning && stageDetails?.sub_percent !== undefined ? stageDetails.sub_percent : (isDone ? 100 : 0);
 
                 return (
                   <div
                     key={stg.id}
-                    className={`flex items-center justify-between p-2.5 rounded-lg border text-xs transition-colors ${
+                    className={`flex flex-col p-3 rounded-xl border text-xs transition-all ${
                       isDone
                         ? "bg-emerald-950/20 border-emerald-800/40 text-emerald-300"
                         : isRunning
-                        ? "bg-cyan-950/40 border-cyan-700/60 text-white shadow-sm"
+                        ? "bg-cyan-950/40 border-cyan-500/60 text-white shadow-lg shadow-cyan-950/50 ring-1 ring-cyan-500/30"
                         : "bg-surface/40 border-surfaceBorder/60 text-gray-500"
                     }`}
                   >
-                    <div className="flex items-center gap-2.5">
-                      <div
-                        className={`w-6 h-6 rounded-md flex items-center justify-center ${
-                          isDone
-                            ? "bg-emerald-900/50 text-emerald-400"
-                            : isRunning
-                            ? "bg-cyan-900/50 text-cyan-400"
-                            : "bg-surfaceBorder text-gray-600"
-                        }`}
-                      >
-                        <IconComponent className="w-3.5 h-3.5" />
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2.5">
+                        <div
+                          className={`w-7 h-7 rounded-lg flex items-center justify-center transition-colors ${
+                            isDone
+                              ? "bg-emerald-900/50 text-emerald-400"
+                              : isRunning
+                              ? "bg-cyan-500/20 text-cyan-300 border border-cyan-500/40"
+                              : "bg-surfaceBorder text-gray-600"
+                          }`}
+                        >
+                          <IconComponent className="w-4 h-4" />
+                        </div>
+                        <div>
+                          <p className={`font-semibold ${isRunning ? "text-cyan-200" : ""}`}>{stg.name}</p>
+                          <p className="text-[11px] text-gray-400">{stg.desc}</p>
+                        </div>
                       </div>
+
                       <div>
-                        <p className={`font-medium ${isRunning ? "text-cyan-300 font-semibold" : ""}`}>{stg.name}</p>
-                        <p className="text-[11px] text-gray-400">{stg.desc}</p>
+                        {isDone ? (
+                          <span className="flex items-center gap-1 text-[11px] text-emerald-400 font-semibold bg-emerald-950/60 px-2 py-0.5 rounded-full border border-emerald-800/60">
+                            <CheckCircle2 className="w-3.5 h-3.5" /> 100% Ready
+                          </span>
+                        ) : isRunning ? (
+                          <span className="flex items-center gap-1.5 text-[11px] text-cyan-300 font-mono font-bold bg-cyan-900/60 px-2.5 py-0.5 rounded-full border border-cyan-600 shadow-sm animate-pulse">
+                            <Loader2 className="w-3 h-3 animate-spin" /> {subPct}% Active
+                          </span>
+                        ) : (
+                          <span className="text-[11px] text-gray-600">Pending</span>
+                        )}
                       </div>
                     </div>
 
-                    <div>
-                      {isDone ? (
-                        <span className="flex items-center gap-1 text-[11px] text-emerald-400 font-medium">
-                          <CheckCircle2 className="w-4 h-4" /> Ready
-                        </span>
-                      ) : isRunning ? (
-                        <span className="flex items-center gap-1.5 text-[11px] text-cyan-400 font-medium bg-cyan-950 px-2 py-0.5 rounded border border-cyan-800 animate-pulse">
-                          <Loader2 className="w-3 h-3 animate-spin" /> Processing
-                        </span>
-                      ) : (
-                        <span className="text-[11px] text-gray-600">Pending</span>
-                      )}
-                    </div>
+                    {/* Real-Time Sub-Progress Bar & Detail Badges for Active Stage */}
+                    {isRunning && (
+                      <div className="mt-2.5 pt-2 border-t border-cyan-800/30 space-y-1.5 animate-in fade-in duration-200">
+                        <div className="flex items-center justify-between text-[11px] font-mono">
+                          <span className="text-gray-300 flex items-center gap-1.5">
+                            {stg.id === "asr_whisper" && stageDetails?.current_sec !== undefined && (
+                              <>⏱️ Transcribed: <b className="text-cyan-300">{stageDetails.current_sec}s</b> / {stageDetails.total_sec}s ({stageDetails.segment_count || 0} segments)</>
+                            )}
+                            {stg.id === "keyframe_ssim" && stageDetails?.scene_idx !== undefined && (
+                              <>🖼️ Keyframes: Scene <b className="text-cyan-300">{stageDetails.scene_idx}</b> / {stageDetails.total_scenes} ({stageDetails.frame_count || 0} frames)</>
+                            )}
+                            {stg.id === "siglip2_embedding" && stageDetails?.processed_frames !== undefined && (
+                              <>⚡ Encoded: <b className="text-cyan-300">{stageDetails.processed_frames}</b> / {stageDetails.total_frames} frames (Batch {stageDetails.batch}/{stageDetails.total_batches})</>
+                            )}
+                            {stg.id === "minicpmv_caption" && stageDetails?.scene_idx !== undefined && (
+                              <>🤖 Captioned: Scene <b className="text-cyan-300">{stageDetails.scene_idx}</b> / {stageDetails.total_scenes}</>
+                            )}
+                            {stg.id === "scene_detect" && stageDetails?.duration_sec !== undefined && (
+                              <>✂️ Length: {stageDetails.duration_sec?.toFixed(1)}s • {stageDetails.resolution} @ {stageDetails.fps}fps</>
+                            )}
+                            {stg.id === "lancedb_commit" && stageDetails?.frame_count !== undefined && (
+                              <>💾 Indexing: {stageDetails.frame_count} visual frames • {stageDetails.transcript_count} speech rows</>
+                            )}
+                          </span>
+                          <span className="text-cyan-400 font-bold">{subPct}%</span>
+                        </div>
+
+                        <div className="w-full bg-cyan-950/80 rounded-full h-1.5 overflow-hidden border border-cyan-800/50">
+                          <div
+                            className="bg-gradient-to-r from-cyan-500 to-indigo-400 h-1.5 rounded-full transition-all duration-200 shadow-sm"
+                            style={{ width: `${Math.max(4, subPct)}%` }}
+                          />
+                        </div>
+                      </div>
+                    )}
                   </div>
                 );
               })}
