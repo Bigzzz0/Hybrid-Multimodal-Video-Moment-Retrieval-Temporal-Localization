@@ -84,8 +84,9 @@ def get_system_telemetry():
         },
         "temporal_localizer": {
             "name": "2D-TAN + 1D Wasserstein NMS",
-            "iou_threshold": settings.TEMPORAL_IOU_THRESHOLD,
-            "top_k": settings.TOP_K_MOMENTS
+            "iou_threshold": 0.5,
+            "top_k": 5,
+            "gaussian_sigma": getattr(settings, "TEMPORAL_GAUSSIAN_SIGMA", 1.5)
         }
     }
 
