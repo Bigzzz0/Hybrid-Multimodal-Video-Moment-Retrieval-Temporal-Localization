@@ -7,9 +7,9 @@ from app.core.logger import logger
 
 class QwenVLDenseCaptioner:
     """
-    Dense Action, Video Understanding, and Visual OCR Captioner
+    Dense Action, Video Understanding, and Physical State Transition Captioner
     powered by 4-bit Quantized Qwen2.5-VL-7B-Instruct (Alibaba Cloud / Qwen Team).
-    Supports multi-frame sequence reasoning, temporal action descriptions, and on-screen text extraction.
+    Supports multi-frame sequence reasoning, temporal action descriptions, and physical state transitions.
     """
 
     def __init__(self, model_id: str = settings.QWEN_VL_MODEL_ID, device: str = settings.DEVICE):
@@ -69,7 +69,7 @@ class QwenVLDenseCaptioner:
 
     def generate_scene_caption(self, keyframes: List[Image.Image]) -> str:
         """
-        Generate dense action, temporal interaction, and OCR text caption
+        Generate dense action, temporal interaction, and physical state transition caption
         for a sequence of keyframes in a video scene using Qwen2.5-VL-7B.
         """
         self._lazy_load()
@@ -96,9 +96,10 @@ class QwenVLDenseCaptioner:
             sampled_rgb = [img.convert("RGB") if img.mode != "RGB" else img for img in sampled]
 
             prompt_text = (
-                "Describe what happens in this video scene concisely in 2 sentences. "
-                "Detail visible subjects, actions, clothing colors, and surrounding objects. "
-                "If there is visible text or presentation slides, mention key keywords briefly."
+                "Analyze the chronological sequence of these video keyframes. "
+                "Describe the physical actions, subject movements, body gestures, and object interactions in 2 concise sentences. "
+                "Highlight specifically what actions occurred and any visible physical state change from start to finish. "
+                "Focus purely on visual activities and dynamic movements without describing on-screen presentation text."
             )
 
             messages = [

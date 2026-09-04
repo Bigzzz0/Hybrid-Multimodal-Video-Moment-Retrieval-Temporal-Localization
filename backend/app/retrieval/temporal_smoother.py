@@ -38,12 +38,21 @@ class TemporalSmoother:
         """
         total_steps = max(1, int(np.ceil(duration_sec * resolution_hz)))
         time_axis = np.linspace(0.0, duration_sec, total_steps)
-        raw_signal = np.zeros(total_steps, dtype=np.float32)
+        # Sort discrete timestamp scores chronologically and interpolate continuous signal
+        if not timestamp_scores:
+            return time_axis, np.zeros(total_steps, dtype=np.float32)
 
-        # Map discrete timestamp scores to timeline array
-        for ts, score in timestamp_scores:
-            idx = int(min(total_steps - 1, max(0, round(ts * resolution_hz))))
-            raw_signal[idx] = max(raw_signal[idx], float(score))
+        sorted_scores = sorted(timestamp_scores, key=lambda x: x[0])
+        ts_list = [x[0] for x in sorted_scores]
+        sc_list = [float(x[1]) for x in sorted_scores]
+
+        if len(ts_list) == 1:
+            raw_signal = np.full(total_steps, sc_list[0], dtype=np.float32)
+        else:
+            # Handle boundary padding: if discrete scores don't cover endpoints, pad with 0.0
+            left_val = sc_list[0] if ts_list[0] <= 1.0 / resolution_hz else 0.0
+            right_val = sc_list[-1] if ts_list[-1] >= (duration_sec - 1.0 / resolution_hz) else 0.0
+            raw_signal = np.interp(time_axis, ts_list, sc_list, left=left_val, right=right_val).astype(np.float32)
 
         if use_multiscale:
             # Multi-scale Gaussian Pyramid Convolution

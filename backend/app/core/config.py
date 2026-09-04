@@ -43,21 +43,28 @@ class Settings(BaseSettings):
     SIGLIP2_MODEL_ID: str = os.environ.get("SIGLIP2_MODEL_ID", "google/siglip2-base-patch16-256")
     QWEN_VL_MODEL_ID: str = os.environ.get("QWEN_VL_MODEL_ID", "Qwen/Qwen2.5-VL-7B-Instruct")
     MINICPMV_MODEL_ID: str = os.environ.get("QWEN_VL_MODEL_ID", "Qwen/Qwen2.5-VL-7B-Instruct")  # Backward-compat
-    WHISPER_MODEL_SIZE: str = os.environ.get("WHISPER_MODEL_SIZE", "large-v3-turbo")
+    WHISPER_MODEL_SIZE: str = os.environ.get("WHISPER_MODEL_SIZE", "disabled")
+    ENABLE_AUDIO_ASR: bool = False
     
     # Ingestion & Sampling Parameters
     DEVICE: str = "cuda" if os.environ.get("CUDA_VISIBLE_DEVICES") != "" else "cpu"
     KEYFRAME_SAMPLE_INTERVAL_SEC: float = 1.0
     SSIM_THRESHOLD: float = 0.65
-    MAX_FRAMES_PER_SCENE: int = 10
+    MAX_FRAMES_PER_SCENE: int = 60
     
-    # Retrieval & Temporal Localization Parameters
+    # Retrieval & Temporal Localization Parameters (Visual-Centric SOTA)
     DEFAULT_RRF_K: int = 60
-    DEFAULT_WEIGHT_VISUAL: float = 0.45
-    DEFAULT_WEIGHT_CAPTION: float = 0.35
-    DEFAULT_WEIGHT_AUDIO: float = 0.20
+    DEFAULT_WEIGHT_VISUAL: float = 0.60
+    DEFAULT_WEIGHT_CAPTION: float = 0.40
+    DEFAULT_WEIGHT_AUDIO: float = 0.00
     TEMPORAL_GAUSSIAN_SIGMA: float = 1.5
     DYNAMIC_THRESHOLD_FACTOR: float = 0.8
+    ENABLE_MOTION_DELTA: bool = True
+    MOTION_DELTA_WEIGHT: float = 0.25
+    ENABLE_BG_CONTRASTIVE: bool = True
+    BG_CONTRASTIVE_LAMBDA: float = 0.20
+    ENABLE_TTA_ENSEMBLE: bool = True
+    ENABLE_VLM_RERANK: bool = False
     
     class Config:
         case_sensitive = True

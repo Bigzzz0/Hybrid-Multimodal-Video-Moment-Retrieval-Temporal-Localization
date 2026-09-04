@@ -1,6 +1,10 @@
 import json
 import time
+import sys
+import os
 from typing import List, Dict, Any
+
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from evaluation.compute_metrics import evaluate_moment_retrieval
 
 def run_evaluation_benchmark(dataset_json_path: str = "evaluation/datasets/sample_annotations.json"):

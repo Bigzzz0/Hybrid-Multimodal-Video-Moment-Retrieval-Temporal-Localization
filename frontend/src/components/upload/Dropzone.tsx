@@ -29,10 +29,9 @@ interface PipelineStage {
 const PIPELINE_STAGES: PipelineStage[] = [
   { id: "decoding", name: "1. Hardware Video Decoding", desc: "Decord GPU NVDEC reading frames", icon: Film },
   { id: "scene_detect", name: "2. Adaptive Scene Cuts", desc: "PySceneDetect boundary segmentation", icon: Layers },
-  { id: "asr_whisper", name: "3. Speech Transcription", desc: "Whisper-Large-v3-Turbo on CUDA FP16", icon: Mic },
-  { id: "keyframe_ssim", name: "4. Keyframe Sampling", desc: "SSIM structural difference filtering", icon: Film },
-  { id: "siglip2_embedding", name: "5. Multimodal Embedding", desc: "SigLIP 2 NaFlex 768-dim vectors", icon: Cpu },
-  { id: "vlm_caption", name: "7. Dense Action & OCR Captioning", desc: "Qwen2.5-VL-7B 4-bit scene understanding", icon: Sparkles }
+  { id: "keyframe_ssim", name: "3. Keyframe Sampling", desc: "SSIM structural difference filtering", icon: Film },
+  { id: "siglip2_embedding", name: "4. Temporal & Visual Embedding", desc: "SigLIP 2 NaFlex + Multi-frame Context", icon: Cpu },
+  { id: "vlm_caption", name: "5. Dense Action Understanding", desc: "Qwen2.5-VL-7B 4-bit Spatiotemporal Actions", icon: Sparkles }
 ];
 
 export const Dropzone: React.FC<DropzoneProps> = ({ onUploadSuccess }) => {
@@ -79,7 +78,7 @@ export const Dropzone: React.FC<DropzoneProps> = ({ onUploadSuccess }) => {
     if (data.stage) {
       const normalizedStage = data.stage === "minicpmv_caption" ? "vlm_caption" : data.stage;
       setCurrentStage(normalizedStage);
-      const stageOrder = ["decoding", "scene_detect", "asr_whisper", "keyframe_ssim", "siglip2_embedding", "lancedb_commit", "vlm_caption", "complete"];
+      const stageOrder = ["decoding", "scene_detect", "keyframe_ssim", "siglip2_embedding", "lancedb_commit", "vlm_caption", "complete"];
       const currentIdx = stageOrder.indexOf(normalizedStage);
       if (currentIdx > 0) {
         const done = stageOrder.slice(0, currentIdx);

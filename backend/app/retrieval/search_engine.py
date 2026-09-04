@@ -78,13 +78,29 @@ class HybridMomentSearchEngine:
         visual_keywords = expanded["visual_keywords"]
         audio_keywords = expanded["audio_keywords"]
 
-        # 4. Encode Natural Language Query
-        query_vec = np.array(self.text_encoder.encode_text(expanded["expanded_search_str"]), dtype=np.float32)
-        q_norm = np.linalg.norm(query_vec)
-        if q_norm > 0:
-            query_vec = query_vec / q_norm
+        # 4. SOTA Multi-Prompt Test-Time Augmentation (TTA) Consensus Query Encoding (Module 6)
+        if getattr(settings, "ENABLE_TTA_ENSEMBLE", True):
+            tta_items = query_expander.get_tta_queries(query)  # List of (q_str, weight)
+            accum_vec = np.zeros(768, dtype=np.float32)
+            total_weight = 0.0
+            for q_str, w in tta_items:
+                v = np.array(self.text_encoder.encode_text(q_str), dtype=np.float32)
+                vn = np.linalg.norm(v)
+                if vn > 0:
+                    v = v / vn
+                accum_vec += w * v
+                total_weight += w
+            if total_weight > 0:
+                accum_vec /= total_weight
+            q_norm = np.linalg.norm(accum_vec)
+            query_vec = accum_vec / q_norm if q_norm > 0 else accum_vec
+        else:
+            query_vec = np.array(self.text_encoder.encode_text(expanded["expanded_search_str"]), dtype=np.float32)
+            q_norm = np.linalg.norm(query_vec)
+            if q_norm > 0:
+                query_vec = query_vec / q_norm
 
-        # 5. Multi-Modal Candidate Scoring
+        # 5. Visual-Centric Candidate Scoring (Visual-Centric SOTA)
         # A. Visual Cosine Similarities across ALL keyframes
         frame_embs = []
         frame_meta = []
@@ -98,40 +114,40 @@ class HybridMomentSearchEngine:
 
         if frame_embs:
             emb_matrix = np.array(frame_embs, dtype=np.float32) # [N, 768]
-            # Single Matrix Multiplication in 0.2ms
+            
+            # SOTA Background Contrastive Normalization (Suppresses static backdrop false-positives)
+            if getattr(settings, "ENABLE_BG_CONTRASTIVE", True) and len(emb_matrix) > 2:
+                bg_centroid = np.mean(emb_matrix, axis=0)
+                bg_norm = np.linalg.norm(bg_centroid)
+                if bg_norm > 0:
+                    bg_centroid = bg_centroid / bg_norm
+                bg_sim = float(np.dot(bg_centroid, query_vec))
+                bg_penalty = max(0.0, bg_sim * getattr(settings, "BG_CONTRASTIVE_LAMBDA", 0.20))
+            else:
+                bg_penalty = 0.0
+
+            # Instant Matrix Multiplication
             cos_sims = np.dot(emb_matrix, query_vec) # [N]
 
             for f_data, sim in zip(frame_meta, cos_sims):
                 ts = float(f_data.get("timestamp", 0.0))
-                scaled_vis = float(max(0.0, sim))
-                timestamp_score_map[ts] = scaled_vis * weight_visual
+                # Subtract background baseline to accentuate dynamic moments
+                contrastive_sim = max(0.0, float(sim) - bg_penalty)
+                timestamp_score_map[ts] = contrastive_sim * weight_visual
 
-        # B. Dense Caption & OCR keyword boosting
+        # B. Dense Action Caption keyword & semantic boosting (Pure Action Grounding)
+        action_keywords = expanded.get("action_keywords", [])
         for f_data in video_frames:
             caption = (f_data.get("vlm_caption") or "").lower()
-            ocr = (f_data.get("ocr_text") or "").lower()
-            combined_text = f"{caption} {ocr}"
             ts = float(f_data.get("timestamp", 0.0))
-            if combined_text and visual_keywords:
-                match_count = sum(1 for kw in visual_keywords if kw in combined_text)
+            if caption and visual_keywords:
+                match_count = sum(1 for kw in visual_keywords if kw.lower() in caption)
                 if match_count > 0:
-                    boost = (match_count / len(visual_keywords)) * weight_caption
+                    boost = (match_count / max(1, len(visual_keywords))) * weight_caption
+                    # Extra boost if dynamic action keywords matched
+                    if action_keywords and any(act.lower() in caption for act in action_keywords):
+                        boost *= 1.25
                     timestamp_score_map[ts] = timestamp_score_map.get(ts, 0.0) + boost
-
-        # C. Audio Transcripts Match
-        try:
-            tbl_transcripts = db_manager.get_table("transcripts")
-            transcripts = [r for r in tbl_transcripts.to_arrow().to_pylist() if r.get("video_id") == actual_video_id]
-            for tr in transcripts:
-                text = (tr.get("spoken_text") or "").lower()
-                if text and audio_keywords:
-                    match_count = sum(1 for kw in audio_keywords if kw in text)
-                    if match_count > 0:
-                        t_mid = (float(tr["t_start"]) + float(tr["t_end"])) / 2.0
-                        boost = (match_count / len(audio_keywords)) * weight_audio
-                        timestamp_score_map[t_mid] = timestamp_score_map.get(t_mid, 0.0) + boost
-        except Exception as e:
-            logger.debug(f"Audio match check: {e}")
 
         # 6. Build (Timestamp, Score) List
         timestamp_scores: List[Tuple[float, float]] = list(timestamp_score_map.items())
@@ -170,12 +186,28 @@ class HybridMomentSearchEngine:
             contrast_smoothed = smoothed_scores
             raw_peak_factor = min(1.0, max(0.40, max_s / 0.35))
 
-        # 9. Adaptive Valley Boundary Extraction
+        # 9. Adaptive Valley Boundary Extraction with 1D Wasserstein Snapping & OMTG
         extracted_moments = self.boundary_extractor.extract_moments(
             time_axis=time_axis,
             smoothed_scores=contrast_smoothed,
-            threshold_factor=threshold_factor
+            threshold_factor=threshold_factor,
+            enable_wasserstein=True,
+            nms_iou_threshold=0.25
         )
+
+        # Module 7: Two-Stage VLM Cross-Verification (Optional Reranking)
+        if getattr(settings, "ENABLE_VLM_RERANK", False) and extracted_moments:
+            for m in extracted_moments[:3]:
+                moment_captions = [
+                    (f.get("vlm_caption") or "").lower()
+                    for f in video_frames
+                    if m["t_start"] <= float(f.get("timestamp", 0.0)) <= m["t_end"]
+                ]
+                if moment_captions and visual_keywords:
+                    caption_corpus = " ".join(moment_captions)
+                    match_ratio = sum(1 for kw in visual_keywords if kw.lower() in caption_corpus) / max(1, len(visual_keywords))
+                    m["score"] = round(0.60 * m["score"] + 0.40 * match_ratio, 4)
+            extracted_moments.sort(key=lambda x: x["score"], reverse=True)
 
         # 10. Hydrate Moment Items with Previews
         moments_response: List[MomentItem] = []

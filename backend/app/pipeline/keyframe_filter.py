@@ -38,8 +38,9 @@ class SSIMKeyframeFilter:
 
         for i in range(1, len(frames)):
             diff = self._compute_fast_difference(last_kept_frame, frames[i])
-            # If difference exceeds threshold, keep it
-            if diff >= (1.0 - self.ssim_threshold) * 0.15:
+            time_gap = timestamps[i] - filtered_timestamps[-1]
+            # If visual difference exceeds threshold OR maximum gap of 2.0s reached, keep frame
+            if diff >= (1.0 - self.ssim_threshold) * 0.15 or time_gap >= 2.0:
                 filtered_frames.append(frames[i])
                 filtered_timestamps.append(timestamps[i])
                 last_kept_frame = frames[i]

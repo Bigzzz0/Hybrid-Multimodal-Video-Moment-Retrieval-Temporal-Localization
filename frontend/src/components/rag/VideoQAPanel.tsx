@@ -53,7 +53,7 @@ export const VideoQAPanel: React.FC<VideoQAPanelProps> = ({
           <div className="p-6 text-center text-gray-400 space-y-2">
             <MessageSquare className="w-8 h-8 mx-auto text-indigo-400 opacity-60" />
             <p className="text-xs text-gray-300">
-              Ask anything about this video (e.g. "ผู้บรรยายพูดถึงหัวข้ออะไรบ้าง?", "สรุปเนื้อหาสำคัญ")
+              Ask about actions & visual events (e.g. "เกิดเหตุการณ์อะไรขึ้นบ้าง?", "คนในคลิปกำลังทำอะไร?")
             </p>
           </div>
         )}

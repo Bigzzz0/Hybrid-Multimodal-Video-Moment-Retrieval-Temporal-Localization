@@ -81,3 +81,37 @@ def test_qwen_vl_dense_captioner_init():
     dummy_img = Image.new("RGB", (64, 64), color="blue")
     cap = captioner.generate_scene_caption([dummy_img])
     assert "Scene showing keyframe visuals" in cap
+
+def test_visual_query_decomposer_and_tta():
+    from app.retrieval.query_expander import VisualQueryDecomposer
+    decomposer = VisualQueryDecomposer()
+    res = decomposer.expand_query("คนเดินไปหยิบแก้วน้ำ")
+    assert len(res["visual_keywords"]) > 0
+    assert len(res["action_keywords"]) > 0
+    assert res["audio_keywords"] == [] # Audio explicitly removed
+
+    tta_list = decomposer.get_tta_queries("คนเดินไปหยิบแก้วน้ำ")
+    assert len(tta_list) >= 2
+    assert tta_list[0][1] == 0.50 # Primary query weight
+
+def test_wasserstein_and_omtg():
+    extractor = TemporalBoundaryExtractor(threshold_factor=0.5)
+    time_axis = np.linspace(0.0, 100.0, 200) # 0.5 sec resolution
+    scores = np.zeros_like(time_axis)
+    
+    # Event 1 at 20s-30s
+    scores[40:60] = 1.0
+    # Event 2 at 70s-80s (Disjoint)
+    scores[140:160] = 0.95
+    
+    moments = extractor.extract_moments(
+        time_axis, scores, enable_wasserstein=True, nms_iou_threshold=0.25
+    )
+    # Should detect both disjoint events under OMTG
+    assert len(moments) >= 2
+    # Verify moments are ordered by score
+    assert moments[0]["score"] >= moments[1]["score"]
+    # Check boundaries match the synthetic events
+    assert any(18.0 <= m["t_start"] <= 22.0 for m in moments)
+    assert any(68.0 <= m["t_start"] <= 72.0 for m in moments)
+

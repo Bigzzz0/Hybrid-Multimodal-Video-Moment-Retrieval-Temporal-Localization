@@ -10,17 +10,15 @@ from app.db.connection import db_manager
 from app.pipeline.video_decoder import GPUVideoDecoder
 from app.pipeline.scene_detector import AdaptiveSceneDetector
 from app.pipeline.keyframe_filter import SSIMKeyframeFilter
-from app.pipeline.audio_asr import WhisperAudioASR
 from app.pipeline.visual_encoder import SigLIP2VisualEncoder
 from app.pipeline.dense_captioner import QwenVLDenseCaptioner
 
 class ProgressiveIngestionManager:
-    """Orchestrates Progressive Two-Phase Video Ingestion and Feature Extraction."""
+    """Orchestrates Progressive Two-Phase Video Ingestion and Visual-Centric Feature Extraction."""
 
     def __init__(self):
         self.scene_detector = AdaptiveSceneDetector()
         self.keyframe_filter = SSIMKeyframeFilter()
-        self.audio_asr = WhisperAudioASR()
         self.visual_encoder = SigLIP2VisualEncoder()
         self.dense_captioner = QwenVLDenseCaptioner()
 
@@ -50,37 +48,22 @@ class ProgressiveIngestionManager:
         # 2. Scene Detection
         if progress_callback:
             progress_callback(
-                video_id, 15,
+                video_id, 20,
                 f"Detecting Scene Cuts (Adaptive Content Detection)...",
                 "scene_detect",
-                {"duration_sec": duration, "fps": fps, "resolution": resolution, "sub_percent": 20}
+                {"duration_sec": duration, "fps": fps, "resolution": resolution, "sub_percent": 30}
             )
         scenes = self.scene_detector.detect_scenes(video_path)
 
         if progress_callback:
             progress_callback(
-                video_id, 25,
-                f"Detected {len(scenes)} scenes. Starting Speech Transcription...",
-                "scene_detect",
-                {"scene_count": len(scenes), "sub_percent": 100}
-            )
-
-        # 3. Audio ASR Transcription (Concurrent/Sequential)
-        def asr_sub_progress(macro_pct, msg, stg, details):
-            if progress_callback:
-                progress_callback(video_id, macro_pct, msg, stg, details)
-
-        transcripts = self.audio_asr.transcribe(video_path, progress_callback=asr_sub_progress)
-
-        # 4. Keyframe Sampling & SSIM Filtering
-        if progress_callback:
-            progress_callback(
-                video_id, 60,
-                f"Sampling Keyframes across {len(scenes)} scenes with SSIM...",
+                video_id, 35,
+                f"Detected {len(scenes)} scenes. Sampling Keyframes with SSIM...",
                 "keyframe_ssim",
-                {"transcript_count": len(transcripts), "sub_percent": 0}
+                {"scene_count": len(scenes), "sub_percent": 0}
             )
-        
+
+        # 3. Keyframe Sampling & SSIM Filtering
         video_keyframe_dir = settings.KEYFRAMES_DIR / video_id
         video_keyframe_dir.mkdir(parents=True, exist_ok=True)
 
@@ -130,7 +113,7 @@ class ProgressiveIngestionManager:
 
             if progress_callback and (s_idx % max(1, total_scenes // 15) == 0 or s_idx == total_scenes - 1):
                 sub_pct = int(((s_idx + 1) / total_scenes) * 100)
-                macro_pct = min(77, 60 + int(((s_idx + 1) / total_scenes) * 17))
+                macro_pct = min(65, 35 + int(((s_idx + 1) / total_scenes) * 30))
                 progress_callback(
                     video_id,
                     macro_pct,
@@ -144,24 +127,37 @@ class ProgressiveIngestionManager:
                     }
                 )
 
-        # 5. SigLIP 2 Visual Embedding
+        # 4. SigLIP 2 Visual Embedding
         def siglip_sub_progress(macro_pct, msg, stg, details):
             if progress_callback:
                 progress_callback(video_id, macro_pct, msg, stg, details)
 
         embeddings = self.visual_encoder.encode_images(all_sampled_images, batch_size=16, progress_callback=siglip_sub_progress)
         
-        for meta, emb in zip(all_sampled_meta, embeddings):
-            meta["siglip2_vector"] = emb
+        # 5. Multi-Frame Sliding Window Temporal Context Pooling & Motion Dynamics
+        import numpy as np
+        num_frames = len(embeddings)
+        for i, meta in enumerate(all_sampled_meta):
+            emb_curr = np.array(embeddings[i], dtype=np.float32)
+            emb_prev = np.array(embeddings[i - 1], dtype=np.float32) if i > 0 else emb_curr
+            emb_next = np.array(embeddings[i + 1], dtype=np.float32) if i < num_frames - 1 else emb_curr
+
+            # Temporal context vector (Gaussian weighted window)
+            temporal_vec = 0.60 * emb_curr + 0.20 * emb_prev + 0.20 * emb_next
+            norm_val = np.linalg.norm(temporal_vec)
+            if norm_val > 0:
+                temporal_vec = temporal_vec / norm_val
+            
+            meta["siglip2_vector"] = temporal_vec.tolist()
             frame_records.append(meta)
 
-        # 6. Commit to LanceDB (Phase 1 Ready)
+        # 6. Commit to LanceDB (Phase 1 Ready - Pure Visual SOTA)
         if progress_callback:
             progress_callback(
-                video_id, 96,
+                video_id, 92,
                 f"Building LanceDB IVF-PQ Vector & Full-Text Indices ({len(frame_records)} frames)...",
                 "lancedb_commit",
-                {"frame_count": len(frame_records), "transcript_count": len(transcripts), "sub_percent": 60}
+                {"frame_count": len(frame_records), "sub_percent": 80}
             )
 
         # Insert Video Metadata
@@ -183,19 +179,6 @@ class ProgressiveIngestionManager:
             tbl_scenes = db_manager.get_table("scenes")
             tbl_scenes.add(scene_records)
 
-        # Insert Transcripts
-        if transcripts:
-            tbl_transcripts = db_manager.get_table("transcripts")
-            transcript_rows = [{
-                "id": str(uuid.uuid4()),
-                "video_id": video_id,
-                "t_start": float(tr["t_start"]),
-                "t_end": float(tr["t_end"]),
-                "speaker_tag": "speaker",
-                "spoken_text": tr["spoken_text"]
-            } for tr in transcripts]
-            tbl_transcripts.add(transcript_rows)
-
         # Insert Frames
         if frame_records:
             tbl_frames = db_manager.get_table("video_frames")
@@ -207,11 +190,11 @@ class ProgressiveIngestionManager:
         if progress_callback:
             progress_callback(
                 video_id, 100,
-                f"Phase 1 Ready: Indexed {len(frame_records)} frames & {len(transcripts)} transcripts. Instant Search is Active!",
+                f"Phase 1 Ready: Indexed {len(frame_records)} visual keyframes with Temporal Context. Instant Search is Active!",
                 "complete",
-                {"duration_sec": duration, "keyframes": len(frame_records), "transcripts": len(transcripts)}
+                {"duration_sec": duration, "keyframes": len(frame_records)}
             )
-        logger.info(f"Phase 1 Ingestion Complete for {video_id}.")
+        logger.info(f"Phase 1 Visual Ingestion Complete for {video_id}.")
 
     def process_video_phase2_background(
         self,
@@ -219,11 +202,11 @@ class ProgressiveIngestionManager:
         progress_callback: Optional[Callable[[str, int, str, str, Dict[str, Any]], None]] = None
     ):
         """
-        Phase 2: Deep Context Ingestion (Background) - Generates Qwen2.5-VL-7B Action & OCR Captions.
+        Phase 2: Deep Context Ingestion (Background) - Generates Qwen2.5-VL-7B Spatiotemporal Action Captions.
         """
         logger.info(f"=== Starting Phase 2 Background Captioning for Video ID: {video_id} ===")
         if progress_callback:
-            progress_callback(video_id, 10, "Generating Qwen2.5-VL Action & OCR Captions (Background)...", "vlm_caption", {})
+            progress_callback(video_id, 10, "Generating Qwen2.5-VL Dense Action Captions (Background)...", "vlm_caption", {})
 
         try:
             from collections import defaultdict

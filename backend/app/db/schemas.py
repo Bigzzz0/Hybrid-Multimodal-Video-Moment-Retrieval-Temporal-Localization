@@ -94,8 +94,8 @@ class SearchQueryRequest(BaseModel):
     query: str
     video_id: Optional[str] = None
     top_k: int = 5
-    weight_visual: float = 0.45
-    weight_caption: float = 0.35
-    weight_audio: float = 0.20
+    weight_visual: float = 0.60
+    weight_caption: float = 0.40
+    weight_audio: float = 0.00
     gaussian_sigma: float = 1.5
     threshold_factor: float = 0.8

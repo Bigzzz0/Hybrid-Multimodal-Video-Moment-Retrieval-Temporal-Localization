@@ -37,7 +37,10 @@ backend/data/*.log
 
 # Evaluation Datasets
 evaluation/datasets/*.json
+!evaluation/datasets/real_video_benchmark.json
 evaluation/datasets/*.mp4
+evaluation/datasets/videos/
+evaluation/benchmark_real_results.json
 
 # Node & Next.js Frontend
 frontend/node_modules/
@@ -48,6 +51,8 @@ frontend/out/
 frontend/build/
 frontend/dist/
 frontend/.env*.local
+*.tsbuildinfo
+
 
 # IDEs & OS Files
 .vscode/

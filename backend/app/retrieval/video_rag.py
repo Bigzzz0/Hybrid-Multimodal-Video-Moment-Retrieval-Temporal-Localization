@@ -39,23 +39,7 @@ class VideoRAGEngine:
         t0 = time.time()
         logger.info(f"Video-RAG answering question for video {video_id}: '{question}'")
 
-        # 1. Retrieve Transcripts around question keywords
-        tbl_transcripts = db_manager.get_table("transcripts")
-        try:
-            transcripts = [r for r in tbl_transcripts.to_arrow().to_pylist() if r.get("video_id") == video_id]
-        except Exception:
-            transcripts = []
-
-        q_lower = question.lower()
-        q_tokens = [w.strip() for w in q_lower.split() if len(w.strip()) > 2]
-
-        matched_transcripts = []
-        for tr in transcripts:
-            text = (tr.get("spoken_text") or "").lower()
-            if any(tok in text for tok in q_tokens):
-                matched_transcripts.append(tr)
-
-        # 2. Retrieve Visual Frames with SigLIP 2
+        # 1. Retrieve Visual Frames with SigLIP 2 & Caption Matching
         tbl_frames = db_manager.get_table("video_frames")
         try:
             video_frames = tbl_frames.search().where(f"video_id = '{video_id}'").limit(1000).to_list()
@@ -67,54 +51,52 @@ class VideoRAGEngine:
         if q_norm > 0:
             query_vec = query_vec / q_norm
 
+        q_tokens = [w.strip().lower() for w in question.split() if len(w.strip()) > 1]
+
         scored_frames = []
         for f in video_frames:
             emb = f.get("siglip2_vector")
+            sim = 0.0
             if emb is not None and len(emb) == 768:
                 sim = float(np.dot(np.array(emb, dtype=np.float32), query_vec))
-                scored_frames.append((sim, f))
+            
+            # Action caption boost
+            caption = (f.get("vlm_caption") or "").lower()
+            if caption and q_tokens:
+                match_count = sum(1 for tok in q_tokens if tok in caption)
+                if match_count > 0:
+                    sim += 0.25 * (match_count / len(q_tokens))
+            
+            scored_frames.append((sim, f))
 
         scored_frames.sort(key=lambda x: x[0], reverse=True)
         top_frames = scored_frames[:3]
 
-        # 3. Formulate Multimodal Context
-        context_transcripts_str = "\n".join([
-            f"[{tr.get('t_start'):.1f}s - {tr.get('t_end'):.1f}s]: {tr.get('spoken_text')}"
-            for tr in (matched_transcripts[:5] if matched_transcripts else transcripts[:5])
-        ])
-
+        # 2. Formulate Visual Context
         context_visual_str = "\n".join([
-            f"[เวลา {f.get('timestamp'):.1f}s]: {f.get('vlm_caption') or 'ภาพแสดงเหตุการณ์ในฉาก'}"
-            for sim, f in top_frames
+            f"[เวลา {f.get('timestamp'):.1f}s]: {f.get('vlm_caption') or 'ภาพแสดงการกระทำและเหตุการณ์ในฉาก'}"
+            for sim, f in top_frames if sim > 0.05
         ])
 
-        # 4. Generate Grounded Synthesis Answer
+        # 3. Generate Grounded Synthesis Answer
         evidence_citations = []
-        if matched_transcripts:
-            for tr in matched_transcripts[:2]:
+        for sim, f in top_frames:
+            if sim > 0.08:
+                ts = float(f.get("timestamp", 0.0))
                 evidence_citations.append(GroundedMoment(
-                    t_start=round(float(tr.get("t_start", 0.0)), 1),
-                    t_end=round(float(tr.get("t_end", 0.0)), 1),
-                    citation_text=str(tr.get("spoken_text", ""))[:80],
-                    thumbnail_path=top_frames[0][1].get("frame_path") if top_frames else None
+                    t_start=round(max(0.0, ts - 1.5), 1),
+                    t_end=round(ts + 3.5, 1),
+                    citation_text=(f.get("vlm_caption") or "ฉากเหตุการณ์ที่ตรงกับคำถาม")[:100],
+                    thumbnail_path=f.get("frame_path")
                 ))
-        elif top_frames:
-            best_f = top_frames[0][1]
-            ts = float(best_f.get("timestamp", 0.0))
-            evidence_citations.append(GroundedMoment(
-                t_start=round(max(0.0, ts - 2.0), 1),
-                t_end=round(ts + 5.0, 1),
-                citation_text=best_f.get("vlm_caption") or "พบเหตุการณ์ตรงกับคำถามในฉากนี้",
-                thumbnail_path=best_f.get("frame_path")
-            ))
 
         # Synthesis
-        if context_transcripts_str.strip():
-            answer = f"จากบทสนทนาและภาพเหตุการณ์ในวิดีโอ:\n{context_transcripts_str}\n\n(อ้างอิงช่วงเวลา: {evidence_citations[0].t_start}s - {evidence_citations[0].t_end}s)"
-        elif context_visual_str.strip():
-            answer = f"จากการวิเคราะห์ภาพเหตุการณ์ในวิดีโอ:\n{context_visual_str}\n\n(อ้างอิงช่วงเวลา: {evidence_citations[0].t_start}s - {evidence_citations[0].t_end}s)"
+        if context_visual_str.strip():
+            answer = f"จากการวิเคราะห์ภาพเหตุการณ์และการกระทำในวิดีโอ (Visual Evidence):\n{context_visual_str}"
+            if evidence_citations:
+                answer += f"\n\n(อ้างอิงช่วงเวลาสำคัญ: {evidence_citations[0].t_start}s - {evidence_citations[0].t_end}s)"
         else:
-            answer = "ไม่พบบทสนทนาหรือภาพเหตุการณ์ที่ตรงกับคำถามนี้ในวิดีโอที่เลือก"
+            answer = "ไม่พบภาพเหตุการณ์หรือการกระทำที่สอดคล้องกับคำถามนี้ในวิดีโอที่เลือก"
 
         latency_ms = round((time.time() - t0) * 1000.0, 2)
         return VideoQAResponse(

@@ -1,0 +1,110 @@
+{
+  "benchmark_name": "Real-World SOTA Video Moment Retrieval Benchmark (2026)",
+  "description": "Evaluation dataset consisting of real-world video footage downloaded directly from public repositories, annotated with ground-truth temporal boundaries and bilingual queries.",
+  "videos": [
+    {
+      "video_id": "benchmark_person_bicycle_car",
+      "filename": "benchmark_person_bicycle_car.mp4",
+      "source_url": "https://raw.githubusercontent.com/intel-iot-devkit/sample-videos/master/person-bicycle-car-detection.mp4",
+      "duration_sec": 53.92,
+      "fps": 12.0,
+      "resolution": "768x432",
+      "events": [
+        {
+          "event_id": "event_pedestrian_1",
+          "t_start": 1.5,
+          "t_end": 7.0,
+          "queries": [
+            "person walking on street",
+            "คนเดินบนถนน",
+            "pedestrian walking along sidewalk",
+            "คนกำลังเดิน"
+          ],
+          "description": "A pedestrian walking along the sidewalk next to the road."
+        },
+        {
+          "event_id": "event_car_1",
+          "t_start": 15.0,
+          "t_end": 20.0,
+          "queries": [
+            "car driving on road",
+            "รถยนต์วิ่งผ่านถนน",
+            "automobile vehicle driving by",
+            "รถยนต์แล่นผ่าน"
+          ],
+          "description": "A car drives past on the roadway."
+        },
+        {
+          "event_id": "event_cyclist",
+          "t_start": 25.0,
+          "t_end": 30.0,
+          "queries": [
+            "bicycle cyclist riding",
+            "คนปั่นจักรยาน",
+            "cyclist riding bike on the street",
+            "คนขี่จักรยาน"
+          ],
+          "description": "A cyclist rides a bicycle along the street."
+        },
+        {
+          "event_id": "event_pedestrian_2",
+          "t_start": 39.5,
+          "t_end": 46.0,
+          "queries": [
+            "person walking sidewalk",
+            "คนเดินริมถนน",
+            "pedestrian walking in distance",
+            "คนเดินผ่าน"
+          ],
+          "description": "Second disjoint pedestrian walking event along the street."
+        },
+        {
+          "event_id": "event_car_2",
+          "t_start": 46.0,
+          "t_end": 50.5,
+          "queries": [
+            "car vehicle moving",
+            "รถยนต์ขับผ่าน",
+            "automobile moving on road",
+            "รถวิ่ง"
+          ],
+          "description": "Second car driving across the roadway."
+        }
+      ]
+    },
+    {
+      "video_id": "benchmark_classroom",
+      "filename": "benchmark_classroom.mp4",
+      "source_url": "https://raw.githubusercontent.com/intel-iot-devkit/sample-videos/master/classroom.mp4",
+      "duration_sec": 32.80,
+      "fps": 30.0,
+      "resolution": "1920x1080",
+      "events": [
+        {
+          "event_id": "event_teacher_lecturing",
+          "t_start": 6.0,
+          "t_end": 14.5,
+          "queries": [
+            "teacher lecturer standing front",
+            "อาจารย์ยืนหน้าห้อง",
+            "instructor standing in front of classroom",
+            "ผู้บรรยายยืนสอน"
+          ],
+          "description": "Teacher standing and lecturing in front of the classroom blackboard."
+        },
+        {
+          "event_id": "event_students_sitting",
+          "t_start": 0.0,
+          "t_end": 32.8,
+          "queries": [
+            "students sitting at desks",
+            "นักเรียนนั่งในห้องเรียน",
+            "pupils seated at school desks",
+            "เด็กนักเรียนนั่งเรียน"
+          ],
+          "description": "Students sitting at classroom desks attending the lecture."
+        }
+      ]
+    }
+  ]
+}

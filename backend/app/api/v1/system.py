@@ -78,11 +78,11 @@ def get_system_telemetry():
             "acceleration": "CUDA FP16 / Tensor Cores" if torch.cuda.is_available() else "CPU"
         },
         "audio_asr": {
-            "name": "Faster-Whisper",
-            "model_size": settings.WHISPER_MODEL_SIZE,
-            "engine": "CTranslate2 (CUDA 12 FP16)" if torch.cuda.is_available() else "CPU int8",
-            "beam_size": 5,
-            "vad_filter": True
+            "name": "Faster-Whisper (Disabled)",
+            "model_size": "disabled",
+            "engine": "Visual-Centric Mode (Zero Audio Overhead)",
+            "beam_size": 0,
+            "vad_filter": False
         },
         "dense_captioner": {
             "name": "Qwen2.5-VL-7B-Instruct",
