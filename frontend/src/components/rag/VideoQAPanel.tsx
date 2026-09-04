@@ -12,6 +12,8 @@ import {
   User,
   ExternalLink,
   HelpCircle,
+  Film,
+  Repeat,
 } from "lucide-react";
 import { apiClient, VideoQAResult } from "@/lib/api";
 
@@ -50,6 +52,51 @@ export const VideoQAPanel: React.FC<VideoQAPanelProps> = ({
     } finally {
       setLoading(false);
     }
+  };
+
+  // Helper to render text with interactive clickable timecode pins
+  const renderInteractiveAnswer = (text: string) => {
+    const timecodeRegex = /(\[\d+\.?\d*\s*s?\s*-\s*\d+\.?\d*\s*s?\]|\b\d+\.?\d*\s*s\b)/gi;
+    const parts = text.split(timecodeRegex);
+
+    return parts.map((part, pIdx) => {
+      const matchRange = part.match(/\[(\d+\.?\d*)\s*s?\s*-\s*(\d+\.?\d*)\s*s?\]/i);
+      const matchSingle = part.match(/\b(\d+\.?\d*)\s*s\b/i);
+
+      if (matchRange) {
+        const tStart = parseFloat(matchRange[1]);
+        const tEnd = parseFloat(matchRange[2]);
+        return (
+          <button
+            key={pIdx}
+            type="button"
+            onClick={() => onSeekToTimestamp(tStart)}
+            className="inline-flex items-center gap-1 px-1.5 py-0.5 mx-0.5 rounded-md bg-cyan-950/80 hover:bg-cyan-900 border border-cyan-500/50 text-cyan-300 font-mono font-bold text-[11px] shadow-sm hover:scale-105 transition-transform align-baseline"
+            title={`Seek to ${tStart}s - ${tEnd}s`}
+          >
+            <Clock className="w-2.5 h-2.5 text-cyan-400" />
+            <span>{tStart.toFixed(1)}s-{tEnd.toFixed(1)}s</span>
+          </button>
+        );
+      } else if (matchSingle) {
+        const t = parseFloat(matchSingle[1]);
+        if (t > 0) {
+          return (
+            <button
+              key={pIdx}
+              type="button"
+              onClick={() => onSeekToTimestamp(t)}
+              className="inline-flex items-center gap-1 px-1.5 py-0.5 mx-0.5 rounded-md bg-indigo-950/80 hover:bg-indigo-900 border border-indigo-500/50 text-indigo-300 font-mono font-bold text-[11px] shadow-sm hover:scale-105 transition-transform align-baseline"
+              title={`Seek to ${t}s`}
+            >
+              <Clock className="w-2.5 h-2.5 text-indigo-400" />
+              <span>{t.toFixed(1)}s</span>
+            </button>
+          );
+        }
+      }
+      return <span key={pIdx}>{part}</span>;
+    });
   };
 
   return (
@@ -118,7 +165,7 @@ export const VideoQAPanel: React.FC<VideoQAPanelProps> = ({
                 <Sparkles className="w-3 h-3" />
               </div>
 
-              <div className="bg-surface/90 border border-surfaceBorder rounded-2xl rounded-tl-none p-3.5 text-gray-200 max-w-[90%] space-y-2.5 shadow-lg">
+              <div className="bg-surface/90 border border-surfaceBorder rounded-2xl rounded-tl-none p-3.5 text-gray-200 max-w-[92%] space-y-2.5 shadow-lg">
                 <div className="flex items-center justify-between text-[10px] text-gray-400 border-b border-surfaceBorder/60 pb-1.5">
                   <span className="flex items-center gap-1 text-cyan-300 font-semibold">
                     <CheckCircle2 className="w-3 h-3 text-cyan-400" /> Grounded Synthesis
@@ -126,9 +173,9 @@ export const VideoQAPanel: React.FC<VideoQAPanelProps> = ({
                   <span className="font-mono text-gray-500">{item.res.latency_ms} ms</span>
                 </div>
 
-                <p className="whitespace-pre-line leading-relaxed text-gray-200">
-                  {item.res.answer}
-                </p>
+                <div className="whitespace-pre-line leading-relaxed text-gray-200">
+                  {renderInteractiveAnswer(item.res.answer)}
+                </div>
 
                 {/* Visual Evidence Cards */}
                 {item.res.grounded_moments && item.res.grounded_moments.length > 0 && (

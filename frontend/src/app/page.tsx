@@ -12,12 +12,13 @@ import {
   AlertTriangle,
   Terminal,
   Cpu,
-  ChevronDown,
-  ChevronUp,
   X,
   UploadCloud,
+  Command,
+  HelpCircle,
+  Tv,
 } from "lucide-react";
-import { VideoMetadata, MomentItem, SearchResponse, VideoKeyframeItem } from "@/lib/types";
+import { VideoMetadata, MomentItem, SearchResponse, VideoKeyframeItem, FilterCriteria } from "@/lib/types";
 import { apiClient } from "@/lib/api";
 import { VideoLibraryReel } from "@/components/library/VideoLibraryReel";
 import { VideoPlayer } from "@/components/player/VideoPlayer";
@@ -26,6 +27,7 @@ import { MomentCards } from "@/components/search/MomentCards";
 import { VideoQAPanel } from "@/components/rag/VideoQAPanel";
 import { Dropzone } from "@/components/upload/Dropzone";
 import { DevPanel } from "@/components/dev/DevPanel";
+import { ShortcutModal } from "@/components/ui/ShortcutModal";
 
 export default function DashboardPage() {
   const [videos, setVideos] = useState<VideoMetadata[]>([]);
@@ -41,7 +43,9 @@ export default function DashboardPage() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [videoToDelete, setVideoToDelete] = useState<VideoMetadata | null>(null);
   const [showDevPanel, setShowDevPanel] = useState(false);
+  const [showShortcutModal, setShowShortcutModal] = useState(false);
   const [showUploader, setShowUploader] = useState(false);
+  const [isCinemaMode, setIsCinemaMode] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
@@ -79,17 +83,38 @@ export default function DashboardPage() {
     }
   }, [selectedVideo]);
 
-  // Global hotkey listener (Ctrl + K or / to focus search)
+  // Global Pro Hotkeys Engine
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.ctrlKey && e.key === "k") || (e.key === "/" && document.activeElement?.tagName !== "INPUT")) {
+      const activeEl = document.activeElement;
+      const isInput =
+        activeEl?.tagName === "INPUT" ||
+        activeEl?.tagName === "TEXTAREA" ||
+        (activeEl as HTMLElement)?.isContentEditable;
+
+      if ((e.ctrlKey && e.key === "k") || (e.key === "/" && !isInput)) {
         e.preventDefault();
         searchInputRef.current?.focus();
+      } else if (!isInput) {
+        if (e.key === "t" || e.key === "T") {
+          e.preventDefault();
+          setIsCinemaMode((prev) => !prev);
+        } else if (e.key === "?") {
+          e.preventDefault();
+          setShowShortcutModal((prev) => !prev);
+        } else if (e.key === "[" && activeMoment) {
+          e.preventDefault();
+          setSeekTime(activeMoment.t_start);
+        } else if (e.key === "]" && activeMoment) {
+          e.preventDefault();
+          setSeekTime(activeMoment.t_end);
+        }
       }
     };
+
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, []);
+  }, [activeMoment]);
 
   const saveRecentQuery = (q: string) => {
     try {
@@ -130,6 +155,17 @@ export default function DashboardPage() {
     setActiveMoment(m);
     setSeekTime(m.t_start);
     setHighlightInterval([m.t_start, m.t_end]);
+  };
+
+  const handleBoundaryChange = (newStart: number, newEnd: number) => {
+    setHighlightInterval([newStart, newEnd]);
+    if (activeMoment) {
+      setActiveMoment({
+        ...activeMoment,
+        t_start: newStart,
+        t_end: newEnd,
+      });
+    }
   };
 
   const handleSeekFromQA = (time: number) => {
@@ -181,7 +217,7 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-5">
-      {/* 1. Video Library Reel (Visual Horizontal Filmstrip) */}
+      {/* 1. Video Library Reel (Visual Horizontal Shelf) */}
       <VideoLibraryReel
         videos={videos}
         selectedVideo={selectedVideo}
@@ -193,9 +229,11 @@ export default function DashboardPage() {
         }}
         onRequestDelete={handleRequestDelete}
         onToggleUpload={() => setShowUploader(!showUploader)}
+        isCinemaMode={isCinemaMode}
+        onToggleCinemaMode={() => setIsCinemaMode(!isCinemaMode)}
       />
 
-      {/* 2. Top Natural Language Search Suite */}
+      {/* 2. Natural Language Search Suite with Pro Shortcut Pill */}
       <div className="glass-panel rounded-2xl p-4 shadow-xl space-y-3 border border-surfaceBorder/80">
         <form
           onSubmit={(e) => {
@@ -212,18 +250,25 @@ export default function DashboardPage() {
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="ค้นหาการกระทำทางกายภาพ (เช่น 'คนปั่นจักรยาน', 'รถยนต์เลี้ยวซ้าย', 'student raising hand')..."
-              className="w-full bg-surface/90 border border-surfaceBorder rounded-xl pl-11 pr-10 py-3 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 transition-all shadow-inner"
+              className="w-full bg-surface/90 border border-surfaceBorder rounded-xl pl-11 pr-24 py-3 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 transition-all shadow-inner"
             />
             <Search className="w-5 h-5 absolute left-3.5 top-3.5 text-cyan-400" />
-            {searchQuery && (
-              <button
-                type="button"
-                onClick={() => setSearchQuery("")}
-                className="absolute right-3.5 top-3.5 text-gray-500 hover:text-gray-300"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            )}
+
+            {/* Quick Clear & Keyboard Shortcut Badge */}
+            <div className="absolute right-3 top-2.5 flex items-center gap-1.5">
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery("")}
+                  className="p-1 text-gray-500 hover:text-gray-300"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+              <kbd className="hidden sm:inline-block px-2 py-0.5 rounded bg-surfaceBorder/60 border border-white/10 text-[10px] font-mono text-gray-400">
+                Ctrl K
+              </kbd>
+            </div>
           </div>
 
           {/* Search Button */}
@@ -241,6 +286,17 @@ export default function DashboardPage() {
                 <Sparkles className="w-4 h-4 text-cyan-200" /> สกัดช่วงเวลา (VMR)
               </>
             )}
+          </button>
+
+          {/* Keyboard Shortcuts Sheet Button */}
+          <button
+            type="button"
+            onClick={() => setShowShortcutModal(true)}
+            className="p-3 rounded-xl bg-surface hover:bg-surfaceBorder text-gray-300 hover:text-cyan-300 border border-surfaceBorder hover:border-cyan-500/40 text-xs font-mono transition-all flex items-center gap-1 flex-shrink-0 shadow-sm"
+            title="Pro Keyboard Shortcuts (?)"
+          >
+            <Command className="w-4 h-4 text-cyan-400" />
+            <span className="hidden xl:inline">Hotkeys</span>
           </button>
 
           {/* Dev & Telemetry Panel Button */}
@@ -277,10 +333,18 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* 4. Studio Layout Grid: Player (7 cols) & Multi-modal Inspector (5 cols) */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        {/* Left Column: Video Studio Player & Scrubber (7 cols) */}
-        <div className="lg:col-span-7 space-y-5">
+      {/* 4. Studio Layout Grid: Player & Multi-modal Inspector */}
+      <div
+        className={`grid grid-cols-1 ${
+          isCinemaMode ? "lg:grid-cols-12 gap-8" : "lg:grid-cols-12 gap-6"
+        } items-start studio-cinema-transition`}
+      >
+        {/* Left Column: Video Studio Player & Scrubber */}
+        <div
+          className={`${
+            isCinemaMode ? "lg:col-span-12" : "lg:col-span-7"
+          } space-y-5 transition-all duration-300`}
+        >
           {selectedVideo ? (
             <VideoPlayer
               streamUrl={apiClient.getVideoStreamUrl(selectedVideo.id)}
@@ -291,6 +355,9 @@ export default function DashboardPage() {
               moments={searchResult?.moments || []}
               keyframeRecords={keyframeRecords}
               fps={selectedVideo.fps || 25}
+              isCinemaMode={isCinemaMode}
+              onToggleCinemaMode={() => setIsCinemaMode(!isCinemaMode)}
+              onBoundaryChange={handleBoundaryChange}
             />
           ) : (
             <div className="aspect-video glass-panel rounded-2xl flex items-center justify-center text-gray-500 border border-surfaceBorder">
@@ -313,8 +380,12 @@ export default function DashboardPage() {
           )}
         </div>
 
-        {/* Right Column: Tab Navigation (Retrieved Moments vs Video-RAG QA) (5 cols) */}
-        <div className="lg:col-span-5 space-y-3.5">
+        {/* Right Column: Tab Navigation (Retrieved Moments vs Video-RAG QA) */}
+        <div
+          className={`${
+            isCinemaMode ? "lg:col-span-12" : "lg:col-span-5"
+          } space-y-3.5 transition-all duration-300`}
+        >
           {/* Mode Switcher Tabs */}
           <div className="flex items-center gap-2 p-1 bg-surface border border-surfaceBorder rounded-xl">
             <button
@@ -436,6 +507,9 @@ export default function DashboardPage() {
 
       {/* Developer & System Telemetry Panel Modal */}
       <DevPanel isOpen={showDevPanel} onClose={() => setShowDevPanel(false)} />
+
+      {/* Pro Studio Keyboard Shortcuts Modal */}
+      <ShortcutModal isOpen={showShortcutModal} onClose={() => setShowShortcutModal(false)} />
     </div>
   );
 }

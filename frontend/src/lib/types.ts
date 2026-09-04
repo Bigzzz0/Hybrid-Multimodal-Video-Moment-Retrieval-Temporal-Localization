@@ -37,6 +37,14 @@ export interface ActionSuggestionCategory {
 }
 
 
+export interface VisualCoTBreakdown {
+  subject_score: number;
+  verb_score: number;
+  context_score: number;
+  motion_energy: number; // 0.0 to 1.0
+  motion_label: "Static" | "Moderate" | "High Dynamic";
+}
+
 export interface MomentItem {
   t_start: number;
   t_end: number;
@@ -45,6 +53,26 @@ export interface MomentItem {
   caption_preview?: string | null;
   transcript_preview?: string | null;
   modality_breakdown?: Record<string, number> | null;
+  visual_cot?: VisualCoTBreakdown | null;
+}
+
+export interface DragHandleState {
+  isDragging: boolean;
+  handleType: "start" | "end" | "middle" | null;
+  initialX: number;
+  initialInterval: [number, number];
+}
+
+export interface TimelineZoomState {
+  scale: number; // 1.0, 2.0, 4.0
+  scrollOffsetSec: number;
+}
+
+export interface FilterCriteria {
+  minConfidence: number; // 0.0 - 1.0
+  motionFilter: "all" | "high" | "static";
+  minDurationSec: number;
+  maxDurationSec: number;
 }
 
 export interface SearchResponse {

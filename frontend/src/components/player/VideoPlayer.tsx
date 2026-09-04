@@ -13,6 +13,7 @@ import {
   ChevronRight,
   Gauge,
   Sparkles,
+  Tv,
 } from "lucide-react";
 import { TimelineHeatmap } from "./TimelineHeatmap";
 import { MomentItem, VideoKeyframeItem } from "@/lib/types";
@@ -26,6 +27,9 @@ interface VideoPlayerProps {
   moments?: MomentItem[];
   keyframeRecords?: VideoKeyframeItem[];
   fps?: number;
+  isCinemaMode?: boolean;
+  onToggleCinemaMode?: () => void;
+  onBoundaryChange?: (newStart: number, newEnd: number) => void;
 }
 
 export const VideoPlayer: React.FC<VideoPlayerProps> = ({
@@ -37,6 +41,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   moments = [],
   keyframeRecords = [],
   fps = 25,
+  isCinemaMode = false,
+  onToggleCinemaMode,
+  onBoundaryChange,
 }) => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -155,7 +162,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         )}
       </div>
 
-      {/* SOTA Spline Timeline Heatmap with Live Hover Scrubbing */}
+      {/* SOTA Spline Timeline Heatmap with Live Hover Scrubbing & Drag Handles */}
       <TimelineHeatmap
         heatmapData={heatmapData}
         duration={duration}
@@ -164,6 +171,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         moments={moments}
         keyframeRecords={keyframeRecords}
         onSeek={handleSeek}
+        onBoundaryChange={onBoundaryChange}
       />
 
       {/* Studio Control Bar */}
@@ -184,16 +192,18 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
             <button
               type="button"
               onClick={() => handleStepFrame(-1)}
-              title="Step Backward 1 Frame"
+              title="Step Backward 1 Frame (,)"
               className="p-1.5 hover:bg-surfaceBorder text-gray-400 hover:text-white rounded-lg transition-colors"
             >
               <ChevronLeft className="w-3.5 h-3.5" />
             </button>
-            <span className="text-[10px] font-mono text-gray-500 px-1">FRAME</span>
+            <span className="text-[10px] font-mono text-gray-500 px-1">
+              F:{Math.floor(currentTime * Math.max(10, fps))}
+            </span>
             <button
               type="button"
               onClick={() => handleStepFrame(1)}
-              title="Step Forward 1 Frame"
+              title="Step Forward 1 Frame (.)"
               className="p-1.5 hover:bg-surfaceBorder text-gray-400 hover:text-white rounded-lg transition-colors"
             >
               <ChevronRight className="w-3.5 h-3.5" />
@@ -203,7 +213,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           <button
             type="button"
             onClick={() => handleSeek(Math.max(0, currentTime - 5))}
-            title="Rewind 5s"
+            title="Rewind 5s (J)"
             className="p-2 rounded-xl hover:bg-surface text-gray-400 hover:text-white transition-colors border border-transparent hover:border-surfaceBorder"
           >
             <RotateCcw className="w-3.5 h-3.5" />
@@ -228,7 +238,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           </span>
         </div>
 
-        {/* Right Side: A-B Loop Toggle, Speed Selector, Fullscreen */}
+        {/* Right Side: A-B Loop Toggle, Speed Selector, Cinema Mode, Fullscreen */}
         <div className="flex items-center gap-2">
           {/* A-B Moment Loop Toggle */}
           {highlightInterval && (
@@ -240,7 +250,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
                   ? "bg-cyan-950 border-cyan-500 text-cyan-300 shadow-md shadow-cyan-500/20"
                   : "bg-surface hover:bg-surfaceBorder text-gray-400 hover:text-white border-surfaceBorder"
               }`}
-              title="Continuously loop localized moment [t_start, t_end]"
+              title="Continuously loop localized moment (R)"
             >
               <Repeat className={`w-3.5 h-3.5 ${isLoopActive ? "text-cyan-400 animate-spin" : ""}`} />
               <span>{isLoopActive ? "Loop ON" : "Loop Moment"}</span>
@@ -263,6 +273,22 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
               <option value="2.0" className="bg-surface text-white">2.0x</option>
             </select>
           </div>
+
+          {/* Cinema Theater Mode Button */}
+          {onToggleCinemaMode && (
+            <button
+              type="button"
+              onClick={onToggleCinemaMode}
+              className={`p-2 rounded-xl border transition-all ${
+                isCinemaMode
+                  ? "bg-cyan-950 border-cyan-500 text-cyan-300 shadow-md shadow-cyan-500/20"
+                  : "hover:bg-surface text-gray-400 hover:text-white border-transparent hover:border-surfaceBorder"
+              }`}
+              title={isCinemaMode ? "Exit Cinema Mode (T)" : "Cinema Theater Mode (T)"}
+            >
+              <Tv className="w-3.5 h-3.5" />
+            </button>
+          )}
 
           <button
             type="button"

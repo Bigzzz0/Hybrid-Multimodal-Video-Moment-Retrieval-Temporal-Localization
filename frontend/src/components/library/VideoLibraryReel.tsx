@@ -2,7 +2,19 @@
 
 import React, { useRef } from "react";
 import { VideoMetadata } from "@/lib/types";
-import { Film, Clock, Layers, Trash2, ChevronLeft, ChevronRight, CheckCircle, UploadCloud } from "lucide-react";
+import {
+  Film,
+  Clock,
+  Layers,
+  Trash2,
+  ChevronLeft,
+  ChevronRight,
+  CheckCircle,
+  UploadCloud,
+  Tv,
+  Cpu,
+  Sparkles,
+} from "lucide-react";
 
 interface VideoLibraryReelProps {
   videos: VideoMetadata[];
@@ -10,6 +22,8 @@ interface VideoLibraryReelProps {
   onSelectVideo: (video: VideoMetadata) => void;
   onRequestDelete: (video: VideoMetadata) => void;
   onToggleUpload?: () => void;
+  isCinemaMode?: boolean;
+  onToggleCinemaMode?: () => void;
 }
 
 export const VideoLibraryReel: React.FC<VideoLibraryReelProps> = ({
@@ -18,6 +32,8 @@ export const VideoLibraryReel: React.FC<VideoLibraryReelProps> = ({
   onSelectVideo,
   onRequestDelete,
   onToggleUpload,
+  isCinemaMode = false,
+  onToggleCinemaMode,
 }) => {
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
@@ -35,7 +51,7 @@ export const VideoLibraryReel: React.FC<VideoLibraryReelProps> = ({
   };
 
   return (
-    <div className="w-full glass-panel rounded-2xl p-3.5 space-y-2.5 border border-surfaceBorder/80">
+    <div className="w-full glass-panel rounded-2xl p-3.5 space-y-2.5 border border-surfaceBorder/80 shadow-xl">
       {/* Shelf Header */}
       <div className="flex items-center justify-between px-1">
         <div className="flex items-center gap-2">
@@ -50,35 +66,54 @@ export const VideoLibraryReel: React.FC<VideoLibraryReelProps> = ({
           </span>
         </div>
 
-        {/* Scroll Controls */}
+        {/* Shelf Toolbar Controls */}
         <div className="flex items-center gap-1.5">
+          {/* Cinema Theater Mode Toggle */}
+          {onToggleCinemaMode && (
+            <button
+              type="button"
+              onClick={onToggleCinemaMode}
+              className={`px-2.5 py-1 rounded-lg text-[11px] font-medium flex items-center gap-1.5 transition-all border ${
+                isCinemaMode
+                  ? "bg-cyan-950 border-cyan-500 text-cyan-300 shadow-md shadow-cyan-500/20"
+                  : "bg-surface hover:bg-surfaceBorder text-gray-300 border-surfaceBorder"
+              }`}
+              title="Toggle Cinema Theater Mode (T)"
+            >
+              <Tv className="w-3.5 h-3.5 text-cyan-400" />
+              <span>{isCinemaMode ? "Exit Cinema" : "Cinema Mode"}</span>
+            </button>
+          )}
+
           {onToggleUpload && (
             <button
               type="button"
               onClick={onToggleUpload}
-              className="px-2.5 py-1 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 text-[11px] font-medium flex items-center gap-1.5 transition-all mr-1"
+              className="px-2.5 py-1 rounded-lg bg-indigo-600/20 hover:bg-indigo-600/30 text-indigo-300 border border-indigo-500/30 text-[11px] font-medium flex items-center gap-1.5 transition-all"
             >
               <UploadCloud className="w-3.5 h-3.5" />
               <span>+ Ingest Video</span>
             </button>
           )}
 
-          <button
-            type="button"
-            onClick={() => scroll("left")}
-            className="p-1 rounded-lg bg-surface hover:bg-surfaceBorder text-gray-400 hover:text-white border border-surfaceBorder transition-colors"
-            title="Scroll left"
-          >
-            <ChevronLeft className="w-3.5 h-3.5" />
-          </button>
-          <button
-            type="button"
-            onClick={() => scroll("right")}
-            className="p-1 rounded-lg bg-surface hover:bg-surfaceBorder text-gray-400 hover:text-white border border-surfaceBorder transition-colors"
-            title="Scroll right"
-          >
-            <ChevronRight className="w-3.5 h-3.5" />
-          </button>
+          <div className="flex items-center gap-1 ml-1">
+            <button
+              type="button"
+              onClick={() => scroll("left")}
+              className="p-1 rounded-lg bg-surface hover:bg-surfaceBorder text-gray-400 hover:text-white border border-surfaceBorder transition-colors"
+              title="Scroll left"
+            >
+              <ChevronLeft className="w-3.5 h-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => scroll("right")}
+              className="p-1 rounded-lg bg-surface hover:bg-surfaceBorder text-gray-400 hover:text-white border border-surfaceBorder transition-colors"
+              title="Scroll right"
+            >
+              <ChevronRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
         </div>
       </div>
 
@@ -100,7 +135,7 @@ export const VideoLibraryReel: React.FC<VideoLibraryReelProps> = ({
               <div
                 key={vid.id}
                 onClick={() => onSelectVideo(vid)}
-                className={`group relative flex-shrink-0 w-60 p-2.5 rounded-xl cursor-pointer transition-all duration-200 border snap-start ${
+                className={`group relative flex-shrink-0 w-64 p-3 rounded-xl cursor-pointer transition-all duration-200 border snap-start ${
                   isSelected
                     ? "bg-gradient-to-b from-cyan-950/40 to-surface border-cyan-500/80 shadow-lg shadow-cyan-500/10 ring-1 ring-cyan-500/30"
                     : "bg-surface/60 hover:bg-surface border-surfaceBorder hover:border-gray-600"
@@ -111,13 +146,17 @@ export const VideoLibraryReel: React.FC<VideoLibraryReelProps> = ({
                   <div className="flex items-center gap-1.5 min-w-0">
                     {isSelected ? (
                       <span className="flex items-center gap-1 text-[10px] font-semibold text-cyan-300 bg-cyan-950 px-1.5 py-0.5 rounded border border-cyan-800">
-                        <CheckCircle className="w-2.5 h-2.5 text-cyan-400" /> Active
+                        <CheckCircle className="w-2.5 h-2.5 text-cyan-400" /> Active Video
                       </span>
                     ) : (
                       <span className="text-[10px] font-mono text-gray-500 bg-black/40 px-1.5 py-0.5 rounded">
                         ID: {vid.id.substring(0, 8)}
                       </span>
                     )}
+
+                    <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-indigo-950/70 border border-indigo-800/40 text-indigo-300">
+                      768d Dual-Scale
+                    </span>
                   </div>
 
                   <button
@@ -143,8 +182,8 @@ export const VideoLibraryReel: React.FC<VideoLibraryReelProps> = ({
                   {vid.filename}
                 </h4>
 
-                {/* Metadata Badges */}
-                <div className="flex items-center gap-2 mt-2 text-[10px] font-mono text-gray-400">
+                {/* Technical Metadata Badges */}
+                <div className="flex items-center gap-1.5 mt-2 text-[10px] font-mono text-gray-400">
                   <span className="flex items-center gap-1 bg-black/40 px-1.5 py-0.5 rounded text-gray-300">
                     <Clock className="w-2.5 h-2.5 text-cyan-400" />
                     {formatDuration(vid.duration_sec)}
@@ -152,8 +191,14 @@ export const VideoLibraryReel: React.FC<VideoLibraryReelProps> = ({
 
                   <span className="flex items-center gap-1 bg-black/40 px-1.5 py-0.5 rounded text-gray-300">
                     <Layers className="w-2.5 h-2.5 text-indigo-400" />
-                    {vid.total_frames} frames
+                    {vid.total_frames} kfs
                   </span>
+
+                  {vid.fps && (
+                    <span className="bg-black/40 px-1.5 py-0.5 rounded text-gray-400">
+                      {vid.fps}fps
+                    </span>
+                  )}
 
                   {vid.resolution && (
                     <span className="text-[9px] text-gray-500 ml-auto uppercase">
