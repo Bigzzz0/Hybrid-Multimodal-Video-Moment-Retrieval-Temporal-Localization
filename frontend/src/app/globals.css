@@ -1,52 +1,106 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
 
 :root {
   --font-outfit: 'Outfit', sans-serif;
   --font-jakarta: 'Plus Jakarta Sans', sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+
+  /* Design Tokens */
+  --bg-space: #060911;
+  --bg-surface: #0c1222;
+  --bg-surface-elevated: #131d36;
+  --neon-cyan: #00f0ff;
+  --neon-indigo: #6366f1;
+  --neon-emerald: #10b981;
+  --neon-amber: #f59e0b;
 }
 
 body {
   font-family: var(--font-jakarta);
-  background-color: #080c14;
+  background-color: var(--bg-space);
   color: #f3f4f6;
   overflow-x: hidden;
+  position: relative;
 }
 
 h1, h2, h3, h4, h5, h6 {
   font-family: var(--font-outfit);
 }
 
-/* Glassmorphism utility */
+.font-mono {
+  font-family: var(--font-mono);
+}
+
+/* Ambient Cyber Lighting Mesh */
+.ambient-glow {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+  z-index: 0;
+  background: 
+    radial-gradient(circle at 15% 15%, rgba(99, 102, 241, 0.08) 0%, transparent 40%),
+    radial-gradient(circle at 85% 20%, rgba(6, 182, 212, 0.08) 0%, transparent 45%),
+    radial-gradient(circle at 50% 80%, rgba(139, 92, 246, 0.06) 0%, transparent 50%);
+}
+
+/* Glassmorphism 2.0 Utilities */
 .glass-panel {
-  background: rgba(17, 24, 39, 0.75);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
+  background: rgba(12, 18, 34, 0.75);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
   border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.45);
 }
 
 .glass-panel-glow {
-  background: rgba(17, 24, 39, 0.85);
-  backdrop-filter: blur(20px);
-  border: 1px solid rgba(99, 102, 241, 0.25);
-  box-shadow: 0 0 25px -5px rgba(99, 102, 241, 0.15);
+  background: rgba(12, 18, 34, 0.85);
+  backdrop-filter: blur(24px);
+  border: 1px solid rgba(0, 240, 255, 0.30);
+  box-shadow: 0 0 25px -4px rgba(0, 240, 255, 0.18), inset 0 1px 0 0 rgba(255, 255, 255, 0.1);
+}
+
+.glass-tooltip {
+  background: rgba(6, 9, 17, 0.94);
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(0, 240, 255, 0.45);
+  box-shadow: 0 10px 30px -5px rgba(0, 0, 0, 0.85), 0 0 20px 0 rgba(0, 240, 255, 0.25);
 }
 
 /* Custom Scrollbar */
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 5px;
+  height: 5px;
 }
 ::-webkit-scrollbar-track {
-  background: #090d16;
+  background: #060911;
 }
 ::-webkit-scrollbar-thumb {
-  background: #1f293d;
+  background: #1e293b;
   border-radius: 4px;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #374151;
+  background: #334155;
 }
+
+/* Pulse animation for moment active ring */
+@keyframes pulse-cyan {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(0, 240, 255, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgba(0, 240, 255, 0);
+  }
+}
+
+.animate-pulse-cyan {
+  animation: pulse-cyan 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+

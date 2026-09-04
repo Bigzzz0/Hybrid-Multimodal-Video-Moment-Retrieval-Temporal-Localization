@@ -1,6 +1,7 @@
 import axios from "axios";
 import {
   VideoMetadata,
+  VideoKeyframeItem,
   SearchResponse,
   VideoQAResult,
   UploadResponse,
@@ -9,7 +10,8 @@ import {
   SystemTelemetry,
 } from "./types";
 
-export type { VideoQAResult, UploadResponse, ProgressStatus, ClipExportResponse, SystemTelemetry };
+export type { VideoMetadata, VideoKeyframeItem, VideoQAResult, UploadResponse, ProgressStatus, ClipExportResponse, SystemTelemetry };
+
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -115,6 +117,13 @@ export const apiClient = {
     const res = await api.get<SystemTelemetry>("/system/telemetry");
     return res.data;
   },
+
+  // 11. Keyframes List for Timeline Scrubber Tooltip
+  async getVideoKeyframes(videoId: string): Promise<VideoKeyframeItem[]> {
+    const res = await api.get<VideoKeyframeItem[]>(`/videos/${videoId}/keyframes`);
+    return res.data;
+  },
 };
+
 
 

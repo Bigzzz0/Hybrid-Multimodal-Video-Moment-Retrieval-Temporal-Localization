@@ -10,6 +10,33 @@ export interface VideoMetadata {
   created_at: string;
 }
 
+export interface VideoKeyframeItem {
+  timestamp: number;
+  frame_path: string;
+  thumbnail_url: string;
+}
+
+export interface ScrubberHoverState {
+  isActive: boolean;
+  clientX: number;
+  relativeRatio: number;
+  hoverTime: number;
+  scoreAtTime: number;
+  nearestFrameUrl: string | null;
+}
+
+export interface ActionSuggestionCategory {
+  categoryName: string;
+  iconName: string;
+  badgeColor: string;
+  items: {
+    labelTh: string;
+    labelEn: string;
+    query: string;
+  }[];
+}
+
+
 export interface MomentItem {
   t_start: number;
   t_end: number;

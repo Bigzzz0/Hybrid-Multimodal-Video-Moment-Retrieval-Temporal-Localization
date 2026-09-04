@@ -81,6 +81,28 @@ async def get_frame_preview(path: str = Query(...)):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Keyframe image not found.")
     return FileResponse(path, media_type="image/jpeg")
 
+@router.get("/{video_id}/keyframes")
+async def get_video_keyframes(video_id: str):
+    """
+    Returns sorted list of extracted keyframes with timestamps for UI timeline scrubbing.
+    """
+    tbl_frames = db_manager.get_table("video_frames")
+    try:
+        matches = tbl_frames.search().where(f"video_id = '{video_id}'").limit(500).to_list()
+    except Exception:
+        matches = [r for r in tbl_frames.to_arrow().to_pylist() if r.get("video_id") == video_id]
+
+    keyframes = []
+    for r in sorted(matches, key=lambda x: float(x.get("timestamp", 0.0))):
+        frame_path = r.get("frame_path", "")
+        keyframes.append({
+            "timestamp": float(r.get("timestamp", 0.0)),
+            "frame_path": frame_path,
+            "thumbnail_url": f"/api/v1/videos/frame-preview?path={frame_path}"
+        })
+    return keyframes
+
+
 @router.get("/download-clip/{clip_filename}")
 async def download_video_clip(clip_filename: str):
     """Serves clipped video file for direct download."""
