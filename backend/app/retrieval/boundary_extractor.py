@@ -184,3 +184,122 @@ class TemporalBoundaryExtractor:
                 final_moments.append(m)
 
         return final_moments
+
+    def snap_boundaries_to_ssm_gradient(
+        self,
+        moments: List[Dict[str, Any]],
+        emb_matrix: np.ndarray,
+        timestamps: np.ndarray,
+        snap_radius_sec: float = 1.5
+    ) -> List[Dict[str, Any]]:
+        """
+        Strategy 3: Self-Similarity Matrix (SSM) Directional Gradient Snapping.
+        Calculates the first-derivative transition energy across the Gram matrix diagonal,
+        and snaps [t_start, t_end] to local energy peaks within snap_radius_sec.
+        """
+        n_frames = len(timestamps)
+        if n_frames < 4 or len(moments) == 0:
+            return moments
+
+        # 1. Gram Matrix: G = V * V^T [N, N]
+        G = np.dot(emb_matrix, emb_matrix.T)
+
+        # 2. Compute Temporal Transition Energy E_trans(t)
+        energy = np.zeros(n_frames, dtype=np.float32)
+        for t in range(1, n_frames - 1):
+            g_next = G[t, t + 1]
+            g_prev = G[t - 1, t]
+            discontinuity = abs(g_next - g_prev)
+            decoupling = 0.5 * (2.0 - g_prev - g_next)
+            energy[t] = discontinuity + decoupling
+
+        mean_energy = float(np.mean(energy))
+        std_energy = float(np.std(energy))
+        energy_threshold = mean_energy + 0.25 * std_energy
+
+        # 3. Snap Boundaries
+        snapped_moments = []
+        for m in moments:
+            ts = m["t_start"]
+            te = m["t_end"]
+
+            # Snap start boundary
+            idx_s_candidates = np.where((timestamps >= ts - snap_radius_sec) & (timestamps <= ts + snap_radius_sec))[0]
+            if len(idx_s_candidates) > 0:
+                best_s_idx = idx_s_candidates[np.argmax(energy[idx_s_candidates])]
+                if energy[best_s_idx] >= energy_threshold:
+                    new_ts = float(timestamps[best_s_idx])
+                else:
+                    new_ts = ts
+            else:
+                new_ts = ts
+
+            # Snap end boundary
+            idx_e_candidates = np.where((timestamps >= te - snap_radius_sec) & (timestamps <= te + snap_radius_sec))[0]
+            if len(idx_e_candidates) > 0:
+                best_e_idx = idx_e_candidates[np.argmax(energy[idx_e_candidates])]
+                if energy[best_e_idx] >= energy_threshold:
+                    new_te = float(timestamps[best_e_idx])
+                else:
+                    new_te = te
+            else:
+                new_te = te
+
+            # Ensure valid positive interval
+            if new_te <= new_ts:
+                new_te = new_ts + max(1.5, te - ts)
+
+            m_copy = dict(m)
+            m_copy["t_start"] = round(new_ts, 2)
+            m_copy["t_end"] = round(new_te, 2)
+            snapped_moments.append(m_copy)
+
+        return snapped_moments
+
+    def apply_gaussian_soft_nms(
+        self,
+        moments: List[Dict[str, Any]],
+        sigma: float = 0.40,
+        score_threshold: float = 0.20
+    ) -> List[Dict[str, Any]]:
+        """
+        Strategy 7: 1D Continuous Gaussian Soft-NMS.
+        Gradually attenuates overlapping moment scores with exp(-IoU^2 / sigma),
+        preventing catastrophic dropping of closely occurring or consecutive actions.
+        """
+        if len(moments) <= 1:
+            return moments
+
+        sorted_m = sorted(moments, key=lambda x: x["score"], reverse=True)
+        kept_moments: List[Dict[str, Any]] = []
+
+        while sorted_m:
+            best = sorted_m.pop(0)
+            kept_moments.append(best)
+
+            b_s, b_e = best["t_start"], best["t_end"]
+            remaining = []
+
+            for candidate in sorted_m:
+                c_s, c_e = candidate["t_start"], candidate["t_end"]
+                inter_s = max(b_s, c_s)
+                inter_e = min(b_e, c_e)
+                
+                if inter_e > inter_s:
+                    intersection = inter_e - inter_s
+                    union = (b_e - b_s) + (c_e - c_s) - intersection
+                    iou = intersection / max(1e-5, union)
+                else:
+                    iou = 0.0
+
+                # Apply Continuous Gaussian Decay
+                decay = np.exp(-(iou ** 2) / max(1e-5, sigma))
+                updated_score = candidate["score"] * decay
+
+                if updated_score >= score_threshold:
+                    candidate["score"] = round(float(updated_score), 4)
+                    remaining.append(candidate)
+
+            sorted_m = sorted(remaining, key=lambda x: x["score"], reverse=True)
+
+        return kept_moments

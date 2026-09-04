@@ -67,7 +67,7 @@ class QwenVLDenseCaptioner:
         ]
         return any(phrase in t_low for phrase in refusal_phrases)
 
-    def generate_scene_caption(self, keyframes: List[Image.Image]) -> str:
+    def generate_scene_caption(self, keyframes: List[Image.Image], prompt_override: Optional[str] = None) -> str:
         """
         Generate dense action, temporal interaction, and physical state transition caption
         for a sequence of keyframes in a video scene using Qwen2.5-VL-7B.
@@ -95,7 +95,7 @@ class QwenVLDenseCaptioner:
             # Convert images to RGB if necessary
             sampled_rgb = [img.convert("RGB") if img.mode != "RGB" else img for img in sampled]
 
-            prompt_text = (
+            prompt_text = prompt_override or (
                 "Analyze the chronological sequence of these video keyframes. "
                 "Describe the physical actions, subject movements, body gestures, and object interactions in 2 concise sentences. "
                 "Highlight specifically what actions occurred and any visible physical state change from start to finish. "
@@ -153,3 +153,6 @@ class QwenVLDenseCaptioner:
 
 # Backward compatibility alias
 MiniCPMDenseCaptioner = QwenVLDenseCaptioner
+
+# Global singleton
+dense_captioner = QwenVLDenseCaptioner()

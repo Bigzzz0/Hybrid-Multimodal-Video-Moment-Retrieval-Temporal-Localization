@@ -35,6 +35,7 @@ VIDEO_FRAME_SCHEMA = pa.schema([
     pa.field("timestamp", pa.float32()),
     pa.field("frame_path", pa.string()),
     pa.field("siglip2_vector", pa.list_(pa.float32(), 768)),
+    pa.field("pixel_motion", pa.float32()),  # Inter-frame absolute pixel motion energy
     pa.field("vlm_caption", pa.string()),
     pa.field("has_dense_caption", pa.bool_())
 ])
@@ -71,6 +72,17 @@ class VideoMetadata(BaseModel):
     total_frames: int
     ingestion_phase: str
     created_at: str
+
+class VideoFrameItem(BaseModel):
+    id: str
+    video_id: str
+    scene_id: str
+    timestamp: float
+    frame_path: str
+    siglip2_vector: List[float]
+    pixel_motion: float = 0.0
+    vlm_caption: Optional[str] = None
+    has_dense_caption: bool = False
 
 class MomentItem(BaseModel):
     t_start: float

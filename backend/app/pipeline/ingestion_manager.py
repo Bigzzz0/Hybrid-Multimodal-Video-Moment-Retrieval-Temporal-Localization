@@ -9,7 +9,7 @@ from app.core.logger import logger
 from app.db.connection import db_manager
 from app.pipeline.video_decoder import GPUVideoDecoder
 from app.pipeline.scene_detector import AdaptiveSceneDetector
-from app.pipeline.keyframe_filter import SSIMKeyframeFilter
+from app.pipeline.keyframe_filter import SSIMKeyframeFilter, compute_pixel_motion
 from app.pipeline.visual_encoder import SigLIP2VisualEncoder
 from app.pipeline.dense_captioner import QwenVLDenseCaptioner
 
@@ -134,21 +134,54 @@ class ProgressiveIngestionManager:
 
         embeddings = self.visual_encoder.encode_images(all_sampled_images, batch_size=16, progress_callback=siglip_sub_progress)
         
-        # 5. Multi-Frame Sliding Window Temporal Context Pooling & Motion Dynamics
+        # 5. Inter-Frame Pixel Motion Energy & Dual-Scale Temporal Context Hierarchy
         import numpy as np
         num_frames = len(embeddings)
+
+        # 5A. Compute Normalized Inter-Frame Pixel Motion
+        pixel_motion_values = [0.0]
+        for idx in range(1, len(all_sampled_images)):
+            p_mot = compute_pixel_motion(all_sampled_images[idx - 1], all_sampled_images[idx])
+            pixel_motion_values.append(p_mot)
+
+        if len(pixel_motion_values) > 1:
+            p5 = float(np.percentile(pixel_motion_values, 5))
+            p95 = float(np.percentile(pixel_motion_values, 95))
+            denom = max(1e-6, p95 - p5)
+            norm_pixel_motion = [float(np.clip((p - p5) / denom, 0.0, 1.0)) for p in pixel_motion_values]
+        else:
+            norm_pixel_motion = [0.0] * len(pixel_motion_values)
+
+        # 5B. Dual-Scale Context Hierarchy Fusion (UniTime NeurIPS 2025)
         for i, meta in enumerate(all_sampled_meta):
             emb_curr = np.array(embeddings[i], dtype=np.float32)
-            emb_prev = np.array(embeddings[i - 1], dtype=np.float32) if i > 0 else emb_curr
-            emb_next = np.array(embeddings[i + 1], dtype=np.float32) if i < num_frames - 1 else emb_curr
 
-            # Temporal context vector (Gaussian weighted window)
-            temporal_vec = 0.60 * emb_curr + 0.20 * emb_prev + 0.20 * emb_next
-            norm_val = np.linalg.norm(temporal_vec)
-            if norm_val > 0:
-                temporal_vec = temporal_vec / norm_val
-            
-            meta["siglip2_vector"] = temporal_vec.tolist()
+            if getattr(settings, "ENABLE_DUAL_SCALE_CONTEXT", True) and num_frames >= 4:
+                # Local Context (W=3)
+                emb_prev = np.array(embeddings[i - 1], dtype=np.float32) if i > 0 else emb_curr
+                emb_next = np.array(embeddings[i + 1], dtype=np.float32) if i < num_frames - 1 else emb_curr
+                v_local = 0.60 * emb_curr + 0.20 * emb_prev + 0.20 * emb_next
+                v_local /= (np.linalg.norm(v_local) + 1e-6)
+
+                # Global Context (W=7 with Gaussian decay kernel sigma=2.0)
+                win_start = max(0, i - 3)
+                win_end = min(num_frames, i + 4)
+                tau_indices = list(range(win_start, win_end))
+                weights = [np.exp(-((idx - i) ** 2) / (2.0 * (2.0 ** 2))) for idx in tau_indices]
+                w_sum = sum(weights)
+                v_global = sum((w / w_sum) * np.array(embeddings[idx], dtype=np.float32) for idx, w in zip(tau_indices, weights))
+                v_global /= (np.linalg.norm(v_global) + 1e-6)
+
+                # Hierarchical Convex Combination & Spherical Projection
+                alpha_l = getattr(settings, "DUAL_SCALE_LOCAL_WEIGHT", 0.65)
+                alpha_g = getattr(settings, "DUAL_SCALE_GLOBAL_WEIGHT", 0.35)
+                v_hierarchical = alpha_l * v_local + alpha_g * v_global
+                v_hierarchical /= (np.linalg.norm(v_hierarchical) + 1e-6)
+            else:
+                v_hierarchical = emb_curr / (np.linalg.norm(emb_curr) + 1e-6)
+
+            meta["siglip2_vector"] = v_hierarchical.tolist()
+            meta["pixel_motion"] = norm_pixel_motion[i]
             frame_records.append(meta)
 
         # 6. Commit to LanceDB (Phase 1 Ready - Pure Visual SOTA)

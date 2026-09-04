@@ -1,5 +1,6 @@
 from typing import List, Dict, Set, Any, Tuple
 import re
+from app.core.config import settings
 
 class VisualQueryDecomposer:
     """
@@ -95,7 +96,7 @@ class VisualQueryDecomposer:
             "กิน": {"visual": ["eating", "food plate", "spoon", "fork", "chewing", "meal"]},
             "ทาน": {"visual": ["eating food", "dining", "meal", "holding utensils"]},
             "เท": {"visual": ["pouring liquid", "pouring into cup", "spilling"]},
-            "คน": {"visual": ["stirring", "mixing with spoon", "swirling"]},
+            "คนส่วนผสม": {"visual": ["stirring", "mixing with spoon", "swirling"]},
             "หั่น": {"visual": ["cutting with knife", "slicing", "chopping food"]},
             "เขียน": {"visual": ["writing", "holding pen", "notebook", "paper", "whiteboard"]},
             "จด": {"visual": ["taking notes", "writing on notepad", "pen and paper"]},
@@ -212,6 +213,162 @@ class VisualQueryDecomposer:
             tta_list.append((expanded_str, 0.20))
             
         return tta_list
+
+    def disentangle_query(self, query: str) -> Dict[str, str]:
+        """
+        Decomposes natural language query into 3 explicit semantic facets:
+        1. Subject Entity (e.g. "person, bicyclist, teacher")
+        2. Physical Motion Verb (e.g. "riding bicycle, turning, writing on board")
+        3. Spatial Scene Context (e.g. "sidewalk, classroom, street")
+        
+        Returns:
+            Dict with keys: 'subject', 'verb', 'context', 'null_anchor'
+        """
+        q_clean = query.strip()
+        q_low = q_clean.lower()
+
+        # Bilingual Entity Mappings
+        subject_map = {
+            "คน": ["person", "people", "human", "pedestrian"],
+            "ผู้ชาย": ["man", "male"],
+            "ผู้หญิง": ["woman", "female"],
+            "เด็ก": ["child", "kid"],
+            "อาจารย์": ["teacher", "instructor", "lecturer"],
+            "ครู": ["teacher", "instructor"],
+            "ผู้บรรยาย": ["presenter", "speaker"],
+            "นักเรียน": ["students", "pupils"],
+            "นักศึกษา": ["college students", "students"],
+            "รถ": ["car", "automobile", "vehicle"],
+            "รถยนต์": ["car", "automobile", "vehicle"],
+            "จักรยาน": ["bicycle", "bike", "cyclist"],
+            "มอเตอร์ไซค์": ["motorcycle", "motorbike"],
+            "person": ["person", "human", "pedestrian"],
+            "people": ["people", "pedestrians"],
+            "pedestrian": ["pedestrian", "person walking"],
+            "cyclist": ["cyclist", "bicyclist", "bike rider"],
+            "teacher": ["teacher", "instructor", "lecturer"],
+            "lecturer": ["lecturer", "presenter"],
+            "instructor": ["instructor", "teacher"],
+            "students": ["students", "pupils"],
+            "pupils": ["pupils", "students"],
+            "car": ["car", "automobile", "vehicle"],
+            "automobile": ["automobile", "car"],
+            "vehicle": ["vehicle", "car"],
+            "bicycle": ["bicycle", "bike"],
+            "bike": ["bike", "bicycle"]
+        }
+
+        # Bilingual Action & Motion Verb Mappings
+        verb_map = {
+            "รถยนต์วิ่ง": ["car driving", "vehicle moving on road", "automobile driving"],
+            "รถวิ่ง": ["car moving", "vehicle driving on road", "automobile moving"],
+            "วิ่งผ่าน": ["vehicle driving past", "car moving past", "driving on road"],
+            "ขับผ่าน": ["driving past", "car driving on road"],
+            "แล่นผ่าน": ["moving past", "car driving by"],
+            "แล่น": ["cruising", "car moving on road"],
+            "กำลังเดิน": ["walking", "pedestrian walking"],
+            "เดินผ่าน": ["walking past", "pedestrian walking"],
+            "ขี่จักรยาน": ["cyclist riding bike", "person riding bicycle"],
+            "ปั่นจักรยาน": ["cyclist riding bicycle", "bicyclist pedaling"],
+            "ปั่น": ["riding bicycle", "cycling", "pedaling"],
+            "ขี่": ["riding", "cycling"],
+            "ขับ": ["driving", "moving on roadway"],
+            "เลี้ยว": ["turning", "turning corner"],
+            "เดิน": ["walking", "stepping forward"],
+            "วิ่ง": ["running", "jogging", "moving fast"],
+            "กระโดด": ["jumping", "in mid air"],
+            "ล้ม": ["falling down"],
+            "หกล้ม": ["falling down", "tripping"],
+            "ยกมือ": ["raising hand", "hand raised"],
+            "โบกมือ": ["waving hand"],
+            "ชี้": ["pointing with finger"],
+            "เขียน": ["writing", "writing on board"],
+            "จด": ["taking notes"],
+            "ดื่ม": ["drinking", "holding cup"],
+            "กิน": ["eating food"],
+            "หยิบ": ["picking up", "reaching for"],
+            "จับ": ["holding", "grasping"],
+            "วาง": ["placing down"],
+            "นั่ง": ["sitting", "seated at desks"],
+            "ยืน": ["standing", "standing upright in front"],
+            "เปิด": ["opening"],
+            "ปิด": ["closing"],
+            "ตัดหน้า": ["cutting in front"],
+            "เบรก": ["braking", "sudden stop"],
+            "walking": ["walking", "stepping forward", "pedestrian moving"],
+            "walk": ["walking", "moving on foot"],
+            "running": ["running", "jogging", "moving fast"],
+            "run": ["running"],
+            "riding": ["riding bicycle", "cycling", "pedaling"],
+            "ride": ["riding", "cycling"],
+            "cycling": ["cycling", "riding bicycle"],
+            "driving": ["driving", "moving vehicle", "cruising on road"],
+            "drive": ["driving", "moving on road"],
+            "moving": ["moving along roadway", "in motion"],
+            "standing": ["standing upright", "standing in front of room"],
+            "stand": ["standing", "lecturing"],
+            "sitting": ["sitting down", "seated at classroom desks"],
+            "seated": ["seated at desks", "sitting attending class"],
+            "sit": ["sitting", "seated"]
+        }
+
+        # Bilingual Spatial Scene & Context Mappings
+        context_map = {
+            "distance": ["in distance", "far away", "distant view"],
+            "ทางไกล": ["in distance", "far background"],
+            "ทางเท้า": ["sidewalk", "pedestrian walkway", "pavement"],
+            "ริมถนน": ["roadside", "sidewalk along road", "street curb"],
+            "ถนน": ["street roadway", "road asphalt", "traffic street"],
+            "ห้องเรียน": ["classroom", "school lecture room", "indoor classroom"],
+            "หน้าห้อง": ["in front of classroom", "near blackboard", "lecturing area"],
+            "หน้าชั้น": ["front of classroom", "chalkboard podium", "teacher area"],
+            "สี่แยก": ["intersection", "crossroads"],
+            "โต๊ะ": ["classroom desks", "school tables"],
+            "เก้าอี้": ["chairs", "classroom seats"],
+            "กระดาน": ["blackboard", "whiteboard", "chalkboard"],
+            "คอมพิวเตอร์": ["computer screen", "desktop monitor"],
+            "street": ["street roadway", "road asphalt", "outdoors"],
+            "road": ["road street", "traffic lane", "roadway"],
+            "sidewalk": ["sidewalk", "pedestrian walkway", "pavement"],
+            "pavement": ["pavement", "sidewalk pathway"],
+            "classroom": ["classroom", "school lecture hall", "indoor desks"],
+            "front": ["front of classroom", "blackboard podium"],
+            "desks": ["classroom desks", "school study desks", "tables"],
+            "school": ["school classroom", "lecture hall"]
+        }
+
+        subject_tokens = []
+        for sk in sorted(subject_map.keys(), key=lambda x: len(x), reverse=True):
+            if sk in q_low:
+                subject_tokens.extend(subject_map[sk])
+                break
+
+        verb_tokens = []
+        for vk in sorted(verb_map.keys(), key=lambda x: len(x), reverse=True):
+            if vk in q_low:
+                verb_tokens.extend(verb_map[vk])
+                break
+
+        context_tokens = []
+        for ck in sorted(context_map.keys(), key=lambda x: len(x), reverse=True):
+            if ck in q_low:
+                context_tokens.extend(context_map[ck])
+                break
+
+        expanded = self.expand_query(query)
+        action_keywords = expanded.get("action_keywords", [])
+        visual_keywords = expanded.get("visual_keywords", [])
+
+        sub_str = " ".join(subject_tokens[:3]) if subject_tokens else (visual_keywords[0] if visual_keywords else "subject")
+        verb_str = " ".join(verb_tokens[:3]) if verb_tokens else (action_keywords[0] if action_keywords else "action activity")
+        ctx_str = " ".join(context_tokens[:3]) if context_tokens else "scene environment"
+
+        return {
+            "subject": f"{q_clean} {sub_str}".strip(),
+            "verb": f"person or object {verb_str}".strip(),
+            "context": f"{ctx_str} background setting".strip(),
+            "null_anchor": getattr(settings, "STATIC_NULL_PROMPT", "an empty static background scene with zero human activity, no movement, no action, motionless")
+        }
 
 # Global singleton
 query_expander = VisualQueryDecomposer()

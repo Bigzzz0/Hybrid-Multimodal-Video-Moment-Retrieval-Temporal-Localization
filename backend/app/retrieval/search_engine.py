@@ -10,6 +10,7 @@ from app.retrieval.rank_fusion import ReciprocalRankFusion
 from app.retrieval.temporal_smoother import TemporalSmoother
 from app.retrieval.boundary_extractor import TemporalBoundaryExtractor
 from app.retrieval.query_expander import query_expander
+from app.retrieval.vlm_verifier import vlm_verifier
 
 class HybridMomentSearchEngine:
     """
@@ -73,12 +74,26 @@ class HybridMomentSearchEngine:
         except Exception:
             video_frames = [r for r in tbl_frames.to_arrow().to_pylist() if r.get("video_id") == actual_video_id]
 
-        # 3. Cross-Modal Query Expansion
+        # 3. Disentangle Query into Subject, Verb, Context, and Static Null Anchor
         expanded = query_expander.expand_query(query)
         visual_keywords = expanded["visual_keywords"]
         audio_keywords = expanded["audio_keywords"]
 
-        # 4. SOTA Multi-Prompt Test-Time Augmentation (TTA) Consensus Query Encoding (Module 6)
+        if getattr(settings, "ENABLE_CONCEPT_DISENTANGLEMENT", True):
+            disentangled = query_expander.disentangle_query(query)
+            vec_sub = np.array(self.text_encoder.encode_text(disentangled["subject"]), dtype=np.float32)
+            vec_verb = np.array(self.text_encoder.encode_text(disentangled["verb"]), dtype=np.float32)
+            vec_ctx = np.array(self.text_encoder.encode_text(disentangled["context"]), dtype=np.float32)
+            vec_null = np.array(self.text_encoder.encode_text(disentangled["null_anchor"]), dtype=np.float32)
+
+            for v in [vec_sub, vec_verb, vec_ctx, vec_null]:
+                nrm = np.linalg.norm(v)
+                if nrm > 0:
+                    v /= nrm
+        else:
+            vec_sub = vec_verb = vec_ctx = vec_null = None
+
+        # 4. Standard/TTA Query Encoding (for fallback or general query representation)
         if getattr(settings, "ENABLE_TTA_ENSEMBLE", True):
             tta_items = query_expander.get_tta_queries(query)  # List of (q_str, weight)
             accum_vec = np.zeros(768, dtype=np.float32)
@@ -100,8 +115,7 @@ class HybridMomentSearchEngine:
             if q_norm > 0:
                 query_vec = query_vec / q_norm
 
-        # 5. Visual-Centric Candidate Scoring (Visual-Centric SOTA)
-        # A. Visual Cosine Similarities across ALL keyframes
+        # 5. Extract Frame Embeddings, Timestamps, and Pixel Motion
         frame_embs = []
         frame_meta = []
         for f in video_frames:
@@ -113,48 +127,69 @@ class HybridMomentSearchEngine:
         timestamp_score_map: Dict[float, float] = {}
 
         if frame_embs:
-            emb_matrix = np.array(frame_embs, dtype=np.float32) # [N, 768]
-            
-            # SOTA Background Contrastive Normalization (Suppresses static backdrop false-positives)
-            if getattr(settings, "ENABLE_BG_CONTRASTIVE", True) and len(emb_matrix) > 2:
-                bg_centroid = np.mean(emb_matrix, axis=0)
-                bg_norm = np.linalg.norm(bg_centroid)
-                if bg_norm > 0:
-                    bg_centroid = bg_centroid / bg_norm
-                bg_sim = float(np.dot(bg_centroid, query_vec))
-                bg_penalty = max(0.0, bg_sim * getattr(settings, "BG_CONTRASTIVE_LAMBDA", 0.20))
+            emb_matrix = np.array(frame_embs, dtype=np.float32)  # [N, 768]
+            timestamps = np.array([float(f.get("timestamp", 0.0)) for f in frame_meta], dtype=np.float32)
+            pixel_motions = np.array([
+                float(f.get("pixel_motion", 0.0) if "pixel_motion" in f and f["pixel_motion"] is not None else 0.0)
+                for f in frame_meta
+            ], dtype=np.float32)
+
+            sim_full = np.maximum(0.0, np.dot(emb_matrix, query_vec))
+
+            # Strategy 6: Concept Disentanglement Scoring (3-Way Geometric Mean)
+            if getattr(settings, "ENABLE_CONCEPT_DISENTANGLEMENT", True) and vec_sub is not None:
+                sim_sub = np.maximum(0.0, np.dot(emb_matrix, vec_sub))
+                sim_verb = np.maximum(0.0, np.dot(emb_matrix, vec_verb))
+                sim_ctx = np.maximum(0.0, np.dot(emb_matrix, vec_ctx))
+                w_sub = getattr(settings, "DISENTANGLE_WEIGHT_SUB", 0.25)
+                w_verb = getattr(settings, "DISENTANGLE_WEIGHT_VERB", 0.50)
+                w_ctx = getattr(settings, "DISENTANGLE_WEIGHT_CTX", 0.25)
+                disentangled_scores = ((sim_sub + 1e-6) ** w_sub) * ((sim_verb + 1e-6) ** w_verb) * ((sim_ctx + 1e-6) ** w_ctx)
+                blended_scores = 0.50 * sim_full + 0.50 * disentangled_scores
             else:
-                bg_penalty = 0.0
+                blended_scores = sim_full
 
-            # Instant Matrix Multiplication
-            cos_sims = np.dot(emb_matrix, query_vec) # [N]
+            # Strategy 4: Hard Static Negative Anchor Subtraction
+            if getattr(settings, "ENABLE_STATIC_NEGATIVE", True) and vec_null is not None:
+                sim_null = np.maximum(0.0, np.dot(emb_matrix, vec_null))
+                lambda_null = getattr(settings, "STATIC_NEGATIVE_LAMBDA", 0.20)
+                rectified_scores = np.maximum(0.0, blended_scores - lambda_null * sim_null)
+            else:
+                rectified_scores = blended_scores
 
-            for f_data, sim in zip(frame_meta, cos_sims):
+            # Strategy 1: Pixel Motion Energy Gating Multiplier
+            if getattr(settings, "ENABLE_PIXEL_MOTION_GATE", True) and len(pixel_motions) == len(rectified_scores):
+                gamma_motion = getattr(settings, "PIXEL_MOTION_WEIGHT", 0.35)
+                beta_slope = getattr(settings, "PIXEL_MOTION_TANH_BETA", 2.5)
+                motion_multiplier = 1.0 + gamma_motion * np.tanh(beta_slope * pixel_motions)
+                gated_scores = rectified_scores * motion_multiplier
+            else:
+                gated_scores = rectified_scores
+
+            for f_data, s in zip(frame_meta, gated_scores):
                 ts = float(f_data.get("timestamp", 0.0))
-                # Subtract background baseline to accentuate dynamic moments
-                contrastive_sim = max(0.0, float(sim) - bg_penalty)
-                timestamp_score_map[ts] = contrastive_sim * weight_visual
+                timestamp_score_map[ts] = float(s) * weight_visual
 
-        # B. Dense Action Caption keyword & semantic boosting (Pure Action Grounding)
-        action_keywords = expanded.get("action_keywords", [])
-        for f_data in video_frames:
-            caption = (f_data.get("vlm_caption") or "").lower()
-            ts = float(f_data.get("timestamp", 0.0))
-            if caption and visual_keywords:
-                match_count = sum(1 for kw in visual_keywords if kw.lower() in caption)
-                if match_count > 0:
-                    boost = (match_count / max(1, len(visual_keywords))) * weight_caption
-                    # Extra boost if dynamic action keywords matched
-                    if action_keywords and any(act.lower() in caption for act in action_keywords):
-                        boost *= 1.25
-                    timestamp_score_map[ts] = timestamp_score_map.get(ts, 0.0) + boost
+            # Action Caption Keyword & Semantic Boosting
+            action_keywords = expanded.get("action_keywords", [])
+            if weight_caption > 0:
+                for f_data in video_frames:
+                    caption = (f_data.get("vlm_caption") or "").lower()
+                    ts = float(f_data.get("timestamp", 0.0))
+                    if caption and visual_keywords:
+                        match_count = sum(1 for kw in visual_keywords if kw.lower() in caption)
+                        if match_count > 0:
+                            boost = (match_count / max(1, len(visual_keywords))) * weight_caption
+                            if action_keywords and any(act.lower() in caption for act in action_keywords):
+                                boost *= 1.25
+                            timestamp_score_map[ts] = timestamp_score_map.get(ts, 0.0) + boost
 
         # 6. Build (Timestamp, Score) List
         timestamp_scores: List[Tuple[float, float]] = list(timestamp_score_map.items())
         if not timestamp_scores:
             timestamp_scores = [(0.0, 0.1)]
 
-        # 7. SOTA Multi-Scale 1D Gaussian Temporal Pyramid (Scale-Space)
+        # 7. SOTA Multi-Scale 1D Gaussian Temporal Pyramid
         time_axis, smoothed_scores = self.smoother.smooth_timeline(
             duration_sec=duration_sec,
             timestamp_scores=timestamp_scores,
@@ -166,7 +201,6 @@ class HybridMomentSearchEngine:
         # 8. Absolute Confidence Floor & Dynamic Contrast Calibration
         min_s, max_s = float(np.min(smoothed_scores)), float(np.max(smoothed_scores))
         
-        # If maximum relevance across the video is very weak (< 0.12), no genuine match exists
         if max_s < 0.12:
             logger.info(f"Query '{query}' max relevance ({max_s:.3f}) below confidence floor (0.12). No match.")
             return SearchResponse(
@@ -187,7 +221,7 @@ class HybridMomentSearchEngine:
             raw_peak_factor = min(1.0, max(0.40, max_s / 0.35))
 
         # 9. Adaptive Valley Boundary Extraction with 1D Wasserstein Snapping & OMTG
-        extracted_moments = self.boundary_extractor.extract_moments(
+        candidate_moments = self.boundary_extractor.extract_moments(
             time_axis=time_axis,
             smoothed_scores=contrast_smoothed,
             threshold_factor=threshold_factor,
@@ -195,19 +229,37 @@ class HybridMomentSearchEngine:
             nms_iou_threshold=0.25
         )
 
-        # Module 7: Two-Stage VLM Cross-Verification (Optional Reranking)
-        if getattr(settings, "ENABLE_VLM_RERANK", False) and extracted_moments:
-            for m in extracted_moments[:3]:
-                moment_captions = [
-                    (f.get("vlm_caption") or "").lower()
-                    for f in video_frames
-                    if m["t_start"] <= float(f.get("timestamp", 0.0)) <= m["t_end"]
-                ]
-                if moment_captions and visual_keywords:
-                    caption_corpus = " ".join(moment_captions)
-                    match_ratio = sum(1 for kw in visual_keywords if kw.lower() in caption_corpus) / max(1, len(visual_keywords))
-                    m["score"] = round(0.60 * m["score"] + 0.40 * match_ratio, 4)
-            extracted_moments.sort(key=lambda x: x["score"], reverse=True)
+        # Strategy 3: SSM Gradient Boundary Snapping
+        if getattr(settings, "ENABLE_SSM_BOUNDARY_SNAP", True) and frame_embs and len(emb_matrix) >= 4:
+            snapped_moments = self.boundary_extractor.snap_boundaries_to_ssm_gradient(
+                moments=candidate_moments,
+                emb_matrix=emb_matrix,
+                timestamps=timestamps,
+                snap_radius_sec=getattr(settings, "SSM_SNAP_WINDOW_SEC", 1.5)
+            )
+        else:
+            snapped_moments = candidate_moments
+
+        # Strategy 7: 1D Continuous Gaussian Soft-NMS
+        if getattr(settings, "ENABLE_GAUSSIAN_SOFT_NMS", True) and snapped_moments:
+            nms_moments = self.boundary_extractor.apply_gaussian_soft_nms(
+                moments=snapped_moments,
+                sigma=getattr(settings, "GAUSSIAN_SOFT_NMS_SIGMA", 0.40),
+                score_threshold=getattr(settings, "GAUSSIAN_SOFT_NMS_FLOOR", 0.20)
+            )
+        else:
+            nms_moments = snapped_moments
+
+        # Strategy 5: Two-Stage VLM Temporal Verification & Endpoint Snapping (TimeLens CVPR 2026)
+        if getattr(settings, "ENABLE_VLM_STAGE2_VERIFY", False) and nms_moments:
+            extracted_moments = vlm_verifier.verify_and_refine(
+                candidate_moments=nms_moments,
+                video_frames=video_frames,
+                query=query,
+                top_k_verify=getattr(settings, "VLM_VERIFY_TOP_K", 3)
+            )
+        else:
+            extracted_moments = nms_moments
 
         # 10. Hydrate Moment Items with Previews
         moments_response: List[MomentItem] = []

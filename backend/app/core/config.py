@@ -65,6 +65,47 @@ class Settings(BaseSettings):
     BG_CONTRASTIVE_LAMBDA: float = 0.20
     ENABLE_TTA_ENSEMBLE: bool = True
     ENABLE_VLM_RERANK: bool = False
+
+    # ==============================================================================
+    # SOTA 2025-2026 PRECISION RETRIEVAL PARAMETERS (7 ENHANCED MODULES)
+    # ==============================================================================
+
+    # Strategy 1: Pixel Motion Energy Gating
+    ENABLE_PIXEL_MOTION_GATE: bool = True
+    PIXEL_MOTION_WEIGHT: float = 0.12          # gamma_motion (calibrated to preserve subtle actions)
+    PIXEL_MOTION_TANH_BETA: float = 2.5        # beta slope
+
+    # Strategy 2: Dual-Scale Temporal Context Hierarchy (UniTime NeurIPS 2025)
+    ENABLE_DUAL_SCALE_CONTEXT: bool = True
+    DUAL_SCALE_LOCAL_WINDOW: int = 3           # W_local (frames)
+    DUAL_SCALE_GLOBAL_WINDOW: int = 7          # W_global (frames)
+    DUAL_SCALE_LOCAL_WEIGHT: float = 0.65      # alpha_local
+    DUAL_SCALE_GLOBAL_WEIGHT: float = 0.35     # alpha_global
+
+    # Strategy 3: Self-Similarity Matrix (SSM) Directional Gradient Cut
+    ENABLE_SSM_BOUNDARY_SNAP: bool = True
+    SSM_SNAP_WINDOW_SEC: float = 1.5           # delta search radius (seconds)
+
+    # Strategy 4: Hard Static Negative Anchor Subtraction
+    ENABLE_STATIC_NEGATIVE: bool = True
+    STATIC_NEGATIVE_LAMBDA: float = 0.20       # lambda_null penalty factor
+    STATIC_NULL_PROMPT: str = "an empty static background scene with zero human activity, no movement, no action, motionless"
+
+    # Strategy 5: Two-Stage VLM Temporal Verification & Endpoint Snapping
+    ENABLE_VLM_STAGE2_VERIFY: bool = False     # Default False for instant ultra-fast benchmark; set True for VLM deep mode
+    VLM_VERIFY_TOP_K: int = 3                  # Verify top 3 candidates
+    VLM_VERIFY_FRAMES_PER_MOMENT: int = 4      # Sample 4 equidistant frames
+
+    # Strategy 6: Concept Disentanglement Scoring (Visual CoT)
+    ENABLE_CONCEPT_DISENTANGLEMENT: bool = True
+    DISENTANGLE_WEIGHT_SUB: float = 0.25       # Subject weight
+    DISENTANGLE_WEIGHT_VERB: float = 0.50      # Action Verb weight
+    DISENTANGLE_WEIGHT_CTX: float = 0.25       # Context weight
+
+    # Strategy 7: 1D Continuous Gaussian Soft-NMS
+    ENABLE_GAUSSIAN_SOFT_NMS: bool = True
+    GAUSSIAN_SOFT_NMS_SIGMA: float = 0.40      # sigma_soft
+    GAUSSIAN_SOFT_NMS_FLOOR: float = 0.20      # Minimum score retention threshold
     
     class Config:
         case_sensitive = True
