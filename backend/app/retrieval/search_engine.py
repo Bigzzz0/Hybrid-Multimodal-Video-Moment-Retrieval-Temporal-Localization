@@ -116,6 +116,63 @@ class HybridMomentSearchEngine:
         return probability, True, float(artifact.get("no_match_threshold", settings.NO_MATCH_THRESHOLD))
 
     @staticmethod
+    def _interval_overlap_ratio(left: Dict[str, Any], right: Dict[str, Any]) -> float:
+        """Return intersection divided by the shorter interval length."""
+        left_start, left_end = float(left.get("t_start", 0.0)), float(left.get("t_end", 0.0))
+        right_start, right_end = float(right.get("t_start", 0.0)), float(right.get("t_end", 0.0))
+        intersection = max(0.0, min(left_end, right_end) - max(left_start, right_start))
+        shorter = max(1e-6, min(left_end - left_start, right_end - right_start))
+        return intersection / shorter
+
+    @classmethod
+    def _same_event(cls, left: Dict[str, Any], right: Dict[str, Any]) -> bool:
+        overlap = cls._interval_overlap_ratio(left, right)
+        left_start, left_end = float(left.get("t_start", 0.0)), float(left.get("t_end", 0.0))
+        right_start, right_end = float(right.get("t_start", 0.0)), float(right.get("t_end", 0.0))
+        contains = (left_start <= right_start and left_end >= right_end) or (right_start <= left_start and right_end >= left_end)
+        left_center = (left_start + left_end) / 2.0
+        right_center = (right_start + right_end) / 2.0
+        return overlap >= 0.70 or (contains and abs(left_center - right_center) <= 2.0)
+
+    @classmethod
+    def _group_candidates(cls, scored: List[Tuple[float, Dict[str, Any]]]) -> List[Tuple[float, Dict[str, Any]]]:
+        """Collapse multi-scale proposals that describe one event.
+
+        Candidates are first grouped by interval containment/overlap. The
+        winning interval remains the primary moment while the union is exposed
+        as optional context bounds for the UI. Disjoint events are untouched.
+        """
+        groups: List[List[Tuple[float, Dict[str, Any]]]] = []
+        for item in scored:
+            matches = [group for group in groups if any(cls._same_event(item[1], member[1]) for member in group)]
+            if not matches:
+                groups.append([item])
+                continue
+            target = matches[0]
+            target.append(item)
+            for other in matches[1:]:
+                target.extend(other)
+                groups.remove(other)
+
+        grouped: List[Tuple[float, Dict[str, Any]]] = []
+        for group in groups:
+            # Highest probability wins; when effectively tied prefer the
+            # narrower interval because it is more useful for precise seeking.
+            best_probability = max(probability for probability, _ in group)
+            near_best = [item for item in group if best_probability - item[0] <= 0.03]
+            probability, primary = min(
+                near_best,
+                key=lambda item: (float(item[1].get("t_end", 0.0)) - float(item[1].get("t_start", 0.0)), -item[0], float(item[1].get("t_start", 0.0))),
+            )
+            context_start = min(float(candidate.get("t_start", 0.0)) for _, candidate in group)
+            context_end = max(float(candidate.get("t_end", 0.0)) for _, candidate in group)
+            primary = dict(primary)
+            primary["context_t_start"] = context_start
+            primary["context_t_end"] = context_end
+            grouped.append((probability, primary))
+        return grouped
+
+    @staticmethod
     def _normalize_display(signal: np.ndarray) -> np.ndarray:
         if len(signal) == 0:
             return signal
@@ -241,6 +298,18 @@ class HybridMomentSearchEngine:
             warnings.append("calibration_missing")
         if profile == "accurate" and settings.ENABLE_VLM_STAGE2_VERIFY and candidates:
             verify_limit = max(1, int(settings.VLM_VERIFY_TOP_K))
+            # Carry the already-generated scene caption into verification as a
+            # weak visual hint. It is also surfaced in the result card, but
+            # candidates did not previously receive it before Qwen ran.
+            for candidate in candidates[:verify_limit]:
+                midpoint = (float(candidate.get("t_start", 0.0)) + float(candidate.get("t_end", 0.0))) / 2.0
+                scene = next(
+                    (item for item in scenes
+                     if float(item.get("t_start", 0.0)) <= midpoint <= float(item.get("t_end", duration))),
+                    None,
+                )
+                if scene:
+                    candidate["caption_preview"] = str(scene.get("caption", "") or "")
             # Pass the source path as ephemeral metadata so Accurate mode can
             # decode a fresh 2fps window around each candidate.  It is never
             # persisted into LanceDB and is ignored by Fast mode.
@@ -261,9 +330,16 @@ class HybridMomentSearchEngine:
         if threshold is not None and scored and max(score for score, _ in scored) < threshold:
             warnings.append("no_match")
             scored = []
+        scored = self._group_candidates(scored)
+        # Occurrence numbering is semantic/time-based, while API ranking stays
+        # probability-based. This prevents nested proposals from becoming
+        # fake occurrence 1/2 results.
+        occurrence_by_key: Dict[Tuple[float, float], int] = {}
+        for occurrence_index, (_, candidate) in enumerate(sorted(scored, key=lambda pair: (float(pair[1].get("t_start", 0.0)), float(pair[1].get("t_end", 0.0)))), start=1):
+            occurrence_by_key[(float(candidate.get("t_start", 0.0)), float(candidate.get("t_end", 0.0)))] = occurrence_index
         scored.sort(key=lambda pair: (-pair[0], float(pair[1].get("t_start", 0.0))))
         moments: List[MomentItem] = []
-        for occurrence_index, (probability, candidate) in enumerate(scored[:top_k], start=1):
+        for probability, candidate in scored[:top_k]:
             start, end = float(candidate["t_start"]), float(candidate["t_end"])
             timestamps = [ts for ts in frame_by_timestamp if start <= ts <= end]
             nearest = min(frames, key=lambda frame: abs(float(frame.get("timestamp", 0.0)) - (start + end) / 2.0), default={})
@@ -278,7 +354,10 @@ class HybridMomentSearchEngine:
             moments.append(MomentItem(t_start=start, t_end=end, score=round(float(probability), 4),
                                       raw_score=round(rank_score, 6), display_score=round(float(candidate.get("score", 0.0)), 4),
                                       preview_frame_path=nearest.get("frame_path"), caption_preview=scene_caption or None,
-                                      modality_breakdown=breakdown, occurrence_index=occurrence_index))
+                                      modality_breakdown=breakdown,
+                                      occurrence_index=occurrence_by_key.get((start, end), 0),
+                                      context_t_start=round(float(candidate.get("context_t_start", start)), 3),
+                                      context_t_end=round(float(candidate.get("context_t_end", end)), 3)))
         # one heatmap value per second, derived only from display timeline
         heatmap = [round(float(display_timeline[min(len(display_timeline) - 1, int(sec * 2))]), 4) for sec in range(max(0, int(np.ceil(duration))))] if len(display_timeline) else []
         return SearchResponse(query=query, video_id=video_id, moments=moments, timeline_heatmap=heatmap,

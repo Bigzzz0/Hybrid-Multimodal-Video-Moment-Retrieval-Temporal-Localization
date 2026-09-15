@@ -87,6 +87,7 @@ class QwenVLDenseCaptioner:
         keyframes: List[Image.Image],
         prompt_override: Optional[str] = None,
         max_frames: int = 4,
+        max_new_tokens: int = 128,
     ) -> str:
         """
         Generate dense action, temporal interaction, and physical state transition caption
@@ -152,7 +153,7 @@ class QwenVLDenseCaptioner:
             with torch.no_grad():
                 generated_ids = self.model.generate(
                     **inputs,
-                    max_new_tokens=128,
+                    max_new_tokens=max(16, int(max_new_tokens)),
                     do_sample=False
                 )
                 generated_ids_trimmed = [

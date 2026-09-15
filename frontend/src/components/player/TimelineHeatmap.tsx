@@ -349,10 +349,14 @@ export const TimelineHeatmap: React.FC<TimelineHeatmapProps> = ({
 
   const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
     const canvas = canvasRef.current;
-    if (!canvas || !highlightInterval || duration <= 0) return;
+    if (!canvas || duration <= 0) return;
 
     const rect = canvas.getBoundingClientRect();
     const clientX = e.clientX - rect.left;
+    if (!highlightInterval) {
+      onSeek(xToTime(clientX, rect.width));
+      return;
+    }
     const [ts, te] = highlightInterval;
     const x1 = timeToX(ts, rect.width);
     const x2 = timeToX(te, rect.width);
@@ -440,12 +444,14 @@ export const TimelineHeatmap: React.FC<TimelineHeatmapProps> = ({
           <button
             type="button"
             onClick={() => setShowMotionLayer(!showMotionLayer)}
+            aria-pressed={showMotionLayer}
+            aria-label="Toggle motion energy layer"
             className={`px-2 py-0.5 rounded text-[10px] font-mono flex items-center gap-1 border transition-colors ${
               showMotionLayer
                 ? "bg-amber-950/60 border-amber-600/50 text-amber-300"
                 : "bg-surface border-surfaceBorder text-gray-500 hover:text-gray-300"
             }`}
-            title="Toggle Pixel Motion Energy Layer ΔP(t)"
+            title="Motion energy helps refine boundaries; it is not semantic relevance"
           >
             <Activity className="w-2.5 h-2.5" />
             <span>Motion ΔP</span>
@@ -456,6 +462,7 @@ export const TimelineHeatmap: React.FC<TimelineHeatmapProps> = ({
             <button
               type="button"
               onClick={() => handleZoom(1.0)}
+              aria-label="Timeline zoom 1x"
               className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold transition-colors ${
                 zoom.scale === 1.0 ? "bg-cyan-500/20 text-cyan-300 border border-cyan-500/40" : "text-gray-500 hover:text-gray-300"
               }`}
@@ -465,6 +472,7 @@ export const TimelineHeatmap: React.FC<TimelineHeatmapProps> = ({
             <button
               type="button"
               onClick={() => handleZoom(2.0)}
+              aria-label="Timeline zoom 2x"
               className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold transition-colors ${
                 zoom.scale === 2.0 ? "bg-cyan-500/20 text-cyan-300 border border-cyan-500/40" : "text-gray-500 hover:text-gray-300"
               }`}
@@ -474,6 +482,7 @@ export const TimelineHeatmap: React.FC<TimelineHeatmapProps> = ({
             <button
               type="button"
               onClick={() => handleZoom(4.0)}
+              aria-label="Timeline zoom 4x"
               className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold transition-colors ${
                 zoom.scale === 4.0 ? "bg-cyan-500/20 text-cyan-300 border border-cyan-500/40" : "text-gray-500 hover:text-gray-300"
               }`}
@@ -486,7 +495,8 @@ export const TimelineHeatmap: React.FC<TimelineHeatmapProps> = ({
         <div className="flex items-center gap-2">
           {peakScore > 0 && (
             <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-cyan-950 text-cyan-300 border border-cyan-800">
-              Peak: {(peakScore * 100).toFixed(0)}%
+              title="Display-normalized heatmap value, not calibrated confidence"
+              Normalized peak: {peakScore.toFixed(2)}
             </span>
           )}
           <span className="font-mono text-gray-300 text-xs">
@@ -498,24 +508,31 @@ export const TimelineHeatmap: React.FC<TimelineHeatmapProps> = ({
       {/* Top-K Moment Anchor Pins Layer */}
       {moments.length > 0 && duration > 0 && (
         <div className="relative w-full h-5">
-          {moments.slice(0, 3).map((m, idx) => {
-            const peakT = (m.t_start + m.t_end) / 2;
-            const px = timeToX(peakT, containerRef.current?.clientWidth || 500);
+          {moments.map((m, idx) => {
             const wWidth = containerRef.current?.clientWidth || 500;
-            const pct = Math.max(2, Math.min(96, (px / wWidth) * 100));
+            const leftPct = Math.max(0, Math.min(100, (timeToX(m.t_start, wWidth) / wWidth) * 100));
+            const rightPct = Math.max(leftPct, Math.min(100, (timeToX(m.t_end, wWidth) / wWidth) * 100));
+            const pct = Math.max(2, Math.min(98, (leftPct + rightPct) / 2));
 
+            const key = `${m.occurrence_index ?? 0}:${m.t_start}:${m.t_end}`;
             return (
-              <button
-                key={idx}
+              <React.Fragment key={key}>
+                <span
+                  aria-hidden="true"
+                  className="absolute top-3 h-1 rounded-full bg-cyan-400/60"
+                  style={{ left: `${leftPct}%`, width: `${Math.max(0.5, rightPct - leftPct)}%` }}
+                />
+                <button
                 type="button"
                 onClick={() => onSeek(m.t_start)}
                 style={{ left: `${pct}%` }}
-                title={`Jump to Moment #${idx + 1} (${m.t_start.toFixed(1)}s - ${m.t_end.toFixed(1)}s)`}
+                title={`Jump to event ${m.occurrence_index ?? idx + 1} (${m.t_start.toFixed(1)}s - ${m.t_end.toFixed(1)}s)`}
                 className="absolute -translate-x-1/2 top-0 px-2 py-0.5 rounded-full bg-cyan-950/90 hover:bg-cyan-900 border border-cyan-500/80 text-[10px] font-mono font-bold text-cyan-300 shadow-md shadow-cyan-500/20 hover:scale-110 transition-all flex items-center gap-1 z-20"
               >
                 <Sparkles className="w-2.5 h-2.5 text-cyan-400" />
                 <span>#{idx + 1}</span>
-              </button>
+                </button>
+              </React.Fragment>
             );
           })}
         </div>

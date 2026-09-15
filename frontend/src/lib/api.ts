@@ -52,14 +52,15 @@ export const apiClient = {
     query: string,
     videoId: string,
     topK: number = 5,
-    profile: "fast" | "accurate" = "fast"
+    profile: "fast" | "accurate" = "fast",
+    signal?: AbortSignal
   ): Promise<SearchResponse> {
     const res = await api.post<SearchResponse>("/search/moment", {
       query,
       video_id: videoId,
       top_k: topK,
       profile,
-    });
+    }, { signal });
     return res.data;
   },
 
@@ -97,6 +98,10 @@ export const apiClient = {
   // 7. Video Stream URL helper
   getVideoStreamUrl(videoId: string): string {
     return `${API_BASE_URL}/api/v1/videos/${videoId}/stream`;
+  },
+
+  getDownloadUrl(downloadUrl: string): string {
+    return downloadUrl.startsWith("http") ? downloadUrl : `${API_BASE_URL}${downloadUrl}`;
   },
 
   // 8. Keyframe Preview URL helper

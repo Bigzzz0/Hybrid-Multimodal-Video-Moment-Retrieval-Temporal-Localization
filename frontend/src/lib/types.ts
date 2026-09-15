@@ -47,6 +47,8 @@ export interface MomentItem {
   caption_preview?: string | null;
   modality_breakdown?: Record<string, number> | null;
   occurrence_index?: number;
+  context_t_start?: number | null;
+  context_t_end?: number | null;
 }
 
 export interface DragHandleState {

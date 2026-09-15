@@ -120,7 +120,9 @@ export const Dropzone: React.FC<DropzoneProps> = ({ onUploadSuccess }) => {
       }, 600);
 
       // 2. Connect WebSocket for Real-time Push
-      const wsUrl = `ws://localhost:8000/api/v1/ws/progress/${videoId}`;
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+      const wsProtocol = apiUrl.startsWith("https") ? "wss" : "ws";
+      const wsUrl = `${wsProtocol}://${apiUrl.replace(/^https?:\/\//, "")}/api/v1/ws/progress/${videoId}`;
       const ws = new WebSocket(wsUrl);
       wsRef.current = ws;
 

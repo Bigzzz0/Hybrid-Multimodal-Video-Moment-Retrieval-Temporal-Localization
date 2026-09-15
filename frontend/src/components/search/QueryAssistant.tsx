@@ -11,6 +11,7 @@ import {
   Bookmark,
   Activity,
   Check,
+  ChevronDown,
 } from "lucide-react";
 import { FilterCriteria } from "@/lib/types";
 
@@ -87,6 +88,7 @@ export const QueryAssistant: React.FC<QueryAssistantProps> = ({
   const [activeTab, setActiveTab] = useState<string>("motion");
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
   const [showFilterPopover, setShowFilterPopover] = useState(false);
+  const [showSuggestions, setShowSuggestions] = useState(true);
 
   const [filters, setFilters] = useState<FilterCriteria>({
     minConfidence: 0.35,
@@ -127,6 +129,16 @@ export const QueryAssistant: React.FC<QueryAssistantProps> = ({
 
   return (
     <div className="space-y-2.5 pt-1 relative">
+      <button
+        type="button"
+        aria-expanded={showSuggestions}
+        onClick={() => setShowSuggestions((previous) => !previous)}
+        className="flex min-h-9 items-center gap-1.5 rounded-lg px-1 text-[11px] font-mono text-gray-400 hover:text-cyan-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
+      >
+        <ChevronDown className={`h-3.5 w-3.5 transition-transform ${showSuggestions ? "rotate-0" : "-rotate-90"}`} />
+        คำค้นแนะนำและประวัติ
+      </button>
+      {showSuggestions && <div className="space-y-2.5">
       {/* Category Pills & Recent Searches Header */}
       <div className="flex flex-wrap items-center justify-between gap-2">
         {/* Category Tabs */}
@@ -293,6 +305,7 @@ export const QueryAssistant: React.FC<QueryAssistantProps> = ({
           </div>
         </div>
       )}
+      </div>}
     </div>
   );
 };

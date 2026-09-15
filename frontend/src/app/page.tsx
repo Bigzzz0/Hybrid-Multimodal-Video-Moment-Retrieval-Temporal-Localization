@@ -28,6 +28,11 @@ import { VideoQAPanel } from "@/components/rag/VideoQAPanel";
 import { Dropzone } from "@/components/upload/Dropzone";
 import { DevPanel } from "@/components/dev/DevPanel";
 import { ShortcutModal } from "@/components/ui/ShortcutModal";
+import { SearchProfileControl } from "@/components/search/SearchProfileControl";
+import { SearchStatus } from "@/components/search/SearchStatus";
+import { SearchWarningBanner } from "@/components/search/SearchWarningBanner";
+import { SearchResultSummary } from "@/components/search/SearchResultSummary";
+import { uniqueWarnings, momentIdentity } from "@/lib/ui";
 
 export default function DashboardPage() {
   const [videos, setVideos] = useState<VideoMetadata[]>([]);
@@ -42,6 +47,7 @@ export default function DashboardPage() {
   const [seekTime, setSeekTime] = useState<number | null>(null);
   const [highlightInterval, setHighlightInterval] = useState<[number, number] | null>(null);
   const [activeMoment, setActiveMoment] = useState<MomentItem | null>(null);
+  const [activeMomentKey, setActiveMomentKey] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"moments" | "rag">("moments");
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [videoToDelete, setVideoToDelete] = useState<VideoMetadata | null>(null);
@@ -51,6 +57,10 @@ export default function DashboardPage() {
   const [isCinemaMode, setIsCinemaMode] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [isBoundaryAdjusted, setIsBoundaryAdjusted] = useState(false);
+  const [isContextExpanded, setIsContextExpanded] = useState(false);
+  const searchAbortRef = useRef<AbortController | null>(null);
+  const searchRequestIdRef = useRef(0);
 
   const searchInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -140,57 +150,83 @@ export default function DashboardPage() {
       setSearchError("กรุณาเลือกวิดีโอก่อนค้นหา");
       return;
     }
+    searchAbortRef.current?.abort();
+    const requestId = ++searchRequestIdRef.current;
+    const controller = new AbortController();
+    searchAbortRef.current = controller;
     setIsSearching(true);
     setSearchError(null);
     setNeedsReindex(false);
     setSearchResult(null);
+    setActiveMoment(null);
+    setActiveMomentKey(null);
+    setHighlightInterval(null);
+    setSeekTime(null);
+    setIsBoundaryAdjusted(false);
+    setIsContextExpanded(false);
     setActiveTab("moments");
 
     try {
-      const res = await apiClient.searchMoments(q, selectedVideo.id, 5, searchProfile);
+      const res = await apiClient.searchMoments(q, selectedVideo.id, 5, searchProfile, controller.signal);
+      if (requestId !== searchRequestIdRef.current) return;
       setSearchResult(res);
       if (res.warnings?.includes("reindex_required")) {
         setNeedsReindex(true);
-        setSearchError("วิดีโอนี้ต้องทำดัชนี visual v2 ใหม่ กรุณาอัปโหลด/ทำ reindex ก่อนค้นหา");
-      } else if (res.warnings?.length) {
-        setSearchError(`คำเตือน: ${res.warnings.join(", ")}`);
-      }
-
-      if (res.moments && res.moments.length > 0) {
-        const topMoment = res.moments[0];
-        handleSelectMoment(topMoment);
       }
     } catch (err: any) {
+      if (err?.code === "ERR_CANCELED" || err?.name === "CanceledError" || controller.signal.aborted) return;
       console.error("Search failed:", err);
       const detail = err?.response?.data?.detail;
       const message = typeof detail === "string" ? detail : detail?.message;
       if (detail?.code === "reindex_required") {
         setNeedsReindex(true);
+        setSearchError(null);
+        return;
       }
       setSearchError(message || "ค้นหาไม่สำเร็จ กรุณาตรวจสอบวิดีโอหรือทำดัชนีใหม่");
     } finally {
-      setIsSearching(false);
+      if (requestId === searchRequestIdRef.current) setIsSearching(false);
     }
   };
 
   const handleSelectMoment = (m: MomentItem, autoLoop: boolean = false) => {
     setActiveMoment(m);
+    setActiveMomentKey(momentIdentity(m));
     setSeekTime(m.t_start);
     setHighlightInterval([m.t_start, m.t_end]);
+    setIsContextExpanded(false);
+    setIsBoundaryAdjusted(false);
+  };
+
+  const handleExpandContext = (m: MomentItem) => {
+    setActiveMoment(m);
+    setActiveMomentKey(momentIdentity(m));
+    setSeekTime(m.context_t_start ?? m.t_start);
+    setHighlightInterval([m.context_t_start ?? m.t_start, m.context_t_end ?? m.t_end]);
+    setIsContextExpanded(true);
+    setIsBoundaryAdjusted(false);
+  };
+
+  const handleResetBoundary = () => {
+    if (!activeMoment || !searchResult) return;
+    const original = searchResult.moments.find((moment) => momentIdentity(moment) === activeMomentKey);
+    if (!original) return;
+    setActiveMoment(original);
+    setHighlightInterval([original.t_start, original.t_end]);
+    setIsContextExpanded(false);
+    setIsBoundaryAdjusted(false);
   };
 
   const handleBoundaryChange = (newStart: number, newEnd: number) => {
     setHighlightInterval([newStart, newEnd]);
-    if (activeMoment) {
-      setActiveMoment({
-        ...activeMoment,
-        t_start: newStart,
-        t_end: newEnd,
-      });
-    }
+    setIsBoundaryAdjusted(true);
   };
 
   const handleSeekFromQA = (time: number) => {
+    setActiveMoment(null);
+    setActiveMomentKey(null);
+    setIsContextExpanded(false);
+    setIsBoundaryAdjusted(false);
     setSeekTime(time);
     setHighlightInterval([time, Math.min(selectedVideo?.duration_sec || time + 4, time + 4.0)]);
   };
@@ -216,6 +252,7 @@ export default function DashboardPage() {
         setSearchResult(null);
         setHighlightInterval(null);
         setActiveMoment(null);
+        setActiveMomentKey(null);
         setSeekTime(null);
       }
 
@@ -244,12 +281,17 @@ export default function DashboardPage() {
         videos={videos}
         selectedVideo={selectedVideo}
         onSelectVideo={(vid) => {
+          searchAbortRef.current?.abort();
+          searchRequestIdRef.current += 1;
           setSelectedVideo(vid);
           setSearchResult(null);
           setSearchError(null);
           setNeedsReindex(false);
           setHighlightInterval(null);
           setActiveMoment(null);
+          setActiveMomentKey(null);
+          setIsBoundaryAdjusted(false);
+          setIsContextExpanded(false);
         }}
         onRequestDelete={handleRequestDelete}
         onToggleUpload={() => setShowUploader(!showUploader)}
@@ -259,12 +301,26 @@ export default function DashboardPage() {
 
       {/* 2. Natural Language Search Suite with Pro Shortcut Pill */}
       <div className="glass-panel rounded-2xl p-4 shadow-xl space-y-3 border border-surfaceBorder/80">
+        <div className="flex items-center justify-between gap-3 border-b border-surfaceBorder/60 pb-2">
+          <div>
+            <p className="text-xs font-semibold text-gray-200">Pure-Visual Moment Search</p>
+            <p className="text-[10px] font-mono text-gray-500">Frame embeddings + dense visual scene captions</p>
+          </div>
+          <div className="flex items-center gap-2">
+            <button type="button" onClick={() => setShowShortcutModal(true)} aria-label="Open keyboard shortcuts" className="min-h-9 rounded-xl border border-surfaceBorder bg-surface px-3 text-xs font-mono text-gray-300 hover:border-cyan-500/40 hover:text-cyan-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400" title="Pro Keyboard Shortcuts (?)">
+              <Command className="inline h-4 w-4 text-cyan-400" /> <span className="hidden sm:inline">Hotkeys</span>
+            </button>
+            <button type="button" onClick={() => setShowDevPanel(true)} aria-label="Open developer panel" className="min-h-9 rounded-xl border border-surfaceBorder bg-surface px-3 text-xs font-mono font-semibold text-gray-300 hover:border-cyan-500/40 hover:text-cyan-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400" title="Open Developer & System Telemetry Panel">
+              <Terminal className="inline h-4 w-4 text-cyan-400" /> <span className="hidden sm:inline">Dev Panel</span>
+            </button>
+          </div>
+        </div>
         <form
           onSubmit={(e) => {
             e.preventDefault();
             handleSearch();
           }}
-          className="flex items-center gap-3"
+          className="flex flex-col gap-3 lg:flex-row lg:items-center"
         >
           {/* Query Input */}
           <div className="relative flex-1">
@@ -302,9 +358,7 @@ export default function DashboardPage() {
             className="px-6 py-3 rounded-xl bg-gradient-to-r from-cyan-500 via-indigo-600 to-cyan-600 text-white font-bold text-xs tracking-wide shadow-lg shadow-cyan-500/20 hover:opacity-95 transition-all flex items-center gap-2 disabled:opacity-50 flex-shrink-0"
           >
             {isSearching ? (
-              <>
-                <Loader2 className="w-4 h-4 animate-spin" /> ค้นหา...
-              </>
+              <><Loader2 className="w-4 h-4 animate-spin" /> กำลังค้นหา...</>
             ) : (
               <>
                 <Sparkles className="w-4 h-4 text-cyan-200" /> สกัดช่วงเวลา (VMR)
@@ -312,47 +366,11 @@ export default function DashboardPage() {
             )}
           </button>
 
-          {/* Retrieval profile: Accurate invokes the bounded visual verifier. */}
-          <div className="flex items-center gap-1 rounded-xl bg-surface border border-surfaceBorder p-1 flex-shrink-0">
-            {(["fast", "accurate"] as const).map((profile) => (
-              <button
-                key={profile}
-                type="button"
-                onClick={() => setSearchProfile(profile)}
-                className={`px-2.5 py-2 rounded-lg text-[10px] font-mono font-semibold transition-colors ${
-                  searchProfile === profile
-                    ? "bg-cyan-500/20 text-cyan-300 border border-cyan-500/40"
-                    : "text-gray-500 hover:text-gray-300"
-                }`}
-                title={profile === "accurate" ? "ตรวจสอบภาพซ้ำด้วย VLM (ไม่เกิน 15 วินาที)" : "ค้นหาเร็วจากดัชนีภาพ"}
-              >
-                {profile === "accurate" ? "Accurate" : "Fast"}
-              </button>
-            ))}
-          </div>
+          <SearchProfileControl value={searchProfile} disabled={isSearching} onChange={setSearchProfile} />
 
-          {/* Keyboard Shortcuts Sheet Button */}
-          <button
-            type="button"
-            onClick={() => setShowShortcutModal(true)}
-            className="p-3 rounded-xl bg-surface hover:bg-surfaceBorder text-gray-300 hover:text-cyan-300 border border-surfaceBorder hover:border-cyan-500/40 text-xs font-mono transition-all flex items-center gap-1 flex-shrink-0 shadow-sm"
-            title="Pro Keyboard Shortcuts (?)"
-          >
-            <Command className="w-4 h-4 text-cyan-400" />
-            <span className="hidden xl:inline">Hotkeys</span>
-          </button>
-
-          {/* Dev & Telemetry Panel Button */}
-          <button
-            type="button"
-            onClick={() => setShowDevPanel(true)}
-            className="px-3 py-3 rounded-xl bg-surface hover:bg-surfaceBorder text-gray-300 hover:text-cyan-300 border border-surfaceBorder hover:border-cyan-500/40 text-xs font-mono font-semibold transition-all flex items-center gap-1.5 flex-shrink-0 shadow-sm"
-            title="Open Developer & System Telemetry Panel"
-          >
-            <Terminal className="w-4 h-4 text-cyan-400" />
-            <span className="hidden sm:inline">Dev Panel</span>
-          </button>
         </form>
+
+        {isSearching && <SearchStatus profile={searchProfile} />}
 
         {/* Categorized Action Suggestions & Recent Searches */}
         <QueryAssistant
@@ -365,15 +383,6 @@ export default function DashboardPage() {
         {searchError && (
           <div className="text-xs text-amber-300 bg-amber-950/30 border border-amber-700/40 rounded-lg px-3 py-2 flex items-center justify-between gap-3">
             <span>{searchError}</span>
-            {needsReindex && (
-              <button
-                type="button"
-                onClick={() => setShowUploader(true)}
-                className="shrink-0 rounded-md border border-amber-500/50 px-2 py-1 text-[10px] font-semibold text-amber-200 hover:bg-amber-500/10"
-              >
-                เปิดอัปโหลดเพื่อสร้างดัชนีใหม่
-              </button>
-            )}
           </div>
         )}
       </div>
@@ -403,7 +412,7 @@ export default function DashboardPage() {
           } space-y-5 transition-all duration-300`}
         >
           {selectedVideo ? (
-            <VideoPlayer
+              <VideoPlayer
               streamUrl={apiClient.getVideoStreamUrl(selectedVideo.id)}
               duration={selectedVideo.duration_sec}
               seekTime={seekTime}
@@ -414,7 +423,10 @@ export default function DashboardPage() {
               fps={selectedVideo.fps || 25}
               isCinemaMode={isCinemaMode}
               onToggleCinemaMode={() => setIsCinemaMode(!isCinemaMode)}
-              onBoundaryChange={handleBoundaryChange}
+                onBoundaryChange={handleBoundaryChange}
+                boundaryAdjusted={isBoundaryAdjusted}
+                contextExpanded={isContextExpanded}
+                onResetBoundary={handleResetBoundary}
             />
           ) : (
             <div className="aspect-video glass-panel rounded-2xl flex items-center justify-center text-gray-500 border border-surfaceBorder">
@@ -470,21 +482,8 @@ export default function DashboardPage() {
           </div>
 
           {/* Latency & Telemetry Metric Pill */}
-          {searchResult && activeTab === "moments" && (
-            <div className="glass-panel p-3 rounded-xl border border-surfaceBorder flex items-center justify-between text-xs text-gray-400">
-              <span className="truncate pr-2">
-                คำค้นหา: <b className="text-white font-medium">"{searchResult.query}"</b>
-              </span>
-              <div className="flex items-center gap-2 flex-shrink-0">
-                <span className="font-mono text-cyan-400 font-bold bg-cyan-950 px-2 py-0.5 rounded border border-cyan-800">
-                  ⚡ {searchResult.latency_ms} ms
-                </span>
-                <span className="font-mono text-[10px] text-indigo-300 bg-indigo-950/60 px-2 py-0.5 rounded border border-indigo-800/60">
-                  {searchResult.profile} {searchResult.calibrated ? "• calibrated" : "• uncalibrated"}
-                </span>
-              </div>
-            </div>
-          )}
+          {searchResult && activeTab === "moments" && <SearchResultSummary query={searchResult.query} count={searchResult.moments.length} profile={searchResult.profile} latencyMs={searchResult.latency_ms} calibrated={searchResult.calibrated} indexVersion={searchResult.index_version} />}
+          {searchResult && activeTab === "moments" && <SearchWarningBanner warnings={uniqueWarnings(searchResult.warnings)} onReindex={() => setShowUploader(true)} />}
 
           {/* Tab Content */}
           {activeTab === "moments" ? (
@@ -493,7 +492,11 @@ export default function DashboardPage() {
               videoId={selectedVideo?.id}
               calibrated={searchResult?.calibrated || false}
               warnings={searchResult?.warnings || []}
+              profile={searchResult?.profile || "fast"}
+              emptyState={needsReindex || searchResult?.warnings?.includes("reindex_required") ? "reindex" : !searchResult ? "initial" : "no_match"}
+              onReindex={() => setShowUploader(true)}
               onSelectMoment={handleSelectMoment}
+              onExpandContext={handleExpandContext}
               activeMoment={activeMoment}
             />
           ) : (

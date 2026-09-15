@@ -30,6 +30,9 @@ interface VideoPlayerProps {
   isCinemaMode?: boolean;
   onToggleCinemaMode?: () => void;
   onBoundaryChange?: (newStart: number, newEnd: number) => void;
+  boundaryAdjusted?: boolean;
+  contextExpanded?: boolean;
+  onResetBoundary?: () => void;
 }
 
 export const VideoPlayer: React.FC<VideoPlayerProps> = ({
@@ -44,6 +47,9 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   isCinemaMode = false,
   onToggleCinemaMode,
   onBoundaryChange,
+  boundaryAdjusted = false,
+  contextExpanded = false,
+  onResetBoundary,
 }) => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -149,7 +155,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           <div className="absolute top-3 left-3 right-3 flex items-center justify-between pointer-events-none">
             <span className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-black/80 backdrop-blur-md border border-cyan-500/60 text-xs font-mono font-semibold text-cyan-300 shadow-md">
               <Sparkles className="w-3.5 h-3.5 text-cyan-400 animate-pulse" />
-              Event Boundary: {highlightInterval[0].toFixed(1)}s - {highlightInterval[1].toFixed(1)}s
+              {contextExpanded ? "Context Window" : "Active Event"}: {highlightInterval[0].toFixed(1)}s - {highlightInterval[1].toFixed(1)}s
               ({(highlightInterval[1] - highlightInterval[0]).toFixed(1)}s)
             </span>
 
@@ -173,6 +179,13 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         onSeek={handleSeek}
         onBoundaryChange={onBoundaryChange}
       />
+
+      {highlightInterval && (boundaryAdjusted || contextExpanded) && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-indigo-800/50 bg-indigo-950/20 px-3 py-2 text-[11px] text-indigo-200">
+          <span>{contextExpanded ? "กำลังดูช่วงบริบท" : "Adjusted locally — ยังไม่เปลี่ยนผลค้นหา"}</span>
+          {onResetBoundary && <button type="button" onClick={onResetBoundary} className="min-h-9 rounded-lg border border-indigo-700/60 px-2.5 py-1 font-semibold hover:bg-indigo-900/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400">Reset boundary</button>}
+        </div>
+      )}
 
       {/* Studio Control Bar */}
       <div className="flex flex-wrap items-center justify-between gap-3 px-1 pt-1 text-gray-300 text-xs">

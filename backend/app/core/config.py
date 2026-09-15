@@ -81,7 +81,10 @@ class Settings(BaseSettings):
     # Strategy 5: Two-Stage VLM Temporal Verification & Endpoint Snapping
     ENABLE_VLM_STAGE2_VERIFY: bool = True      # Accurate profile reranks the top three visual proposals
     VLM_VERIFY_TOP_K: int = 3                  # Verify top 3 candidates
-    VLM_VERIFY_FRAMES_PER_MOMENT: int = 8      # Maximum frames per candidate
+    # Four uniformly spaced frames keep three Qwen verification calls inside
+    # the 15-second budget on the target 6.5-8GB GPUs. The retrieval contract
+    # allows up to eight; using all eight made Accurate mode regularly time out.
+    VLM_VERIFY_FRAMES_PER_MOMENT: int = 4
 
     # Gaussian Soft-NMS is applied after proposal generation.
     ENABLE_GAUSSIAN_SOFT_NMS: bool = True

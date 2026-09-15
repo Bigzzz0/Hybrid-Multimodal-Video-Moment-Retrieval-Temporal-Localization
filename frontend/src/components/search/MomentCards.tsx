@@ -1,34 +1,36 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { MomentItem } from "@/lib/types";
 import {
-  Play,
   Sparkles,
   Download,
   Check,
   Loader2,
   Repeat,
   Copy,
-  Clock,
-  Tag,
   LayoutList,
   LayoutGrid,
   CheckSquare,
   Square,
   Activity,
-  User,
-  Zap,
 } from "lucide-react";
 import { apiClient } from "@/lib/api";
-import { RadialConfidenceMeter } from "@/components/ui/RadialConfidenceMeter";
+import { MomentEvidenceBreakdown } from "@/components/search/MomentEvidenceBreakdown";
+import { MomentScore } from "@/components/search/MomentScore";
+import { momentIdentity, formatMomentTime } from "@/lib/ui";
+import { SearchEmptyState } from "@/components/search/SearchEmptyState";
 
 interface MomentCardsProps {
   moments: MomentItem[];
   videoId?: string;
   calibrated?: boolean;
   warnings?: string[];
+  profile?: "fast" | "accurate";
   onSelectMoment: (moment: MomentItem, autoLoop?: boolean) => void;
+  onExpandContext?: (moment: MomentItem) => void;
+  emptyState?: "initial" | "no_match" | "reindex";
+  onReindex?: () => void;
   activeMoment?: MomentItem | null;
 }
 
@@ -37,7 +39,11 @@ export const MomentCards: React.FC<MomentCardsProps> = ({
   videoId,
   calibrated = false,
   warnings = [],
+  profile = "fast",
   onSelectMoment,
+  onExpandContext,
+  emptyState = "initial",
+  onReindex,
   activeMoment,
 }) => {
   const [layoutMode, setLayoutMode] = useState<"list" | "grid">("list");
@@ -45,6 +51,16 @@ export const MomentCards: React.FC<MomentCardsProps> = ({
   const [exportingIndex, setExportingIndex] = useState<number | null>(null);
   const [isBatchExporting, setIsBatchExporting] = useState(false);
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
+  const headingRef = useRef<HTMLHeadingElement | null>(null);
+
+  useEffect(() => {
+    if (moments.length > 0) headingRef.current?.focus();
+  }, [moments]);
+
+  useEffect(() => {
+    setSelectedMoments(new Set());
+    setCopiedIndex(null);
+  }, [moments]);
 
   const toggleSelectMoment = (e: React.MouseEvent, idx: number) => {
     e.stopPropagation();
@@ -74,7 +90,7 @@ export const MomentCards: React.FC<MomentCardsProps> = ({
       const res = await apiClient.exportClip(videoId, m.t_start, m.t_end);
       if (res && res.download_url) {
         const a = document.createElement("a");
-        a.href = `http://localhost:8000${res.download_url}`;
+        a.href = apiClient.getDownloadUrl(res.download_url);
         a.download = res.clip_filename;
         document.body.appendChild(a);
         a.click();
@@ -98,7 +114,7 @@ export const MomentCards: React.FC<MomentCardsProps> = ({
           const res = await apiClient.exportClip(videoId, m.t_start, m.t_end);
         if (res && res.download_url) {
           const a = document.createElement("a");
-          a.href = `http://localhost:8000${res.download_url}`;
+          a.href = apiClient.getDownloadUrl(res.download_url);
           a.download = res.clip_filename;
           document.body.appendChild(a);
           a.click();
@@ -137,18 +153,7 @@ export const MomentCards: React.FC<MomentCardsProps> = ({
   };
 
   if (!moments || moments.length === 0) {
-    return (
-      <div className="glass-panel rounded-2xl p-8 text-center text-gray-400 space-y-2 border border-surfaceBorder/80">
-        <Sparkles className="w-8 h-8 mx-auto text-cyan-400 opacity-60 animate-pulse" />
-        <p className="font-semibold text-gray-200">ยังไม่มีช่วงเวลาที่ค้นพบ (No Moments)</p>
-        <p className="text-xs text-gray-500">
-          พิมพ์คำค้นหาภาษาไทยหรืออังกฤษในช่องด้านบน หรือคลิกชิปหมวดการเคลื่อนไหวเพื่อเริ่มค้นหา
-        </p>
-        {warnings.length > 0 && (
-          <p className="text-xs text-amber-300">{warnings.join(" • ")}</p>
-        )}
-      </div>
-    );
+    return <SearchEmptyState state={emptyState} onReindex={onReindex} />;
   }
 
   return (
@@ -156,7 +161,7 @@ export const MomentCards: React.FC<MomentCardsProps> = ({
       {/* Header Bar with View Switcher & Counter */}
       <div className="flex items-center justify-between px-1">
         <div className="flex items-center gap-2">
-          <h3 className="text-xs font-bold text-gray-300 uppercase tracking-wider flex items-center gap-1.5">
+          <h3 ref={headingRef} id="search-results-heading" className="text-xs font-bold text-gray-300 uppercase tracking-wider flex items-center gap-1.5" tabIndex={-1}>
             <Sparkles className="w-3.5 h-3.5 text-cyan-400" />
             Moments ({moments.length})
           </h3>
@@ -181,6 +186,7 @@ export const MomentCards: React.FC<MomentCardsProps> = ({
             <button
               type="button"
               onClick={() => setLayoutMode("list")}
+              aria-label="Detailed list view"
               className={`p-1 rounded transition-colors ${
                 layoutMode === "list"
                   ? "bg-cyan-500/20 text-cyan-300 border border-cyan-500/40"
@@ -193,6 +199,7 @@ export const MomentCards: React.FC<MomentCardsProps> = ({
             <button
               type="button"
               onClick={() => setLayoutMode("grid")}
+              aria-label="Storyboard grid view"
               className={`p-1 rounded transition-colors ${
                 layoutMode === "grid"
                   ? "bg-cyan-500/20 text-cyan-300 border border-cyan-500/40"
@@ -210,12 +217,6 @@ export const MomentCards: React.FC<MomentCardsProps> = ({
         </div>
       </div>
 
-      {warnings.length > 0 && (
-        <div className="text-[11px] text-amber-300 bg-amber-950/30 border border-amber-800/50 rounded-lg px-3 py-2">
-          {warnings.join(" • ")}
-        </div>
-      )}
-
       {/* Cards Viewport */}
       {layoutMode === "list" ? (
         /* Detailed List View */
@@ -228,15 +229,14 @@ export const MomentCards: React.FC<MomentCardsProps> = ({
             const actionTags = extractActionTags(m.caption_preview);
 
             const breakdown = m.modality_breakdown || {};
-            const visualScore = Math.max(0, Math.min(1, breakdown.visual ?? 0));
-            const captionScore = Math.max(0, Math.min(1, breakdown.caption ?? 0));
-            const temporalScore = Math.max(0, Math.min(1, breakdown.temporal ?? 0));
-            const verifierScore = Math.max(0, Math.min(1, breakdown.verifier ?? 0));
 
             return (
               <div
-                key={idx}
+                key={momentIdentity(m)}
                 onClick={() => onSelectMoment(m, false)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelectMoment(m, false); } }}
                 className={`glass-panel p-3.5 rounded-2xl cursor-pointer transition-all duration-200 flex flex-col gap-2.5 border group ${
                   isActive
                     ? "border-cyan-500 bg-surface/90 shadow-xl shadow-cyan-500/10 ring-1 ring-cyan-500/40"
@@ -287,18 +287,19 @@ export const MomentCards: React.FC<MomentCardsProps> = ({
                   {/* Moment Metadata Info */}
                   <div className="flex-1 min-w-0 space-y-1">
                     <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-1.5">
+                      <div className="flex flex-wrap items-center gap-1.5">
                         <span className="text-sm font-mono font-bold text-white tracking-wide">
-                          {m.t_start.toFixed(1)}s - {m.t_end.toFixed(1)}s
+                          {formatMomentTime(m.t_start)} – {formatMomentTime(m.t_end)}
                         </span>
                         {typeof m.occurrence_index === "number" && (
                           <span className="text-[10px] font-mono text-indigo-300 bg-indigo-950/60 border border-indigo-800/60 rounded px-1.5 py-0.5">
-                            occurrence {m.occurrence_index}
+                            เหตุการณ์ครั้งที่ {m.occurrence_index}
                           </span>
                         )}
                         <button
                           type="button"
                           onClick={(e) => handleCopyTimestamp(e, m, idx)}
+                          aria-label={`Copy timecode ${formatMomentTime(m.t_start)} to ${formatMomentTime(m.t_end)}`}
                           title="Copy interval timecode"
                           className="p-1 rounded hover:bg-surfaceBorder text-gray-400 hover:text-white transition-colors"
                         >
@@ -310,13 +311,12 @@ export const MomentCards: React.FC<MomentCardsProps> = ({
                         </button>
                       </div>
 
-                      {/* Radial Confidence Meter */}
-                      <RadialConfidenceMeter score={m.score} size={36} strokeWidth={3} />
+                      <MomentScore score={m.score} calibrated={calibrated} size={36} />
                     </div>
 
-                    {/* VLM Caption Preview */}
+                    {/* Dense visual caption preview */}
                     <p className="text-xs text-gray-300 line-clamp-2 leading-relaxed">
-                      {m.caption_preview || "Visual action sequence candidate (caption unavailable)."}
+                      {m.caption_preview || "Caption unavailable — ranking uses frame embeddings only."}
                     </p>
 
                     {/* Action Micro-Tags */}
@@ -335,48 +335,7 @@ export const MomentCards: React.FC<MomentCardsProps> = ({
                   </div>
                 </div>
 
-                {/* Evidence breakdown from the retrieval pipeline (no fabricated scores). */}
-                <div className="grid grid-cols-4 gap-1.5 pt-2 border-t border-surfaceBorder/60 text-[10px] font-mono">
-                  <div className="bg-surface/90 p-1.5 rounded-lg border border-surfaceBorder/60">
-                    <div className="flex items-center justify-between text-gray-400">
-                      <span className="flex items-center gap-1"><User className="w-2.5 h-2.5 text-cyan-400" /> VIS</span>
-                      <span className="text-cyan-300 font-bold">{(visualScore * 100).toFixed(0)}%</span>
-                    </div>
-                    <div className="w-full bg-gray-800 h-1 rounded-full overflow-hidden mt-1">
-                      <div className="bg-cyan-400 h-full rounded-full" style={{ width: `${visualScore * 100}%` }} />
-                    </div>
-                  </div>
-
-                  <div className="bg-surface/90 p-1.5 rounded-lg border border-surfaceBorder/60">
-                    <div className="flex items-center justify-between text-gray-400">
-                      <span className="flex items-center gap-1"><Sparkles className="w-2.5 h-2.5 text-indigo-400" /> CAP</span>
-                      <span className="text-indigo-300 font-bold">{(captionScore * 100).toFixed(0)}%</span>
-                    </div>
-                    <div className="w-full bg-gray-800 h-1 rounded-full overflow-hidden mt-1">
-                      <div className="bg-indigo-400 h-full rounded-full" style={{ width: `${captionScore * 100}%` }} />
-                    </div>
-                  </div>
-
-                  <div className="bg-surface/90 p-1.5 rounded-lg border border-surfaceBorder/60">
-                    <div className="flex items-center justify-between text-gray-400">
-                      <span className="flex items-center gap-1"><Activity className="w-2.5 h-2.5 text-amber-400" /> TMP</span>
-                      <span className="text-amber-300 font-bold">{(temporalScore * 100).toFixed(0)}%</span>
-                    </div>
-                    <div className="w-full bg-gray-800 h-1 rounded-full overflow-hidden mt-1">
-                      <div className="bg-amber-400 h-full rounded-full" style={{ width: `${temporalScore * 100}%` }} />
-                    </div>
-                  </div>
-
-                  <div className="bg-surface/90 p-1.5 rounded-lg border border-surfaceBorder/60">
-                    <div className="flex items-center justify-between text-gray-400">
-                      <span className="flex items-center gap-1"><Zap className="w-2.5 h-2.5 text-emerald-400" /> VLM</span>
-                      <span className="text-emerald-300 font-bold">{(verifierScore * 100).toFixed(0)}%</span>
-                    </div>
-                    <div className="w-full bg-gray-800 h-1 rounded-full overflow-hidden mt-1">
-                      <div className="bg-emerald-400 h-full rounded-full" style={{ width: `${verifierScore * 100}%` }} />
-                    </div>
-                  </div>
-                </div>
+                <MomentEvidenceBreakdown breakdown={breakdown} showVerifier={profile === "accurate"} />
 
                 {/* Bottom Row Actions Toolbar */}
                 <div className="flex items-center justify-between pt-1 border-t border-surfaceBorder/40 text-xs">
@@ -397,6 +356,16 @@ export const MomentCards: React.FC<MomentCardsProps> = ({
                   </button>
 
                   <div className="flex items-center gap-1.5">
+                    {onExpandContext && (m.context_t_start != null && m.context_t_end != null && (m.context_t_start < m.t_start - 0.01 || m.context_t_end > m.t_end + 0.01)) && (
+                      <button
+                        type="button"
+                        onClick={(e) => { e.stopPropagation(); onExpandContext(m); }}
+                        className="flex items-center gap-1 rounded-lg border border-indigo-800/60 bg-indigo-950/40 px-2.5 py-1 text-[11px] font-medium text-indigo-200 hover:bg-indigo-900/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
+                        title={`แสดงบริบท ${formatMomentTime(m.context_t_start)} – ${formatMomentTime(m.context_t_end)}`}
+                      >
+                        <Activity className="h-3 w-3" /> บริบท
+                      </button>
+                    )}
                     <button
                       type="button"
                       disabled={exportingIndex === idx}
@@ -429,8 +398,11 @@ export const MomentCards: React.FC<MomentCardsProps> = ({
 
             return (
               <div
-                key={idx}
+                key={momentIdentity(m)}
                 onClick={() => onSelectMoment(m, false)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onSelectMoment(m, false); } }}
                 className={`glass-panel p-2.5 rounded-xl cursor-pointer transition-all duration-200 flex flex-col gap-2 border group ${
                   isActive
                     ? "border-cyan-500 bg-surface/90 shadow-lg shadow-cyan-500/10 ring-1 ring-cyan-500/40"
@@ -464,14 +436,18 @@ export const MomentCards: React.FC<MomentCardsProps> = ({
 
                 <div className="flex items-center justify-between px-0.5">
                   <span className="text-xs font-mono font-bold text-white">
-                    {m.t_start.toFixed(1)}s - {m.t_end.toFixed(1)}s
+                    {formatMomentTime(m.t_start)} – {formatMomentTime(m.t_end)}
+                    <span className="ml-1.5 text-[10px] font-normal text-indigo-300">event {m.occurrence_index ?? idx + 1}</span>
                   </span>
-                  <RadialConfidenceMeter score={m.score} size={28} strokeWidth={2.5} />
+                  <MomentScore score={m.score} calibrated={calibrated} size={28} />
                 </div>
 
                 <p className="text-[11px] text-gray-400 line-clamp-1 leading-snug">
-                  {m.caption_preview || "Physical action sequence"}
+                  {m.caption_preview || "Caption unavailable — frame embeddings only"}
                 </p>
+                {onExpandContext && m.context_t_start != null && m.context_t_end != null && (m.context_t_start < m.t_start - 0.01 || m.context_t_end > m.t_end + 0.01) && (
+                  <button type="button" onClick={(e) => { e.stopPropagation(); onExpandContext(m); }} className="min-h-9 rounded-lg border border-indigo-800/60 px-2 py-1 text-[10px] font-semibold text-indigo-200 hover:bg-indigo-900/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400">ดูบริบท {formatMomentTime(m.context_t_start)}–{formatMomentTime(m.context_t_end)}</button>
+                )}
               </div>
             );
           })}

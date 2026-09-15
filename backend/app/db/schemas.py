@@ -126,6 +126,8 @@ class MomentItem(BaseModel):
     caption_preview: Optional[str] = None
     modality_breakdown: Optional[Dict[str, float]] = None
     occurrence_index: int = 0
+    context_t_start: Optional[float] = None
+    context_t_end: Optional[float] = None
 
 class SearchResponse(BaseModel):
     query: str

@@ -81,6 +81,10 @@ class VisualQueryDecomposer:
             "เดิน": {"visual": ["walking", "walk", "stepping", "pedestrian movement", "moving forward"]},
             "ก้าว": {"visual": ["stepping", "taking steps", "walking"]},
             "วิ่ง": {"visual": ["running", "jogging", "sprint", "fast movement"]},
+            # Vehicle motion is distinct from a person running. Keep these
+            # phrases explicit so visual retrieval and the Qwen verifier do
+            # not interpret รถยนต์วิ่งผ่าน as human running.
+            "วิ่งผ่าน": {"visual": ["car driving past", "vehicle passing", "car moving along road"]},
             "กระโดด": {"visual": ["jumping", "leaping", "hop", "in mid-air"]},
             "ล้ม": {"visual": ["falling down", "tripping", "collapsing to ground"]},
             "หกล้ม": {"visual": ["falling down", "tripping over", "sprawling on floor"]},
@@ -110,6 +114,7 @@ class VisualQueryDecomposer:
             # Transport & Vehicles
             "รถ": {"visual": ["car", "automobile", "vehicle", "street", "road traffic"]},
             "รถยนต์": {"visual": ["car", "automobile", "sedan", "vehicle"]},
+            "ถนน": {"visual": ["road", "street", "highway", "roadway"]},
             "มอเตอร์ไซค์": {"visual": ["motorcycle", "motorbike", "scooter", "two-wheeler"]},
             "จักรยานยนต์": {"visual": ["motorcycle", "motorbike", "scooter"]},
             "จักรยาน": {"visual": ["bicycle", "bike", "cycling", "cyclist"]},
