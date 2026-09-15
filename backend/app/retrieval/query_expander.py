@@ -1,10 +1,9 @@
 from typing import List, Dict, Set, Any, Tuple
 import re
-from app.core.config import settings
 
 class VisualQueryDecomposer:
     """
-    SOTA Visual Query Decomposer and Semantic Expander (Visual-Centric SOTA 2024-2026).
+    Deterministic visual query decomposer and semantic expander.
     Decomposes natural language user queries into fine-grained visual facets:
     - Primary Entities & Objects (สิ่งที่มองเห็นในฉาก)
     - Physical Movements & Action Verbs (กริยาและการเคลื่อนไหวทางกายภาพ)
@@ -144,7 +143,20 @@ class VisualQueryDecomposer:
         # 1. Regex tokenization
         raw_tokens = re.findall(r'\w+', q_low)
         
-        visual_cues: Set[str] = set(raw_tokens)
+        # Keep expansion deterministic.  Set iteration made otherwise
+        # identical queries produce different vectors and rankings between
+        # processes.
+        visual_cues: List[str] = []
+        seen_cues: Set[str] = set()
+
+        def add_cue(value: str) -> None:
+            value = value.strip()
+            if value and value not in seen_cues:
+                seen_cues.add(value)
+                visual_cues.append(value)
+
+        for token in raw_tokens:
+            add_cue(token)
         english_translations: List[str] = []
         action_cues: List[str] = []
 
@@ -158,7 +170,8 @@ class VisualQueryDecomposer:
                 mapped = self.concept_dict[key]
                 v_terms = mapped.get("visual", [])
                 
-                visual_cues.update(v_terms)
+                for term in v_terms:
+                    add_cue(term)
                 if v_terms:
                     english_translations.append(v_terms[0])
                     # If it has action verbs, append to action cues
@@ -180,39 +193,39 @@ class VisualQueryDecomposer:
         return {
             "original_query": q_clean,
             "matched_concepts": matched_keys,
-            "visual_keywords": list(visual_cues),
+            "visual_keywords": visual_cues,
             "action_keywords": action_cues,
-            "audio_keywords": [],  # Kept as empty list for backward compatibility
             "expanded_search_str": expanded_str
         }
 
-    def get_tta_queries(self, query: str) -> List[Tuple[str, float]]:
-        """
-        Module 6: Multi-Query Test-Time Augmentation (TTA Ensemble).
-        Generates 3 parallel query variations with consensus weights:
-        1. Original Query (weight: 0.50)
-        2. Bilingual Literal Query (weight: 0.30)
-        3. Physical Action & Movement Query (weight: 0.20)
+    def get_query_variants(self, query: str) -> List[Tuple[str, float]]:
+        """Return deterministic original/bilingual/action variants.
+
+        The original query is always retained so multilingual SigLIP receives
+        the user's exact wording. Missing variants are omitted and remaining
+        weights are normalized in their stable order.
         """
         expanded = self.expand_query(query)
-        q_clean = expanded["original_query"]
-        expanded_str = expanded["expanded_search_str"]
-        action_cues = expanded.get("action_keywords", [])
-        
-        tta_list = [(q_clean, 0.50)]
-        
-        if expanded_str != q_clean:
-            tta_list.append((expanded_str, 0.30))
-        else:
-            tta_list.append((q_clean, 0.30))
-            
-        if action_cues:
-            action_str = f"person performing {' '.join(action_cues[:4])}"
-            tta_list.append((action_str, 0.20))
-        else:
-            tta_list.append((expanded_str, 0.20))
-            
-        return tta_list
+        original = expanded["original_query"]
+        bilingual = expanded["expanded_search_str"]
+        actions = expanded.get("action_keywords", [])
+        action_variant = "visual action: " + " ".join(actions[:6]) if actions else ""
+        candidates = [(original, 0.60), (bilingual, 0.25), (action_variant, 0.15)]
+        seen: Set[str] = set()
+        available: List[Tuple[str, float]] = []
+        for text, weight in candidates:
+            text = text.strip()
+            if text and text not in seen:
+                seen.add(text)
+                available.append((text, weight))
+        total = sum(weight for _, weight in available) or 1.0
+        return [(text, weight / total) for text, weight in available]
+
+    def get_tta_queries(self, query: str) -> List[Tuple[str, float]]:
+        """
+        Backward-compatible alias for deterministic visual query variants.
+        """
+        return self.get_query_variants(query)
 
     def disentangle_query(self, query: str) -> Dict[str, str]:
         """
@@ -222,7 +235,7 @@ class VisualQueryDecomposer:
         3. Spatial Scene Context (e.g. "sidewalk, classroom, street")
         
         Returns:
-            Dict with keys: 'subject', 'verb', 'context', 'null_anchor'
+            Dict with keys: 'subject', 'verb', and 'context'
         """
         q_clean = query.strip()
         q_low = q_clean.lower()
@@ -367,9 +380,7 @@ class VisualQueryDecomposer:
             "subject": f"{q_clean} {sub_str}".strip(),
             "verb": f"person or object {verb_str}".strip(),
             "context": f"{ctx_str} background setting".strip(),
-            "null_anchor": getattr(settings, "STATIC_NULL_PROMPT", "an empty static background scene with zero human activity, no movement, no action, motionless")
         }
 
 # Global singleton
 query_expander = VisualQueryDecomposer()
-CrossModalQueryExpander = VisualQueryDecomposer

@@ -433,7 +433,7 @@ export const TimelineHeatmap: React.FC<TimelineHeatmapProps> = ({
         <div className="flex items-center gap-2">
           <span className="flex items-center gap-1.5">
             <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
-            <span className="text-gray-200 font-semibold text-xs">SOTA Dual-Layer Waveform</span>
+            <span className="text-gray-200 font-semibold text-xs">Visual Relevance Heatmap</span>
           </span>
 
           {/* Toggle Pixel Motion Curve */}

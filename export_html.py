@@ -9,7 +9,7 @@ full_html = f"""<!DOCTYPE html>
 <html lang="th">
 <head>
 <meta charset="UTF-8">
-<title>รายงานทางวิชาการ (Assignment 4) - Hybrid Multimodal Video Moment Retrieval</title>
+<title>รายงานทางวิชาการ (Assignment 4) - Pure-Visual Video Moment Retrieval</title>
 <link href="https://fonts.googleapis.com/css2?family=Sarabun:ital,wght@0,300;0,400;0,600;0,700;1,400&display=swap" rel="stylesheet">
 <style>
   @page {{

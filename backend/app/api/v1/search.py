@@ -16,15 +16,12 @@ async def search_moments(req: SearchQueryRequest):
             detail="Query string cannot be empty."
         )
 
-    response = search_engine.search_moments(
-        query=req.query,
-        video_id=req.video_id,
-        top_k=req.top_k,
-        weight_visual=req.weight_visual,
-        weight_caption=req.weight_caption,
-        weight_audio=req.weight_audio,
-        gaussian_sigma=req.gaussian_sigma,
-        threshold_factor=req.threshold_factor
-    )
+    response = search_engine.search_moments(query=req.query, video_id=req.video_id,
+                                             top_k=req.top_k, profile=req.profile)
 
+    if "reindex_required" in response.warnings:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={"code": "reindex_required", "message": "This video uses a legacy visual index. Re-ingest it to build index v2."},
+        )
     return response

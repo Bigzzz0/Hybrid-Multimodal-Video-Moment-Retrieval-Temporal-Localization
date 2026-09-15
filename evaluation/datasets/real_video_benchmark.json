@@ -1,6 +1,6 @@
 {
-  "benchmark_name": "Real-World SOTA Video Moment Retrieval Benchmark (2026)",
-  "description": "Evaluation dataset consisting of real-world video footage downloaded directly from public repositories, annotated with ground-truth temporal boundaries and bilingual queries.",
+  "benchmark_name": "Real-World Pure-Visual Video Moment Retrieval Benchmark (2026)",
+  "description": "Evaluation dataset of real-world video footage with ground-truth temporal boundaries and bilingual visual queries. It is a smoke/regression set; held-out acceptance results require a larger video-disjoint test split.",
   "videos": [
     {
       "video_id": "benchmark_person_bicycle_car",

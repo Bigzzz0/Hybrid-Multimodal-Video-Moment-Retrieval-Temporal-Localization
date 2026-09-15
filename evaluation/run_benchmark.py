@@ -11,9 +11,9 @@ def run_evaluation_benchmark(dataset_json_path: str = "evaluation/datasets/sampl
     """
     Simulates / runs automated evaluation against video moment ground-truth annotations.
     """
-    print("=== Running SOTA Multimodal Video Moment Retrieval Benchmark ===")
+    print("=== Running Pure-Visual Moment Retrieval Smoke Benchmark ===")
     
-    # Mock / Sample evaluation data for baseline validation
+    # Synthetic smoke data only; never use this fixture as a research result.
     mock_samples = [
         {"query": "person shares chart presentation", "gt": (14.0, 28.0), "preds": [(15.0, 27.5), (40.0, 50.0)]},
         {"query": "hand reaches for water bottle", "gt": (52.0, 60.0), "preds": [(52.5, 59.0), (10.0, 18.0)]},

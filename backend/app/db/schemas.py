@@ -1,6 +1,6 @@
 import pyarrow as pa
 from pydantic import BaseModel, Field
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Literal
 
 # ======================= Apache Arrow Schemas for LanceDB =======================
 
@@ -14,10 +14,13 @@ VIDEO_SCHEMA = pa.schema([
     pa.field("resolution", pa.string()),
     pa.field("total_frames", pa.int64()),
     pa.field("ingestion_phase", pa.string()),  # "phase1_ready", "phase2_complete", "error"
+    pa.field("visual_index_version", pa.string()),
+    pa.field("embedding_model", pa.string()),
     pa.field("created_at", pa.string())
 ])
 
-# Table: scenes
+# Legacy tables are retained read-only for migration/backup. Runtime v2 writes
+# only to *_v2 tables so an interrupted reindex cannot corrupt the active index.
 SCENE_SCHEMA = pa.schema([
     pa.field("id", pa.string()),
     pa.field("video_id", pa.string()),
@@ -27,7 +30,7 @@ SCENE_SCHEMA = pa.schema([
     pa.field("keyframe_count", pa.int32())
 ])
 
-# Table: video_frames (Vector Dimension: 768 for SigLIP 2)
+# Legacy frame schema (v1 compatibility only).
 VIDEO_FRAME_SCHEMA = pa.schema([
     pa.field("id", pa.string()),
     pa.field("video_id", pa.string()),
@@ -35,19 +38,35 @@ VIDEO_FRAME_SCHEMA = pa.schema([
     pa.field("timestamp", pa.float32()),
     pa.field("frame_path", pa.string()),
     pa.field("siglip2_vector", pa.list_(pa.float32(), 768)),
+    pa.field("embedding_model", pa.string()),
+    pa.field("embedding_version", pa.string()),
     pa.field("pixel_motion", pa.float32()),  # Inter-frame absolute pixel motion energy
-    pa.field("vlm_caption", pa.string()),
-    pa.field("has_dense_caption", pa.bool_())
 ])
 
-# Table: transcripts (Timestamped Speech Segments)
-TRANSCRIPT_SCHEMA = pa.schema([
+SCENE_V2_SCHEMA = pa.schema([
     pa.field("id", pa.string()),
     pa.field("video_id", pa.string()),
+    pa.field("scene_index", pa.int32()),
     pa.field("t_start", pa.float32()),
     pa.field("t_end", pa.float32()),
-    pa.field("speaker_tag", pa.string()),
-    pa.field("spoken_text", pa.string())
+    pa.field("keyframe_count", pa.int32()),
+    pa.field("caption", pa.string()),
+    pa.field("caption_status", pa.string()),
+    pa.field("transition_energy", pa.float32()),
+    pa.field("embedding_model", pa.string()),
+    pa.field("caption_model", pa.string()),
+])
+
+VIDEO_FRAME_V2_SCHEMA = pa.schema([
+    pa.field("id", pa.string()),
+    pa.field("video_id", pa.string()),
+    pa.field("scene_id", pa.string()),
+    pa.field("timestamp", pa.float32()),
+    pa.field("frame_path", pa.string()),
+    pa.field("siglip2_vector", pa.list_(pa.float32(), 768)),
+    pa.field("embedding_model", pa.string()),
+    pa.field("embedding_version", pa.string()),
+    pa.field("transition_energy", pa.float32()),
 ])
 
 # Table: search_logs
@@ -58,6 +77,17 @@ SEARCH_LOG_SCHEMA = pa.schema([
     pa.field("latency_ms", pa.float32()),
     pa.field("retrieved_moments_count", pa.int32()),
     pa.field("created_at", pa.string())
+])
+
+VISUAL_INDEX_METADATA_SCHEMA = pa.schema([
+    pa.field("id", pa.string()),
+    pa.field("schema_version", pa.string()),
+    pa.field("index_version", pa.string()),
+    pa.field("model_id", pa.string()),
+    pa.field("embedding_dim", pa.int32()),
+    pa.field("caption_model", pa.string()),
+    pa.field("indexed_at", pa.string()),
+    pa.field("created_at", pa.string()),
 ])
 
 # ======================= Pydantic Models for REST API =======================
@@ -72,6 +102,8 @@ class VideoMetadata(BaseModel):
     total_frames: int
     ingestion_phase: str
     created_at: str
+    visual_index_version: Optional[str] = None
+    embedding_model: Optional[str] = None
 
 class VideoFrameItem(BaseModel):
     id: str
@@ -80,34 +112,39 @@ class VideoFrameItem(BaseModel):
     timestamp: float
     frame_path: str
     siglip2_vector: List[float]
-    pixel_motion: float = 0.0
-    vlm_caption: Optional[str] = None
-    has_dense_caption: bool = False
+    embedding_model: Optional[str] = None
+    embedding_version: Optional[str] = None
+    transition_energy: float = 0.0
 
 class MomentItem(BaseModel):
     t_start: float
     t_end: float
     score: float
+    raw_score: Optional[float] = None
+    display_score: Optional[float] = None
     preview_frame_path: Optional[str] = None
     caption_preview: Optional[str] = None
-    transcript_preview: Optional[str] = None
     modality_breakdown: Optional[Dict[str, float]] = None
+    occurrence_index: int = 0
 
 class SearchResponse(BaseModel):
     query: str
-    video_id: Optional[str] = None
+    video_id: str
     moments: List[MomentItem]
     timeline_heatmap: List[float] # Normalized density scores sampled per second
     total_duration: float
     latency_ms: float
     top_k: int
+    profile: Literal["fast", "accurate"] = "fast"
+    calibrated: bool = False
+    index_version: str = "v2"
+    warnings: List[str] = Field(default_factory=list)
 
 class SearchQueryRequest(BaseModel):
     query: str
-    video_id: Optional[str] = None
-    top_k: int = 5
-    weight_visual: float = 0.60
-    weight_caption: float = 0.40
-    weight_audio: float = 0.00
-    gaussian_sigma: float = 1.5
-    threshold_factor: float = 0.8
+    video_id: str
+    top_k: int = Field(default=5, ge=1, le=20)
+    profile: Literal["fast", "accurate"] = "fast"
+
+    class Config:
+        extra = "ignore"

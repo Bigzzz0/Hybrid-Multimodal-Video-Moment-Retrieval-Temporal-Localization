@@ -14,8 +14,8 @@
 
 <br />
 
-## **ระบบสืบค้นและระบุช่วงเวลาในวิดีโอด้วยภาษาธรรมชาติแบบไฮบริดหลายมิติ**
-## **(Hybrid Multimodal Video Moment Retrieval and Temporal Localization System)**
+## **ระบบสืบค้นและระบุช่วงเวลาในวิดีโอด้วยภาษาธรรมชาติแบบ Pure-Visual**
+## **(Pure-Visual Video Moment Retrieval and Temporal Localization System)**
 
 <br /><br />
 
@@ -42,11 +42,11 @@
 
 # บทคัดย่อ
 
-รายงานฉบับนี้มีวัตถุประสงค์เพื่อศึกษา สังเคราะห์ และเปรียบเทียบทฤษฎี ตลอดจนงานวิจัยที่เกี่ยวข้องกับระบบการสืบค้นและระบุตำแหน่งช่วงเวลาในวิดีโอด้วยภาษาธรรมชาติ (Natural Language Video Moment Retrieval and Temporal Localization) เพื่อแก้ไขปัญหาภาระในการเปิดค้นหาเนื้อหาภายในวิดีโอความยาวสูงและการสืบค้นที่ไม่ตรงกับเจตนาของผู้ใช้งาน การศึกษาดำเนินการทบทวนวรรณกรรมอย่างเป็นระบบบนแบบจำลองปัญญาประดิษฐ์พื้นฐานระดับแนวหน้า (Foundation Models) ได้แก่ แบบจำลองภาษาภาพ SigLIP 2 และ MiniCPM-V 2.6, แบบจำลองการรู้จำเสียงพูด Whisper-Large-v3-Turbo, ฐานข้อมูลเวกเตอร์แบบฝังตัว LanceDB บนสถาปัตยกรรม Apache Arrow, และอัลกอริทึมการผสานผลลัพธ์แบบ Reciprocal Rank Fusion ร่วมกับ 1D Gaussian Temporal Convolution ผ่านการวิเคราะห์ด้วยกรอบ 5W1H และตารางสังเคราะห์วรรณกรรม (Synthesis Matrix) 
+รายงานฉบับนี้มีวัตถุประสงค์เพื่อศึกษา สังเคราะห์ และเปรียบเทียบทฤษฎีของระบบสืบค้นและระบุตำแหน่งช่วงเวลาในวิดีโอด้วยภาษาธรรมชาติ โดยจำกัดขอบเขตไว้ที่ข้อมูลภาพและ dense visual scene captions การศึกษาครอบคลุม SigLIP 2 NaFlex, Qwen visual temporal reasoning, LanceDB และ Reciprocal Rank Fusion ร่วมกับ multi-scale temporal proposals, calibration และ Soft-NMS ผ่านกรอบ 5W1H และตารางสังเคราะห์วรรณกรรม
 
-ผลการศึกษาพบว่า สถาปัตยกรรมการผสานข้อมูล 3 มิติ (ภาพเคลื่อนไหว คำบรรยายเชิงเหตุการณ์ และเสียงพูด) ควบคู่กับการปรับความเรียบเชิงเวลา สามารถเพิ่มค่าความแม่นยำเฉลี่ย Mean IoU ได้สูงกว่าร้อยละ 58 และควบคุมความคลาดเคลื่อนของจุดเริ่มต้นเวลาให้อยู่ในระดับไม่เกิน ±1.2 วินาที ซึ่งมีประสิทธิภาพเหนือกว่าการใช้แบบจำลองมิติเดี่ยวอย่างมีนัยสำคัญ นอกจากนี้ การใช้การถอดรหัสวิดีโอบนหน่วยประมวลผลกราฟิกร่วมกับฐานข้อมูลเวกเตอร์แบบ Columnar สามารถลดระยะเวลาการทำดัชนีลงได้มากกว่าร้อยละ 60 ภายใต้ข้อจำกัดหน่วยความจำไม่เกิน 6.5 GB ข้อค้นพบนี้ชี้ให้เห็นว่า การประยุกต์ใช้สถาปัตยกรรมไฮบริดหลายมิติที่ประมวลผลบนเครื่องเฉพาะที่ (Local On-Premise) เป็นแนวทางที่มีประสิทธิภาพสูง สามารถลดเวลาการค้นหาวิดีโอลงได้มากกว่าร้อยละ 85 ปราศจากต้นทุนค่าบริการคลาวด์ และรักษาความเป็นส่วนตัวของข้อมูลได้อย่างสมบูรณ์
+ผลการศึกษานี้ใช้เพื่อกำหนดแผนพัฒนาและวิธี benchmark ไม่ใช่การอ้างผลลัพธ์ล่วงหน้า ตัวเลข R@K, mIoU, temporal F1, latency และ VRAM ต้องมาจาก held-out test ที่แบ่งตามวิดีโอ และรายงานพร้อม confidence interval เท่านั้น ระบบเป้าหมายทำงาน local และรองรับ no-match กับหลาย occurrence โดยไม่ใช้ข้อมูลเสียงหรือข้อความบนภาพ
 
-**คำสำคัญ:** การสืบค้นช่วงเวลาในวิดีโอ (Video Moment Retrieval), แบบจำลองภาษาภาพ (Vision-Language Models), การระบุขอบเขตเวลา (Temporal Localization), ฐานข้อมูลเวกเตอร์ (Vector Database), การรู้จำเสียงพูด (Speech Recognition)
+**คำสำคัญ:** การสืบค้นช่วงเวลาในวิดีโอ (Video Moment Retrieval), แบบจำลองภาษาภาพ (Vision-Language Models), การระบุขอบเขตเวลา (Temporal Localization), ฐานข้อมูลเวกเตอร์ (Vector Database), การปรับเทียบความเชื่อมั่น (Calibration)
 
 <br />
 
@@ -54,11 +54,11 @@
 
 # Abstract
 
-This academic report aims to investigate, synthesize, and evaluate foundational theories and state-of-the-art literature in Natural Language Video Moment Retrieval (VMR) and Temporal Boundary Localization to address the critical challenges of data overload and labor-intensive manual scrubbing in long-form video archives. A systematic literature review was conducted across prominent multimodal foundation models, including SigLIP 2, MiniCPM-V 2.6, Whisper-Large-v3-Turbo, serverless columnar vector storage (LanceDB with Apache Arrow), and rank fusion algorithms combining Reciprocal Rank Fusion (RRF) with 1D Gaussian Temporal Convolution using the 5W1H analytical framework and a comprehensive synthesis matrix.
+This academic report investigates pure-visual Natural Language Video Moment Retrieval and temporal boundary localization for long-form video. The review focuses on SigLIP 2 NaFlex frame/text embeddings, dense visual scene captions, Qwen visual temporal verification, LanceDB, Reciprocal Rank Fusion, multi-scale proposals, and confidence calibration using a 5W1H framework and synthesis matrix.
 
-The findings indicate that a tri-modal hybrid architecture (integrating visual embeddings, dense action captions, and speech transcripts) coupled with multi-scale 1D temporal convolution yields a Mean IoU exceeding 58% and maintains temporal onset error within ±1.2 seconds, significantly outperforming unimodal baseline architectures. Furthermore, hardware-accelerated video decoding combined with disk-based IVF-PQ indexing reduces ingestion latency by over 60% within consumer GPU memory constraints (VRAM ≤ 6.5 GB). These insights demonstrate that an on-premise hybrid multimodal architecture offers substantial practical efficacy, reducing video search time by over 85% with zero cloud API expenditures while ensuring complete data confidentiality.
+The review defines an implementable pure-visual architecture rather than claiming unmeasured accuracy. Its acceptance criteria are held-out R@1/R@5 at IoU .3/.5/.7, mIoU, temporal F1 for repeated events, no-match precision/recall, p50/p95 latency, and peak VRAM. All claims must be regenerated from an immutable baseline and a video-disjoint test set; the target is local execution within 8 GB VRAM.
 
-**Keywords:** Video Moment Retrieval, Vision-Language Models, Temporal Localization, Vector Database, Speech Recognition
+**Keywords:** Video Moment Retrieval, Vision-Language Models, Temporal Localization, Vector Database, Confidence Calibration
 
 <br />
 
@@ -66,7 +66,7 @@ The findings indicate that a tri-modal hybrid architecture (integrating visual e
 
 # คำนำ
 
-รายงานฉบับนี้จัดทำขึ้นเพื่อเป็นส่วนหนึ่งของการศึกษาตามหลักสูตรวิทยาศาสตรบัณฑิต สาขาวิชาวิทยาการคอมพิวเตอร์ คณะวิทยาศาสตร์ มหาวิทยาลัยขอนแก่น โดยมีวัตถุประสงค์เพื่อรวบรวม ศึกษา และวิเคราะห์องค์ความรู้เชิงทฤษฎี ตลอดจนรายงานวิจัยที่เกี่ยวข้องในระดับสากล สำหรับนำมาใช้เป็นกรอบแนวคิดและพิมพ์เขียวเชิงสถาปัตยกรรมในการพัฒนาโครงงาน "ระบบสืบค้นและระบุช่วงเวลาในวิดีโอด้วยภาษาธรรมชาติแบบไฮบริดหลายมิติ (Hybrid Multimodal Video Moment Retrieval and Temporal Localization System)"
+รายงานฉบับนี้จัดทำขึ้นเพื่อรวบรวม ศึกษา และวิเคราะห์องค์ความรู้สำหรับพัฒนาโครงงาน "ระบบสืบค้นและระบุช่วงเวลาในวิดีโอด้วยภาษาธรรมชาติแบบ Pure-Visual (Pure-Visual Video Moment Retrieval and Temporal Localization System)"
 
 เนื้อหาภายในรายงานครอบคลุมความเป็นมาของปัญหาการสืบค้นวิดีโอความยาวสูง การวิเคราะห์วรรณกรรมวิจัยสำคัญด้วยกรอบคำถาม 5W1H การศึกษาสูตรและทฤษฎีทางคณิตศาสตร์ที่เกี่ยวข้อง การเปรียบเทียบข้อดีและข้อจำกัดของแต่ละแนวทางผ่านตารางสังเคราะห์วรรณกรรม (Synthesis Matrix) ตลอดจนการสรุปประเด็นสำคัญเพื่อนำไปประยุกต์ใช้ต่อยอดในการพัฒนาระบบจริง
 
@@ -97,17 +97,16 @@ The findings indicate that a tri-modal hybrid architecture (integrating visual e
 * **บทที่ 2 ทฤษฎีและงานวิจัยที่เกี่ยวข้อง**
   * 2.1 งานวิจัยที่เกี่ยวข้อง (การสังเคราะห์วรรณกรรมตามกรอบ 5W1H)
     * 2.1.1 งานวิจัยด้านการโมเดลความสัมพันธ์เชิงเวลาและการตรวจจับด้วย Transformer/DETR
-    * 2.1.2 งานวิจัยด้านแบบจำลองภาษาภาพขนาดใหญ่และวิดีโอหลายมิติ
-    * 2.1.3 งานวิจัยด้านการรู้จำเสียงพูดและการผสานโมดัลลิตี
+  * 2.1.2 งานวิจัยด้านแบบจำลองภาษาภาพและวิดีโอ
+    * 2.1.3 งานวิจัยด้านการตรวจสอบลำดับการกระทำเชิงภาพ
     * 2.1.4 งานวิจัยด้านการตรวจจับรอยต่อฉาก (Shot Boundary Detection)
   * 2.2 ทฤษฎีและหลักการทางคณิตศาสตร์ที่เกี่ยวข้อง
     * 2.2.1 ทฤษฎี Vision-Language Joint Latent Space และ NaFlex Resolution
     * 2.2.2 ทฤษฎี Pairwise Sigmoid Loss ในการฝึกแบบจำลอง
-    * 2.2.3 ทฤษฎีการรู้จำเสียงพูดและการสกัดพิกัดเวลาแบบ Word-Level
-    * 2.2.4 ทฤษฎีการรวมผลลัพธ์ด้วย Reciprocal Rank Fusion (RRF)
-    * 2.2.5 ทฤษฎีการปรับเส้นโค้งความเรียบด้วย 1D Gaussian Temporal Convolution
-    * 2.2.6 ทฤษฎีการสกัดขอบเขตเวลาแบบปรับตัว (Adaptive Valley Boundary Extraction)
-    * 2.2.7 ทฤษฎีการจัดเก็บและสร้างดัชนีเวกเตอร์แบบ Disk-based IVF-PQ
+    * 2.2.3 ทฤษฎีการรวมผลลัพธ์ด้วย Reciprocal Rank Fusion (RRF)
+    * 2.2.4 ทฤษฎี multi-scale temporal proposals และ boundary refinement
+    * 2.2.5 ทฤษฎีการปรับเทียบความเชื่อมั่นและ no-match threshold
+    * 2.2.6 ทฤษฎีการจัดเก็บและสร้างดัชนีเวกเตอร์แบบ Disk-based IVF-PQ
   * 2.3 การเปรียบเทียบผลการศึกษาและช่องว่างของงานวิจัย
     * 2.3.1 ตารางสังเคราะห์วรรณกรรม (Synthesis Matrix)
     * 2.3.2 บทวิเคราะห์สังเคราะห์วรรณกรรม (Literature Review Synthesis)
@@ -152,25 +151,24 @@ The findings indicate that a tri-modal hybrid architecture (integrating visual e
 ### 1.1 ความเป็นมาและความสำคัญของปัญหา
 ในยุคสารสนเทศปัจจุบัน ข้อมูลวิดีโอความยาวสูง (Long-form Video) ได้กลายเป็นสื่อหลักในการบันทึกและถ่ายทอดความรู้ในหลากหลายบริบท เช่น วิดีโอบันทึกการเรียนการสอนและการนำเสนอทางวิชาการ (Lecture & Presentation Archives), วิดีโอบันทึกการประชุม (Meeting Recordings), ตลอดจนฟุตเทจจากกล้องวงจรปิดและกล้องติดหน้ารถยนต์ (Surveillance & Driving Footage) อย่างไรก็ตาม ปัญหาคอขวดสำคัญที่เกิดขึ้นคือ **"ภาระในการค้นหาและระบุตำแหน่งช่วงเวลาที่เกิดเหตุการณ์เฉพาะเจาะจง" (Data Overload and Manual Video Scrubbing)** ซึ่งผู้ใช้งานจำเป็นต้องเสียเวลาเปิดรับชมหรือเลื่อนแถบเวลา (Time Bar) ยาวนานหลายสิบนาทีถึงหลายชั่วโมงเพื่อค้นหาเหตุการณ์สั้น ๆ เพียงไม่กี่วินาที
 
-ระบบสืบค้นวิดีโอแบบดั้งเดิมส่วนใหญ่ยังคงพึ่งพาคำกำกับข้อมูลภายนอก (Metadata) เช่น ชื่อไฟล์ แท็ก หรือคำอธิบายภาพรวม ซึ่งไม่สามารถเข้าถึงเนื้อหาเชิงลึกในระดับช่วงเวลา (Fine-grained Temporal Content) และไม่สามารถทำความเข้าใจคำค้นหาภาษาธรรมชาติที่ซับซ้อนได้ เช่น *"ช่วงที่อาจารย์เริ่มอธิบายกราฟแท่งเปรียบเทียบผลลัพธ์"* หรือ *"ตอนที่รถจักรยานยนต์เลี้ยวตัดหน้ากะทันหันก่อนถึงทางแยก"* ซึ่งเป็นคำค้นที่ต้องอาศัยความเข้าใจร่วมกันระหว่างภาพนิ่ง การกระทำต่อเนื่อง และเสียงบรรยาย
+ระบบสืบค้นวิดีโอแบบดั้งเดิมส่วนใหญ่ยังคงพึ่งพา metadata ระดับไฟล์ จึงเข้าถึงเนื้อหาเชิงช่วงเวลาได้จำกัด งานนี้มุ่งให้ embedding และ scene caption เข้าใจวัตถุ การกระทำ ลำดับการเคลื่อนไหว และการเปลี่ยนสถานะจากภาพจริง เช่น *"ช่วงที่คนสวมเสื้อแดงเดินเข้ามาหยิบกระเป๋า"* หรือ *"ตอนที่รถจักรยานยนต์เลี้ยวตัดหน้า"* โดยไม่ใช้ข้อมูลนอกภาพเป็นหลักฐาน
 
-ในช่วงปี ค.ศ. 2024–2026 วงการปัญญาประดิษฐ์มัลติโมดัลได้ก้าวหน้าอย่างก้าวกระโดดผ่านการเปิดตัวแบบจำลองพื้นฐาน (Foundation Models) ยุคใหม่ ได้แก่:
+ในช่วงปี ค.ศ. 2024–2026 งานด้าน visual-language foundation models มีความก้าวหน้าที่เหมาะกับการทำงาน local ได้แก่:
 1. **SigLIP 2 (Google DeepMind, 2025):** แบบจำลอง Vision-Language ที่รองรับ Native Flexible Dynamic Resolution (NaFlex) ช่วยให้รักษารายละเอียดภาพและตำแหน่งเชิงพื้นที่ในวิดีโออัตราส่วน 16:9 ได้อย่างแม่นยำ
-2. **MiniCPM-V 2.6 (OpenBMB, 2024):** แบบจำลองภาษาภาพขนาดกะทัดรัดที่ออกแบบสำหรับ Video Understanding โดยเฉพาะ ซึ่งมีกลไกบีบอัด Token ภาพ ทำให้สามารถบรรยายการกระทำต่อเนื่องในฉาก (Dense Action Captioning) ได้ด้วยหน่วยความจำที่จำกัด
-3. **Whisper-Large-v3-Turbo (Radford et al., 2023):** แบบจำลองถอดเสียงพูดความเร็วสูงที่สามารถระบุพิกัดเวลาของคำพูดระดับคำ (Word-Level Timestamps)
-4. **LanceDB (2024):** ฐานข้อมูลเวกเตอร์แบบฝังตัวบนสถาปัตยกรรม Apache Arrow ที่รองรับการสืบค้นเวกเตอร์แบบ Disk-based IVF-PQ ด้วยความเร็วระดับมิลลิวินาที
+2. **Qwen2.5-VL-7B:** โมเดลภาษาภาพสำหรับ dense visual scene captions และ temporal verification แบบจำกัดเวลา
+3. **LanceDB (2024):** ฐานข้อมูลเวกเตอร์แบบฝังตัวบน Apache Arrow ที่รองรับ vector search และ caption FTS/BM25
 
-การศึกษาทฤษฎีและวรรณกรรมวิจัยที่เกี่ยวข้องจึงมีความสำคัญอย่างยิ่ง เพื่อทำความเข้าใจหลักการทำงานเชิงลึก ข้อดี และข้อจำกัดของแต่ละเทคโนโลยี สำหรับนำมาสังเคราะห์เป็นกรอบแนวคิดในการพัฒนาระบบสืบค้นวิดีโอแบบไฮบริดหลายมิติที่มีประสิทธิภาพสูงสุด
+การศึกษาทฤษฎีและวรรณกรรมจึงมีความสำคัญเพื่อสังเคราะห์กรอบ pure-visual ที่วัดผลได้จริง โดยแยก Fast retrieval ออกจาก Accurate verifier และไม่อ้างประสิทธิภาพที่ยังไม่มี benchmark รองรับ
 
 ### 1.2 จุดประสงค์ของการศึกษา
 1. เพื่อศึกษาทฤษฎี สถาปัตยกรรม และวิวัฒนาการของแบบจำลองการสืบค้นช่วงเวลาในวิดีโอด้วยภาษาธรรมชาติ (Video Moment Retrieval & Temporal Grounding)
-2. เพื่อศึกษาหลักการทำงานของแบบจำลองภาษาภาพขนาดใหญ่ (Vision-Language Models) การรู้จำเสียงพูดความเร็วสูง และฐานข้อมูลเวกเตอร์แบบไร้เซิร์ฟเวอร์
-3. เพื่อศึกษากลไกทางคณิตศาสตร์ในการผสานคะแนนหลายมิติ (Reciprocal Rank Fusion) และการปรับความเรียบเชิงเวลา (1D Gaussian Temporal Convolution) สำหรับการระบุพิกัดช่วงเวลา [t_start, t_end]
-4. เพื่อสังเคราะห์ข้อดี ข้อจำกัด และช่องว่างของงานวิจัยในอดีต (Research Gaps) สำหรับนำไปใช้เป็นแนวทางในการออกแบบและพัฒนาโครงงานระบบสืบค้นวิดีโอแบบไฮบริดหลายมิติ
+2. เพื่อศึกษาหลักการทำงานของ SigLIP 2 NaFlex, dense visual captions, Qwen temporal verifier และฐานข้อมูลเวกเตอร์แบบ local
+3. เพื่อศึกษาการผสานคะแนน RRF, multi-scale proposals, boundary refinement, Soft-NMS และ Platt calibration สำหรับระบุ [t_start, t_end]
+4. เพื่อสังเคราะห์ข้อดี ข้อจำกัด และช่องว่างทางวิจัยสำหรับออกแบบระบบ pure-visual ที่รองรับหลาย occurrence และ no-match
 
 ### 1.3 ขอบเขตของการศึกษา
 * **ขอบเขตด้านรูปแบบข้อมูล:** ศึกษาข้อมูลวิดีโอประเภท Long-form Video รูปแบบไฟล์ดิจิทัล (.mp4, .mov, .mkv) ครอบคลุมวิดีโอบรรยายการสอน วิดีโอการประชุม และฟุตเทจกล้องหน้ารถยนต์
-* **ขอบเขตด้านแบบจำลองและอัลกอริทึม:** ศึกษาแบบจำลอง Vision-Language (CLIP, SigLIP 1, SigLIP 2, MiniCPM-V 2.6), แบบจำลอง ASR (Faster-Whisper), โครงสร้างฐานข้อมูลเวกเตอร์ (LanceDB, Apache Arrow), และอัลกอริทึม Ranking/Smoothing
+* **ขอบเขตด้านแบบจำลองและอัลกอริทึม:** ศึกษา Vision-Language (CLIP, SigLIP 1, SigLIP 2 NaFlex, Qwen2.5-VL), LanceDB/Apache Arrow, RRF, multi-scale proposals, Soft-NMS และ calibration
 * **ขอบเขตด้านชุดข้อมูลมาตรฐานสากล:** ศึกษาเกณฑ์การวัดผลและลักษณะข้อมูลบนชุดข้อมูลมาตรฐาน QVHighlights (Lei et al., 2021) และ Charades-STA (Gao et al., 2017)
 * **ขอบเขตด้านสภาพแวดล้อมการประมวลผล:** ศึกษาแนวทางการประมวลผลแบบ 100% Local On-Premise ภายใต้ข้อจำกัดของฮาร์ดแวร์ระดับผู้บริโภค (VRAM ไม่เกิน 8 GB)
 
@@ -206,12 +204,12 @@ The findings indicate that a tri-modal hybrid architecture (integrating visual e
 5. **สถาปัตยกรรม ActionFormer สำหรับการตรวจจับการกระทำแบบ Anchor-Free (Zhang et al., 2022)**  
    Zhang, Wu, และ Li (2022) จาก University of Wisconsin-Madison และ Nanjing University ได้นำเสนอสถาปัตยกรรม *ActionFormer* ในการประชุม European Conference on Computer Vision (ECCV 2022) เพื่อแก้ไขปัญหาความไม่ยืดหยุ่นของแบบจำลองแบบดั้งเดิมที่ต้องอาศัยกรอบเวลาคงที่ (Anchor Windows) ในการตรวจจับเหตุการณ์ ส่งผลให้ประสิทธิภาพลดลงเมื่อเผชิญกับกิจกรรมที่มีความยาวแตกต่างกันอย่างมาก โดยคณะผู้วิจัยได้พัฒนาโครงสร้างแบบ Anchor-Free ผสาน Multi-scale 1D Temporal Convolution เข้ากับ Self-Attention Mechanism เพื่อสร้าง Feature Pyramid และทำนายขอบเขตเวลาแบบจุดต่อจุด ส่งผลให้สามารถตรวจจับการกระทำสั้นและการกระทำยาวได้อย่างแม่นยำ
 
-#### 2.1.2 งานวิจัยด้านแบบจำลองภาษาภาพขนาดใหญ่และวิดีโอหลายมิติ (Vision-Language & Video-LLMs)
+#### 2.1.2 งานวิจัยด้านแบบจำลองภาษาภาพและวิดีโอ (Vision-Language & Video Models)
 6. **แบบจำลอง SigLIP 2 และกลไก NaFlex Dynamic Resolution (Google DeepMind, 2025)**  
    Google DeepMind (Tschannen et al., 2025; [arXiv:2502.14786](https://arxiv.org/abs/2502.14786)) ได้นำเสนอแบบจำลอง *SigLIP 2* ซึ่งเป็น Vision-Language Encoder เจเนอเรชันใหม่ เพื่อแก้ไขข้อจำกัดของแบบจำลอง CLIP และ SigLIP 1 เดิมที่บังคับปรับภาพให้เป็นสี่เหลี่ยมจัตุรัสและขนาดคงที่ ทำให้สูญเสียรายละเอียดภาพและมิติเชิงพื้นที่ในวิดีโออัตราส่วน 16:9 คณะผู้วิจัยได้พัฒนานวัตกรรม *NaFlex (Native Flexible Dynamic Resolution)* ที่รองรับการประมวลผลภาพตามอัตราส่วนจริงโดยไม่ต้องยืดหรือตัดขอบภาพ ควบคู่กับการใช้ฟังก์ชันการสูญเสียแบบ Pairwise Sigmoid Loss, การฝึกฝนด้วย Masked Prediction, และ Self-Distillation ส่งผลให้ SigLIP 2 มีความสามารถในการเข้าใจความหมายเชิงพื้นที่ (Spatial Awareness) และรายละเอียดของวัตถุในวิดีโอเหนือกว่าแบบจำลองในอดีตอย่างมีนัยสำคัญ
 
-7. **แบบจำลอง MiniCPM-V 2.6 สำหรับการเข้าใจวิดีโอความหนาแน่นสูง (OpenBMB, 2024)**  
-   คณะผู้วิจัยจาก OpenBMB และมหาวิทยาลัยชิงหวา (OpenBMB, 2024; [HuggingFace: openbmb/MiniCPM-V-2_6](https://huggingface.co/openbmb/MiniCPM-V-2_6)) ได้พัฒนาแบบจำลอง *MiniCPM-V 2.6* ขนาด 8 พันล้านพารามิเตอร์ เพื่อแก้ไขปัญหาคอขวดด้านทรัพยากรการคำนวณของ Vision-LLM ขนาดใหญ่ (เช่น GPT-4V หรือ LLaVA-NeXT) ที่ต้องการหน่วยความจำ GPU สูงมากจนไม่สามารถนำมาประมวลผลวิดีโอยาวในระดับ On-Premise ได้ โดยทีมวิจัยได้นำเสนอเทคโนโลยี Spatial-Temporal Token Compression ซึ่งช่วยบีบอัด Token ภาพลงได้มากกว่าร้อยละ 70 พร้อมทั้งรองรับการบีบอัดแบบ 4-bit Quantization (AWQ) ทำให้สามารถสร้างคำบรรยายการกระทำต่อเนื่องเชิงลึก (Dense Video Captioning) ได้อย่างมีประสิทธิภาพบนการ์ดจอที่มี VRAM ไม่เกิน 6.0 GB
+7. **Qwen2.5-VL สำหรับ dense visual captions และ temporal verification**
+   Qwen2.5-VL ใช้สร้างคำบรรยายระดับ scene จากเฟรมจริงและตรวจสอบ top candidates ใน Accurate mode การส่ง timestamp เป็น metadata และการจำกัดผลลัพธ์เป็น JSON ที่อ้างอิงดัชนีเฟรมช่วยให้ boundary ใหม่อยู่บนเวลาที่สังเกตได้จริง และทำให้ระบบ fallback ได้เมื่อ JSON ผิดหรือเกิน time budget
 
 8. **แบบจำลอง TimeChat สำหรับการเข้าใจลำดับเวลาในวิดีโอยาว (Ren et al., 2024)**  
    Ren และคณะ (2024) จาก Peking University และ Microsoft Research ได้นำเสนอแบบจำลอง *TimeChat* ในการประชุม CVPR 2024 เพื่อแก้ไขปัญหาความไม่เข้าใจมิติเวลา (Time-Blindness) ของ Large Language Models ทั่วไปที่ไม่สามารถผูกข้อความเข้ากับลำดับเวลาของเฟรมวิดีโอได้อย่างแม่นยำ โดยคณะผู้วิจัยได้ออกแบบ Time-Aware Frame Encoder ร่วมกับการสร้าง Time Binding Tokens เพื่อป้อนตำแหน่งเวลาเข้าสู่ LLM ส่งผลให้โมเดลสามารถตอบคำถามและให้เหตุผลเชิงลำดับเวลาพร้อมระบุพิกัด Timestamp ของเหตุการณ์ในวิดีโอยาวได้อย่างละเอียด
@@ -219,12 +217,12 @@ The findings indicate that a tri-modal hybrid architecture (integrating visual e
 9. **แบบจำลอง Video-LLaVA สำหรับการรวม Representation ภาพและวิดีโอ (Lin et al., 2024)**  
    Lin และคณะ (2024) จาก Peking University ได้นำเสนอแบบจำลอง *Video-LLaVA* ในการประชุมวิชาการ EMNLP 2024 เพื่อแก้ไขข้อจำกัดจากการแยกกระบวนการเรียนรู้ภาพนิ่งและวิดีโอออกจากกัน ซึ่งทำให้โมเดลไม่สามารถถ่ายทอดความรู้เชิงแนวคิด (Concept Transfer) ได้อย่างสมบูรณ์ ผู้วิจัยได้ออกแบบกระบวนการ Joint Representation Alignment โดยจัดวางเวกเตอร์ภาพนิ่งและลำดับเฟรมวิดีโอให้อยู่ในพื้นที่ Representation เดียวกันก่อนส่งผ่าน Language Projection Layer เข้าสู่ LLM ส่งผลให้โมเดลมีความเข้าใจเหตุการณ์และการกระทำในวิดีโอได้อย่างลึกซึ้งยิ่งขึ้น
 
-#### 2.1.3 งานวิจัยด้านการรู้จำเสียงพูดและการผสานโมดัลลิตี (Speech Recognition & Multimodal Binding)
-10. **แบบจำลอง Whisper สำหรับการรู้จำเสียงพูดทนทานสูง (Radford et al., 2023)**  
-    Radford และคณะ (2023) จาก OpenAI ได้นำเสนอแบบจำลอง *Whisper* ในการประชุม International Conference on Machine Learning (ICML 2023; [arXiv:2212.04356](https://arxiv.org/abs/2212.04356)) เพื่อแก้ไขปัญหาความล้มเหลวของระบบแปลงเสียงพูดเป็นข้อความ (ASR) แบบเดิมเมื่อเผชิญกับสัญญาณเสียงรบกวน สำเนียงภาษาที่หลากหลาย หรือคำศัพท์เฉพาะทาง โดยทีมวิจัยได้ฝึกฝนสถาปัตยกรรม Encoder-Decoder Transformer บนชุดข้อมูลเสียงหลายภาษาขนาดมหึมากว่า 680,000 ชั่วโมงด้วยเทคนิค Weak Supervision ส่งผลให้แบบจำลองมีความทนทานสูงเป็นพิเศษ และสามารถสกัดพิกัดเวลาของคำพูดในระดับรายคำ (Word-Level Timestamp Alignment) ได้อย่างแม่นยำ
+#### 2.1.3 งานวิจัยด้านการตรวจสอบลำดับการกระทำเชิงภาพ (Visual Temporal Verification)
+10. **การตรวจสอบแบบสองขั้นและการผูก timestamp กับเฟรมจริง**
+    แนวทาง two-stage retrieval ช่วยแยกการค้นหาผู้สมัครจำนวนมากออกจากการให้เหตุผลเชิงภาพที่มีต้นทุนสูง งานนี้จึงใช้ frame/caption retrieval ใน Fast และส่งเพียง top 3 ช่วงไปยัง Qwen ใน Accurate โดยให้โมเดลเลือก index ของเฟรมที่ส่งเข้าไปเท่านั้น
 
-11. **แบบจำลอง LanguageBind สำหรับการผูกมัดเวกเตอร์หลายมิติด้วยภาษา (Zhu et al., 2024)**  
-    Zhu และคณะ (2024) จาก Peking University ได้นำเสนอสถาปัตยกรรม *LanguageBind* ในการประชุม International Conference on Learning Representations (ICLR 2024) เพื่อแก้ไขปัญหาของระบบสืบค้นวิดีโอส่วนใหญ่ที่พึ่งพาเฉพาะมิติภาพ ทำให้พลาดข้อมูลสำคัญที่ปรากฏเฉพาะในเสียงพูดหรือเสียงรอบข้าง คณะผู้วิจัยจึงได้นำเสนอการสร้างพื้นที่เวกเตอร์ร่วมหลายมิติที่ผูกมัดทั้ง Video, Audio, และ Language เข้าด้วยกันโดยใช้ภาษาเป็นแกนกลางผ่าน Contrastive Learning ข้ามโมดัลลิตี ส่งผลให้ระบบสามารถเข้าใจความสัมพันธ์ระหว่างภาพ เสียง และข้อความได้อย่างเป็นเนื้อเดียวกัน
+11. **ข้อกำหนดของระบบ pure-visual**
+    การวิเคราะห์ทั้งหมดของโครงงานต้องยึดจากภาพเฟรมและ caption ที่สร้างจากภาพเท่านั้น ไม่ใช้เสียงหรือข้อความบนภาพเป็นสัญญาณค้นหา
 
 12. **แบบจำลอง ImageBind สำหรับการผูกมัด 6 โมดัลลิตีด้วยภาพ (Girdhar et al., 2023)**  
     Girdhar และคณะ (2023) จาก Meta AI ได้นำเสนอแบบจำลอง *ImageBind* ในการประชุม CVPR 2023 ซึ่งเป็นงานวิจัยบุกเบิกการสร้างพื้นที่เวกเตอร์ร่วมเดี่ยว (Unified Embedding Space) ที่ผูกมัดข้อมูล 6 โมดัลลิตี ได้แก่ ภาพ/วิดีโอ, ข้อความ, เสียง, ข้อมูลเชิงลึก (Depth), ภาพความร้อน (Thermal), และข้อมูลเซนเซอร์การเคลื่อนไหว (IMU) โดยใช้ภาพเป็นแกนกลางในการเชื่อมโยง (Binding Modality) ซึ่งพิสูจน์ให้เห็นว่าการผสานข้อมูลหลายมิติสามารถทำได้โดยไม่จำเป็นต้องมีข้อมูลจับคู่โดยตรงระหว่างทุกโมดัลลิตี อันเป็นรากฐานทฤษฎีสำคัญของการสืบค้นแบบไฮบริด
@@ -245,10 +243,10 @@ The findings indicate that a tri-modal hybrid architecture (integrating visual e
 | **UniVTG** | Lin et al. | 2023 | ICCV | Unified Temporal Grounding | ขาดกรอบการทำงานร่วมกัน | Unified Transformer Backbone |
 | **ActionFormer** | Zhang et al. | 2022 | ECCV | Anchor-free 1D Temporal Grounding | Anchor Box ขาดความยืดหยุ่น | Multi-scale 1D Temporal Pyramid |
 | **SigLIP 2** | Google DeepMind | 2025 | arXiv / [arXiv:2502.14786](https://arxiv.org/abs/2502.14786) | NaFlex Vision-Language Model | ภาพ 16:9 ถูกยืดและสูญเสียมิติ | NaFlex Dynamic Resolution & Sigmoid Loss |
-| **MiniCPM-V 2.6** | OpenBMB | 2024 | Tech Report / [HuggingFace](https://huggingface.co/openbmb/MiniCPM-V-2_6) | High-Density Video MLLM | VLM ขนาดใหญ่กิน VRAM เกินไป | Spatial-Temporal Token Compression |
+| **Qwen2.5-VL** | Qwen Team | 2024 | Technical report | Dense visual caption + temporal verification | VLM ใช้เวลาสูง | Sequential top-3 rerank |
 | **TimeChat** | Ren et al. | 2024 | CVPR | Time-Sensitive Video-LLM | LLM ขาดความเข้าใจเรื่องเวลา | Time Binding Tokens & Frame Encoder |
 | **Video-LLaVA** | Lin et al. | 2024 | EMNLP | Unified Image-Video Representation | การแยกภาพกับวิดีโอออกจากกัน | Joint Representation Alignment |
-| **Whisper** | Radford et al. | 2023 | ICML / [arXiv:2212.04356](https://arxiv.org/abs/2212.04356) | Robust Multilingual ASR | ASR เดิมไม่ทนทานต่อเสียงรบกวน | Weak Supervision & Timestamp Alignment |
+| **Pure-visual constraint** | โครงงานนี้ | 2026 | Implementation specification | ใช้เฉพาะภาพเฟรมและ scene captions | ไม่รองรับสัญญาณนอกภาพ | Explicit modality contract |
 | **LanguageBind** | Zhu et al. | 2024 | ICLR | Multi-modal Binding Space | การสืบค้นพึ่งพาเฉพาะมิติภาพ | Language-Centric Contrastive Learning |
 | **ImageBind** | Girdhar et al. | 2023 | CVPR / [arXiv:2305.05665](https://arxiv.org/abs/2305.05665) | One Embedding for 6 Modalities | การผสานข้ามโมดัลลิตีต้องการคู่ข้อมูลมหาศาล | Image-Centric Joint Binding Space |
 | **TransNet V2** | Souček & Lokoč | 2020 | arXiv | Fast Shot Boundary Detection | ประมวลผลทุกเฟรมทำให้ระบบช้า | Dilated 3D Convolutional Network |
@@ -298,33 +296,33 @@ L_SigLIP = - ∑_{i=1}^{N} ∑_{j=1}^{N} [ y_ij · log σ(t · u_i · v_j + b) +
 * **b** คือ Learnable Bias Parameter (ค่าไบแอสที่ปรับตามการเรียนรู้)
 * **N** คือ จำนวนตัวอย่างข้อมูลในมินิแบตช์ (Batch Size)
 
-#### 2.2.3 ทฤษฎีการรู้จำเสียงพูดและการสกัดพิกัดเวลาแบบ Word-Level
-แบบจำลอง Whisper แปลงสัญญาณคลื่นเสียง (Audio Waveform) เป็น Log-Mel Spectrogram 80 มิติ แล้วประมวลผลผ่าน Transformer Encoder-Decoder เพื่อทำนายลำดับคำและพิกัดเวลาเริ่มต้นและสิ้นสุด [t_start_word, t_end_word] ของแต่ละคำผ่าน Cross-Attention Matrix ทำให้ระบบสามารถสืบค้นเนื้อหาคำพูดและระบุตำแหน่งวินาทีได้อย่างแม่นยำ
+#### 2.2.3 ทฤษฎีการสร้าง temporal proposals จาก visual relevance
+ระบบสร้าง raw relevance timeline ที่ 2Hz จากทุกเฟรมที่ indexed แล้วคำนวณ rolling windows หลายสเกล 2, 4, 8, 16 และ 32 วินาที โดย candidate center ต้องเป็น local maximum ของแต่ละสเกล คะแนนรวม peak relevance, mean relevance และ boundary contrast เพื่อรองรับทั้งเหตุการณ์สั้น ยาว และเหตุการณ์ซ้ำ
 
 #### 2.2.4 ทฤษฎีการรวมผลลัพธ์ด้วย Reciprocal Rank Fusion (RRF)
-เพื่อรวมผลการค้นหาจาก 3 แหล่งข้อมูลที่มีมาตรวัดคะแนนต่างกัน (Visual Vector Similarity, Dense Caption Keyword Match, และ Audio Transcript Match) ทฤษฎี RRF (Cormack et al., 2009) ถูกนำมาใช้ในการรวมอันดับโดยไม่ต้องปรับสเกลคะแนน:
+เพื่อรวมผลการค้นหาจากสองแหล่งที่มีมาตรวัดต่างกัน (visual frame similarity และ generated scene-caption BM25) ทฤษฎี RRF (Cormack et al., 2009) ถูกนำมาใช้โดยไม่ต้องปรับสเกลคะแนน:
 
 ```text
 RRF(d) = ∑_{m ∈ M} [ w_m / (k + r_m(d)) ]
 ```
 
 โดยที่:
-* **M = {Visual, Caption, Audio}** คือ เซตของแต่ละโมดัลลิตีในระบบ
+* **M = {Visual, Caption}** คือ เซตของแหล่งสัญญาณภาพในระบบ
 * **r_m(d)** คือ ลำดับอันดับ (Rank) ของข้อมูล d ในโมดัลลิตี m
 * **k** คือ ค่าคงที่ปรับความเรียบ (กำหนดค่า k = 60 เพื่อป้องกันอันดับต้นมีน้ำหนักสูงเกินไป)
-* **w_m** คือ ค่าน้ำหนักความสำคัญของแต่ละโมดัลลิตี โดยผลรวม w_m = 1.0 (w_visual = 0.45, w_caption = 0.35, w_audio = 0.20)
+* **w_m** คือค่าน้ำหนักจาก tuning artifact (ค่าเริ่มต้น visual = 0.80, caption = 0.20) และ normalize ใหม่เมื่อไม่มี caption ที่ generated
 
 ```
              ┌─────────────────────────┐
              │ Text Query: "คนยกมือถาม" │
              └────────────┬────────────┘
-        ┌─────────────────┼─────────────────┐
-        ▼                 ▼                 ▼
- ┌──────────────┐  ┌──────────────┐  ┌──────────────┐
- │ Visual Match │  │ Caption Match│  │ Audio Match  │
- │ (Rank r_vis) │  │ (Rank r_cap) │  │ (Rank r_aud) │
- └──────┬───────┘  └──────┬───────┘  └──────┬───────┘
-        │                 │                 │
+        ┌─────────────────┬─────────────────┐
+        ▼                 ▼
+ ┌──────────────┐  ┌──────────────┐
+ │ Visual Match │  │ Caption Match│
+ │ (Rank r_vis) │  │ (Rank r_cap) │
+ └──────┬───────┘  └──────┬───────┘
+        │                 │
         └─────────────────┼─────────────────┘
                           ▼
             ┌───────────────────────────┐
@@ -336,62 +334,36 @@ RRF(d) = ∑_{m ∈ M} [ w_m / (k + r_m(d)) ]
 ```
 **รูปที่ 2.2:** กระบวนการรวมผลคะแนนหลายมิติด้วย Reciprocal Rank Fusion (RRF)
 
-#### 2.2.5 ทฤษฎีการปรับเส้นโค้งความเรียบด้วย 1D Gaussian Temporal Convolution
-คะแนนความเกี่ยวข้องที่ได้จากการค้นหารายเฟรมมักมีสัญญาณรบกวน (Temporal Jitter) เนื่องจากความผันผวนของมุมกล้องหรือแสง ทฤษฎีการกรองสัญญาณ 1D Gaussian Convolution จึงถูกนำมาใช้เพื่อเชื่อมโยงความต่อเนื่องของเหตุการณ์:
+#### 2.2.5 ทฤษฎี multi-scale proposal และ boundary refinement
+แทนการตีความ camera motion ว่าเป็น semantic relevance ระบบรักษา raw timeline แยกจาก display-normalized timeline แล้วใช้ scene boundaries, จุดที่คะแนนลดต่ำกว่า 60% ของ peak และ transition-energy peaks เพื่อปรับขอบเขต proposal การปรับเรียบเป็นเพียงเครื่องมือแสดงผลและไม่ถูกใช้เป็น confidence โดยตรง
+
+Raw timeline ใช้สำหรับ calibration และ proposal scoring ส่วน normalized timeline ใช้แสดง heatmap เท่านั้น รูปแบบการแสดงผลอาจใช้ smoothing ได้ แต่ห้ามใช้ normalized value เป็น no-match confidence
+
+#### 2.2.6 ทฤษฎีการปรับขอบเขตด้วย energy-quantile refinement
+การกำหนดจุดเริ่มต้นและสิ้นสุดของ [t_start, t_end] ใช้จุดที่ relevance ลดต่ำกว่า 60% ของ peak ร่วมกับ scene boundary และ transition-energy peak ส่วน quantile 8%/92% เป็นเพียง **energy-quantile refinement**
 
 ```text
-S_smooth(t) = (S_raw * G_σ)(t) = ∑_{τ = -W}^{W} S_raw(t + τ) · [ 1 / (σ · √(2π)) ] · exp( - τ² / (2σ²) )
+boundary = refine(peak, scene_boundary, transition_energy, quantile=[0.08, 0.92])
 ```
 
 โดยที่:
-* **S_raw(t)** คือ เส้นโค้งคะแนนความเกี่ยวข้องดิบ ณ วินาทีที่ t
-* **G_σ** คือ Gaussian Kernel ที่มีส่วนเบี่ยงเบนมาตรฐาน σ (Window Radius W = 3σ)
-* ระบบใช้ Multi-Scale Gaussian Pyramid ครอบคลุมพฤติกรรมย่อย 3 ระดับเวลา:
-  - การกระทำสั้น (Short Action): σ = 0.5 วินาที (ค่าน้ำหนัก 0.35)
-  - เหตุการณ์ปกติ (Medium Event): σ = 1.5 วินาที (ค่าน้ำหนัก 0.45)
-  - กิจกรรมยาว (Long Sequence): σ = 3.5 วินาที (ค่าน้ำหนัก 0.20)
+* **peak** คือจุด local maximum ของ proposal
+* **scene_boundary** คือขอบเขตฉากที่ได้จาก ingestion
+* **transition_energy** คือความต่างของเฟรม ใช้ช่วยวาง boundary เท่านั้น
 
-```
-คะแนน S(t)
- 1.0 │      Raw Signal S_raw(t) (มีสัญญาณรบกวน)
-     │       /\    /\
- 0.5 │  /\  /  \  /  \  /\      ──►  Multi-Scale 1D Gaussian Convolution
-     │ /  \/    \/    \/  \               S_smooth(t) = S_raw * G_σ
- 0.0 └──┴────┴────┴────┴────┴──► เวลา (วินาที)
-```
-**รูปที่ 2.3:** การปรับความเรียบของสัญญาณเวลาด้วย Multi-Scale 1D Gaussian Temporal Convolution
-
-#### 2.2.6 ทฤษฎีการสกัดขอบเขตเวลาแบบปรับตัว (Adaptive Valley Boundary Extraction)
-การกำหนดจุดเริ่มต้นและสิ้นสุดของช่วงเวลาเหตุการณ์ [t_start, t_end] ทำได้โดยการคำนวณเกณฑ์คะแนนแบบปรับตัว (Dynamic Threshold: θ_dyn) อิงตามค่าเฉลี่ยและส่วนเบี่ยงเบนมาตรฐานของทั้งคลิป:
+จากนั้นขยายขอบเขตจาก local peak ออกไปจนคะแนนลดต่ำกว่า 60% ของ peak หรือชน scene boundary แล้วใช้ Gaussian Soft-NMS ที่ IoU 0.5 เพื่อลดช่วงซ้ำ โดยคงเหตุการณ์ที่ไม่ทับกันทั้งหมด
 
 ```text
-θ_dyn = μ_S + λ · σ_S
-```
-
-โดยที่:
-* **μ_S** คือ ค่าเฉลี่ยคะแนนความสอดคล้องตลอดทั้งวิดีโอ
-* **σ_S** คือ ส่วนเบี่ยงเบนมาตรฐานของคะแนนตลอดทั้งวิดีโอ
-* **λ** คือ สัมประสิทธิ์การคัดกรอง (กำหนดค่า λ = 0.8)
-
-จากนั้น ใช้ขั้นตอนวิธีตรวจจับหุบเขา (Valley Detection) ขยายขอบเขตเวลาจากจุดยอดสูงสุด (Local Peak) ออกไปทั้งสองข้างจนกระทั่งความชันของคะแนนเริ่มเปลี่ยนทิศทางหรือลดลงต่ำกว่าเกณฑ์ θ_dyn เพื่อกำหนดช่วงเวลาเหตุการณ์:
-
-```text
-[t_start, t_end] = argmax_{[t_s, t_e]} ∫_{t_s}^{t_e} ( S_smooth(t) - θ_dyn ) dt
+[t_start, t_end] = boundary_refinement(relevance, peak, scenes, transition_energy)
 ```
 
 ```
-คะแนน
-  │              Peak
-  │               ▲
-  │             /   \
---│-----------/-------\----------- เกณฑ์ Dynamic Threshold θ_dyn = μ + λσ
-  │          /  ฉาก   \
-  │        /  เหตุการณ์ \
-  │       ▼               ▼
-──┴───────┴───────────────┴──────► เวลา (วินาที)
-        t_start         t_end
+relevance peak ──► expand while score >= 0.60 × peak
+       │          ├─ clamp to scene boundaries
+       │          └─ refine with transition-energy peaks
+       └─► Gaussian Soft-NMS (IoU 0.5) ──► disjoint occurrences
 ```
-**รูปที่ 2.4:** การสกัดขอบเขตเวลา [t_start, t_end] ด้วยกลไก Dynamic Threshold และ Valley Detection
+**รูปที่ 2.4:** การสกัดขอบเขตเวลาและการรักษาเหตุการณ์ที่ไม่ทับซ้อนกัน
 
 #### 2.2.7 ทฤษฎีการจัดเก็บและสร้างดัชนีเวกเตอร์แบบ Disk-based IVF-PQ
 เพื่อรองรับการจัดเก็บเวกเตอร์จำนวนมากในระดับ On-Premise สถาปัตยกรรม LanceDB ใช้การจัดเก็บข้อมูลแบบ Columnar บน Apache Arrow Format ร่วมกับดัชนี Inverted File with Product Quantization (IVF-PQ):
@@ -415,18 +387,18 @@ S_smooth(t) = (S_raw * G_σ)(t) = ∑_{τ = -W}^{W} S_raw(t + τ) · [ 1 / (σ �
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | **Proposal-based VMR**<br>*(2D-TAN, TALL)* | Visual Only (2D CNN) | Sliding Window & 2D Temporal Feature Map | Exhaustive Proposal Intersection | เข้าใจความสัมพันธ์ของช่วงเวลาซ้อนทับได้ดี | ไม่รองรับ Open-Vocabulary, คำนวณช้ามากบนวิดีโอยาว |
 | **DETR-based Set Prediction**<br>*(Moment-DETR, QD-DETR)* | Visual + Text | Transformer Encoder-Decoder | DETR Bounding Coordinate Regression | ทำนายช่วงเวลาและ Highlight Score พร้อมกันได้ดี | ต้องการการ Fine-tune บนชุดข้อมูลปิด, กินหน่วยความจำ GPU สูง |
-| **Unified Temporal Grounding**<br>*(UniVTG, ActionFormer)* | Visual + Text | Multi-scale 1D Temporal Convolution | Point-wise Anchor-free Regression | สกัดเหตุการณ์สั้นและยาวได้ยืดหยุ่นสูง | ยังขาดการผสานมิติเสียงพูด (Audio Speech Modality) |
-| **Time-Sensitive Video-LLM**<br>*(TimeChat, Video-LLaVA)* | Visual + Audio + Text | Large Language Model (7B–13B) | Time Binding Query Tokens | เข้าใจการกระทำระดับสูงและตอบคำถามเชิงเหตุผลได้ | ใช้เวลาในการประมวลผลสูง ไม่สามารถทำ Real-time Ingestion ได้ |
+| **Unified Temporal Grounding**<br>*(UniVTG, ActionFormer)* | Visual + Text | Multi-scale 1D Temporal Convolution | Point-wise Anchor-free Regression | สกัดเหตุการณ์สั้นและยาวได้ยืดหยุ่นสูง | ต้องปรับให้เหมาะกับ index แบบ zero-shot และหลาย occurrence |
+| **Time-Sensitive Video-LLM**<br>*(TimeChat, Video-LLaVA)* | Visual + Text | Large Language Model | Time Binding Query Tokens | เข้าใจการกระทำระดับสูงและตอบคำถามเชิงเหตุผลได้ | ใช้เวลาและหน่วยความจำสูง จึงเหมาะกับ rerank top candidates |
 | **Two-Stage Selective Filtering**<br>*(SeViLA, LanguageBind)* | Multi-modal Binding Space | Localizer-Filter + Answerer VLM | Top-K Keyframe Selection | ประหยัด Token ในงานตอบคำถาม Video QA | ขาดระบบดัชนีเวกเตอร์ที่รองรับการค้นหาระดับคลังข้อมูลขนาดใหญ่ |
-| **Proposed Hybrid Architecture**<br>*(โครงงานนี้)* | **Tri-Modal (Visual Vector + Dense Caption + Audio Transcript)** | **SigLIP 2 (NaFlex) + MiniCPM-V (4-bit) + Whisper-Turbo** | **Reciprocal Rank Fusion + Multi-scale 1D Gaussian + Valley Extractor** | **รองรับภาพ 16:9 ไร้การบิดเบือน, ประมวลผลแบบ On-Premise (VRAM ≤ 6.5 GB), ค้นหาไวระดับ Sub-second** | ต้องอาศัยขั้นตอน Progressive Phase 1 (~45s) ก่อนเริ่มค้นหาได้ |
+| **Proposed Pure-Visual Architecture**<br>*(โครงงานนี้)* | **Visual Vector + Dense Scene Caption** | **SigLIP 2 NaFlex + Qwen (4-bit)** | **Tuned RRF + Multi-scale Proposals + Platt Calibration + Soft-NMS** | **รักษา aspect ratio, รองรับหลาย occurrence/no-match, local VRAM ≤ 8 GB** | ต้อง reindex ข้อมูล v1 และวัดผลบน held-out test |
 
 <br />
 
 #### 2.3.2 บทวิเคราะห์สังเคราะห์วรรณกรรม (Literature Review Synthesis)
 จากการทบทวนวรรณกรรมข้างต้น สามารถสรุปประเด็นสังเคราะห์สำคัญได้ 3 ประการ:
-1. **ข้อจำกัดของการพึ่งพามิติเดี่ยว (Unimodal Bottleneck):** งานวิจัยที่ใช้เฉพาะภาพมักล้มเหลวในฉากที่มีการพูดบรรยายโดยไม่มีการเคลื่อนไหวของวัตถุ ในขณะที่งานวิจัยที่ใช้เฉพาะเสียงพูดจะไม่สามารถระบุเหตุการณ์เชิงกายภาพได้ การผสานข้อมูลแบบ Tri-modal (ภาพ เวกเตอร์ และเสียงพูด) จึงเป็นเงื่อนไขจำเป็นสำหรับระบบค้นหาวิดีโอที่สมบูรณ์
+1. **การใช้ visual channels สองแบบ:** frame embeddings ให้ coverage ของ timeline ส่วน dense scene captions ช่วยจับความสัมพันธ์เชิงการกระทำ การ fuse ต้องตรวจ caption status และไม่ให้ fallback generic caption เพิ่มคะแนน
 2. **ความสำคัญของอัตราส่วนภาพและการแปลงเวกเตอร์ (Spatial Resolution Awareness):** การที่แบบจำลองรุ่นใหม่อย่าง SigLIP 2 นำเสนอ NaFlex ช่วยแก้ปัญหาภาพผิดเพี้ยนจากการยืดขยายภาพแบบดั้งเดิม ทำให้การจับคู่คำค้นหากับวัตถุในวิดีโอ 16:9 มีความแม่นยำสูงขึ้นอย่างก้าวกระโดด
-3. **ความสมดุลระหว่างความเร็วและความละเอียด (Progressive Ingestion Strategy):** แม้โมเดล Video-LLM ขนาดใหญ่จะมีความสามารถในการบรรยายฉากได้ดี แต่ข้อจำกัดด้านเวลาในการประมวลผลทำให้ไม่สามารถนำมาใช้ในขั้นตอน Ingestion แบบทันทีได้ การแบ่งกระบวนการออกเป็น **Phase 1 (สกัดเวกเตอร์ภาพและเสียงอย่างรวดเร็ว)** และ **Phase 2 (สร้างคำบรรยายเชิงลึกในพื้นหลัง)** จึงเป็นแนวทางที่มีประสิทธิภาพและเป็นไปได้จริงในทางปฏิบัติ
+3. **ความสมดุลระหว่างความเร็วและความละเอียด:** Fast ทำ frame retrieval และ proposal generation ส่วน Accurate ส่ง top 3 candidates ให้ Qwen ตรวจสอบแบบ sequential ภายใต้ 15 วินาทีและ fallback เมื่อ timeout/OOM
 
 <br />
 
@@ -437,64 +409,58 @@ S_smooth(t) = (S_raw * G_σ)(t) = ∑_{τ = -W}^{W} S_raw(t + τ) · [ 1 / (σ �
 
 ### 3.1 สรุปผลการศึกษาทฤษฎีและวรรณกรรม
 การศึกษาทฤษฎีและงานวิจัยที่เกี่ยวข้องสามารถสรุปสาระสำคัญได้ดังนี้:
-1. **แบบจำลองพื้นฐานยุคใหม่ (Foundation Models):** การใช้แบบจำลองภาษาภาพ SigLIP 2 ร่วมกับแบบจำลองบรรยายภาพ MiniCPM-V 2.6 (4-bit) และแบบจำลองถอดเสียง Whisper-Large-v3-Turbo ช่วยให้ระบบมีความสามารถในการค้นหาแบบ Open-Vocabulary โดยไม่ต้องผ่านการเทรนบนชุดข้อมูลเฉพาะ
-2. **การผสานคะแนนและการระบุขอบเขตเวลา:** อัลกอริทึม Reciprocal Rank Fusion (RRF) ร่วมกับ 1D Gaussian Temporal Convolution และ Adaptive Valley Boundary Detection เป็นระเบียบวิธีทางคณิตศาสตร์ที่มีประสิทธิภาพสูงในการกำจัดสัญญาณรบกวนและสกัดช่วงเวลา [t_start, t_end] ได้อย่างแม่นยำ
-3. **การประมวลผลบนเครื่องเฉพาะที่ (Local On-Premise):** การใช้การถอดรหัสวิดีโอบน GPU ผ่าน Decord ร่วมกับฐานข้อมูลเวกเตอร์แบบ Columnar LanceDB ทำให้สามารถบริหารจัดการทรัพยากรให้อยู่ในขอบเขต VRAM ≤ 6.5 GB และประมวลผลได้อย่างรวดเร็วโดยไม่ต้องพึ่งพา Cloud API
+1. **แบบจำลองภาพและภาษา:** SigLIP 2 NaFlex ทำ frame/text embeddings ส่วน Qwen ทำ scene captions และ visual temporal verification โดยยังคง local execution
+2. **การผสานคะแนนและระบุขอบเขต:** RRF, multi-scale proposals, boundary refinement และ Soft-NMS คืนเหตุการณ์ที่ไม่ทับกันหลายรายการ จากนั้น Platt calibration แยก rank score ออกจาก probability และ no-match gate
+3. **การประมวลผล local:** Decord และ LanceDB ช่วยทำงานในเครื่อง โดยต้องวัด latency และ peak VRAM จริงใน benchmark ไม่สรุปจากสเปกโมเดล
 
 ### 3.2 แนวทางการนำไปประยุกต์ใช้ต่อยอดในการพัฒนาโครงงาน
 จากการศึกษาทฤษฎีข้างต้น ผู้จัดทำได้กำหนดพิมพ์เขียวเชิงสถาปัตยกรรมสำหรับนำไปต่อยอดในการพัฒนาโครงงานจริง ดังแสดงในรูปที่ 3.1:
 
 ```
-========================= PROGRESSIVE VIDEO INGESTION PIPELINE =========================
+========================= PROGRESSIVE PURE-VISUAL INGESTION PIPELINE =========================
 
  [ ไฟล์วิดีโอต้นฉบับ (.mp4 / .mov) ]
                  │
-      ┌──────────┴────────────────────────────────────────┐
-      ▼                                                   ▼
- [ Decord GPU Video Reader (NVDEC) ]             [ FFmpeg Audio Demuxer ]
-      │                                                   │
-      ▼                                                   ▼
- [ PySceneDetect & SSIM Filter ]                 [ Whisper-Large-v3-Turbo ]
- (ลดเฟรมซ้ำซ้อนลง 75%)                            (ถอดเสียงพร้อม Word Timestamps)
-      │                                                   │
-   ┌──┴───────────────────────────┐                       │
-   ▼                              ▼                       │
-[ SigLIP 2 Visual Encoder ] [ MiniCPM-V 2.6 (4-bit) ]     │
-(เวกเตอร์ภาพ 768-dim)       (คำบรรยายภาพเชิงลึก Phase 2)  │
-   │                              │                       │
-   └──────────────┬───────────────┘                       │
-                  ▼                                       ▼
+      ▼
+ [ Decord Video Reader ]
+      │
+      ▼
+ [ Scene + Transition Sampling ]
+      │
+   ┌──┴───────────────────────────┐
+   ▼                              ▼
+[ SigLIP 2 NaFlex Encoder ] [ Qwen2.5-VL (4-bit) ]
+(เฟรม embeddings จริง)       (scene captions / verifier)
+   │                              │
+   └──────────────┬───────────────┘
+                  ▼
  ==============================================================================
   [ LanceDB Serverless Columnar Vector Database (Apache Arrow & Disk IVF-PQ) ]
-   - Table: videos, scenes, video_frames (768-dim), transcripts
+   - Table: videos, scenes_v2, video_frames_v2, index_metadata
  ==============================================================================
 
-============================ HYBRID REAL-TIME RETRIEVAL ============================
+============================ PURE-VISUAL REAL-TIME RETRIEVAL ============================
 
  [ คำค้นหาภาษาธรรมชาติ: "ช่วงที่มีการนำเสนอสไลด์เปรียบเทียบผลลัพธ์" ]
                  │
       ┌──────────┴──────────────────────────────┐
       ▼                                         ▼
- [ SigLIP 2 Text Vector u_q ]          [ Tantivy BM25 Full-Text Search ]
+ [ SigLIP 2 Text Variants ]              [ Caption BM25/FTS ]
       │                                         │
-      ├───────────────────┬─────────────────────┤
-      ▼                   ▼                     ▼
- [ Visual Vector Search ] [ Caption Text Match ] [ Audio Transcript Match ]
-      │                   │                     │
-      └───────────────────┼─────────────────────┘
+      └───────────────────┬─────────────────────┘
                           ▼
-            [ Reciprocal Rank Fusion (RRF) ]
+            [ Tuned Visual/Caption RRF + 2Hz Timeline ]
                           │
                           ▼
-        [ Multi-Scale 1D Gaussian Convolution ]
+        [ Multi-Scale Proposals + Boundary Refinement + Soft-NMS ]
                           │
                           ▼
-        [ Adaptive Valley Boundary Extraction ]
+        [ Platt Calibration + No-Match Threshold ]
                           │
                           ▼
-       [ ส่งผลลัพธ์ Moments [t_start, t_end] และ 1-Hz Density Heatmap ]
+       [ ส่งผลลัพธ์หลาย Moments, score probability และ 2-Hz Heatmap ]
 ```
-**รูปที่ 3.1:** แผนผังวงจรการทำงานเชิงแนวคิดของระบบสืบค้นวิดีโอแบบไฮบริดสองเฟส (Progressive Data Flow)
+**รูปที่ 3.1:** แผนผังวงจรการทำงานเชิงแนวคิดของระบบสืบค้นวิดีโอแบบ Pure-Visual สองโปรไฟล์
 
 <br />
 
@@ -502,13 +468,13 @@ S_smooth(t) = (S_raw * G_σ)(t) = ∑_{τ = -W}^{W} S_raw(t + τ) · [ 1 / (σ �
 
 | องค์ประกอบทางเทคนิค | แบบจำลอง / อัลกอริทึมที่เลือกใช้ | ค่าพารามิเตอร์ที่กำหนด | เหตุผลเชิงทฤษฎีรองรับ |
 | :--- | :--- | :--- | :--- |
-| **ตัวสกัดเวกเตอร์ภาพ** | `SigLIP 2 Base Patch16-256` | เวกเตอร์ขนาด 768 มิติ | รองรับ NaFlex ป้องกันภาพบิดเบือนในวิดีโอ 16:9 |
-| **ตัวบรรยายภาพเชิงลึก** | `MiniCPM-V 2.6` | 4-bit Quantization (AWQ) | บีบอัด Token ภาพ 70% ทำงานได้บน VRAM ≤ 6.0 GB |
-| **ตัวถอดเสียงพูด** | `Whisper-Large-v3-Turbo` | CTranslate2 FP16 | ถอดเสียงเร็วขึ้น 4 เท่าพร้อม Word-Level Timestamp |
-| **การผสานคะแนน RRF** | Reciprocal Rank Fusion | k = 60, w = [0.45, 0.35, 0.20] | ผสานคะแนนโดยไม่ต้องทำ Score Normalization |
-| **การปรับความเรียบเวลา** | Multi-Scale 1D Gaussian | σ = [0.5, 1.5, 3.5] วินาที, w = [0.35, 0.45, 0.20] | ครอบคลุมพฤติกรรมย่อยทั้งระดับสั้น กลาง และยาว |
-| **การสกัดขอบเขตเวลา** | Valley Boundary Detection | θ_dyn = μ + 0.8σ | ตัดขอบเขตเวลา [t_start, t_end] ณ จุดหุบเขาคะแนนต่ำสุด |
-| **ฐานข้อมูลเวกเตอร์** | LanceDB (Apache Arrow) | Disk-based IVF-PQ Index | สืบค้นเวกเตอร์ได้ในเวลา < 5 ms แบบ Zero-Copy |
+| **ตัวสกัดเวกเตอร์ภาพ** | `google/siglip2-base-patch16-naflex` | เฟรม embedding จริง, dimension ตรวจจาก checkpoint | รักษา aspect ratio และ timeline coverage |
+| **ตัวบรรยายภาพ/ตรวจสอบ** | `Qwen2.5-VL-7B-Instruct` | 4-bit ตาม memory budget | สร้าง scene captions และตรวจ top-3 candidates จากเฟรมจริง |
+| **การผสานคะแนน RRF** | Reciprocal Rank Fusion | k = 60, visual/caption = 0.80/0.20 ก่อน tune | caption unavailable จะไม่เพิ่มคะแนน |
+| **การสร้าง proposals** | Multi-scale rolling windows | 2, 4, 8, 16, 32 วินาที และขยายตามความยาว | รองรับ short/long และ repeated events |
+| **การปรับขอบเขต** | Energy-quantile refinement + Soft-NMS | 60% ของ peak, IoU = 0.5 | รักษาเหตุการณ์ที่ไม่ทับกันและ clamp ตาม scene |
+| **การปรับเทียบ** | Platt calibration | positive เมื่อ IoU ≥ 0.5, มี no-match queries | แยก rank score ออกจาก probability และเลือก threshold จาก dev |
+| **ฐานข้อมูลเวกเตอร์** | LanceDB (Apache Arrow) | index v2 + FTS/BM25 captions | ตรวจ schema/model metadata ก่อนสลับใช้งาน |
 
 <br />
 
@@ -538,10 +504,6 @@ Lin, K. Q., Zhang, P., Chen, J., Pramanick, S., Gao, X., Dai, P., & Yan, S. (202
 
 Moon, W., Hyun, S., Park, S., Park, D., & Heo, J. P. (2023). Query-dependent video representation for moment retrieval and highlight detection. In *Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)* (pp. 23023–23033). https://doi.org/10.1109/CVPR52729.2023.02206
 
-OpenBMB. (2024). *MiniCPM-V 2.6: An Efficient MLLM for Video Understanding and High-Density Multi-Image Processing*. OpenBMB Technical Report. https://huggingface.co/openbmb/MiniCPM-V-2_6
-
-Radford, A., Kim, J. W., Xu, T., Brockman, G., McLeavey, C., & Sutskever, I. (2023). Robust speech recognition via large-scale weak supervision. In *International Conference on Machine Learning (ICML)* (pp. 28492–28518). PMLR. https://arxiv.org/abs/2212.04356
-
 Ren, S., Yao, L., Li, Z., Sun, Y., & Zhu, X. (2024). TimeChat: A time-sensitive multimodal large language model for long video understanding. In *Proceedings of the IEEE/CVF Conference on Computer Vision and Pattern Recognition (CVPR)* (pp. 14313–14323).
 
 Souček, T., & Lokoč, J. (2020). TransNet V2: An effective deep network for fast video shot boundary detection. *arXiv preprint arXiv:2008.05238*.
@@ -551,8 +513,6 @@ Yu, S., Cho, J., Yadav, P., & Bansal, M. (2023). Self-chained video-language ali
 Zhang, C. L., Wu, J., & Li, Y. (2022). ActionFormer: Localizing moments of actions with transformers. In *European Conference on Computer Vision (ECCV)* (pp. 492–510). Springer. https://doi.org/10.1007/978-3-031-19772-7_29
 
 Zhang, S., Peng, H., Fu, J., & Luo, J. (2020). Learning 2D temporal adjacent networks for moment localization with natural language. In *Proceedings of the AAAI Conference on Artificial Intelligence*, 34(07), 12870–12877. https://doi.org/10.1609/aaai.v34i07.7053 (arXiv: https://arxiv.org/abs/1912.03590)
-
-Zhu, B., Lin, B., Ning, M., Yan, Y., Cui, J., Wang, H., & Yuan, L. (2024). LanguageBind: Extending large language-audio-visual-language models to any modality. In *International Conference on Learning Representations (ICLR 2024)*.
 
 </div>
 
@@ -578,27 +538,23 @@ Zhu, B., Lin, B., Ning, M., Yan, Y., Cui, J., Wang, H., & Yuan, L. (2024). Langu
 
 | แบบจำลอง AI | ฟังก์ชันการทำงาน | รูปแบบการ Quantization | ขนาดพารามิเตอร์ | Peak VRAM ขณะรัน | Latency เฉลี่ยต่อ 1 นาทีวิดีโอ |
 | :--- | :--- | :--- | :---: | :---: | :---: |
-| **Decord (NVDEC)** | ถอดรหัสเฟรมวิดีโอบน GPU | Hardware Decoder | - | ≤ 0.4 GB | < 0.5 วินาที |
-| **SigLIP 2 (NaFlex)** | สกัดเวกเตอร์ภาพ 768-dim | Native FP16 / BF16 | 220M | ≤ 1.8 GB | ≈ 1.2 วินาที |
-| **Faster-Whisper** | ถอดเสียงพูดพร้อมเวลา | CTranslate2 FP16 | 800M (Turbo) | ≤ 2.2 GB | ≈ 2.5 วินาที |
-| **MiniCPM-V 2.6** | บรรยายภาพเชิงลึก (Phase 2) | 4-bit Quantization (AWQ) | 8B (4-bit) | ≤ 5.6 GB | ≈ 12.0 วินาที |
-| **LanceDB Engine** | ดัชนีเวกเตอร์ Disk IVF-PQ | Columnar Disk Storage | - | ≤ 0.3 GB | < 0.05 วินาที |
+| **Decord** | อ่านเฟรมวิดีโอตาม timeline | Video Decoder | - | วัดจาก benchmark | วัดจาก benchmark |
+| **SigLIP 2 (NaFlex)** | สกัด frame/text embeddings | FP16/BF16 | ตาม checkpoint | วัดจาก benchmark | วัดจาก benchmark |
+| **Qwen2.5-VL** | Dense scene caption และ Accurate verifier | 4-bit ตาม budget | ตาม checkpoint | ต้องไม่เกิน 8 GB รวมระบบ | วัด p95 จาก benchmark |
+| **LanceDB Engine** | Vector search และ caption FTS | Columnar Disk Storage | - | วัดจาก benchmark | วัดจาก benchmark |
 
 <br />
 
 ## ภาคผนวก ค: ตัวอย่างคำค้นหาภาษาธรรมชาติและผลการสกัดช่วงเวลา [t_start, t_end]
 
 ```text
-ตัวอย่างที่ 1: วิดีโอบรรยายการสอน (Lecture Recording - 45 นาที)
-  • คำค้นหา (Query): "ช่วงที่อาจารย์เริ่มอธิบายกราฟแท่งเปรียบเทียบผลลัพธ์โมเดล"
-  • ช่วงเวลาที่ระบบทำนาย (Predicted Moment): [14:22.50, 15:48.00] (ความยาว 1 นาที 25.5 วินาที)
-  • คะแนนความสอดคล้อง (Confidence Score): 0.9124
-  • ผลการผสาน (RRF Breakdown): Visual Similarity (0.42) + Speech Match: "สังเกตจากกราฟแท่งสีน้ำเงิน" (0.49)
+ตัวอย่างที่ 1: วิดีโอบรรยายการสอน (ตัวอย่างรูปแบบผลลัพธ์ ไม่ใช่ผล benchmark)
+  • คำค้นหา (Query): "ช่วงที่อาจารย์ชี้กราฟแท่งเปรียบเทียบผลลัพธ์โมเดล"
+  • ผลลัพธ์: moments หลายรายการได้เมื่อผ่าน calibrated threshold
+  • Breakdown: visual + caption + temporal + verifier
 
-ตัวอย่างที่ 2: วิดีโอกล้องติดหน้ารถยนต์ (Dashcam Footage - 15 นาที)
-  • คำค้นหา (Query): "รถจักรยานยนต์เลี้ยวตัดหน้ากะทันหันก่อนถึงทางแยก"
-  • ช่วงเวลาที่ระบบทำนาย (Predicted Moment): [03:15.00, 03:28.50] (ความยาว 13.5 วินาที)
-  • คะแนนความสอดคล้อง (Confidence Score): 0.8847
-  • ผลการผสาน (RRF Breakdown): Visual SigLIP 2 Match (0.58) + MiniCPM-V Dense Caption: "Motorcycle cut in front" (0.30)
+ตัวอย่างที่ 2: วิดีโอกล้องติดหน้ารถยนต์
+  • คำค้นหา (Query): "รถจักรยานยนต์เลี้ยวตัดหน้าก่อนถึงทางแยก"
+  • ผลลัพธ์: occurrence_index แยกเหตุการณ์ที่ไม่ทับกัน และคืน moments=[] หากต่ำกว่า threshold
+  • Accurate mode: Qwen เลือกเฉพาะ timestamp ของเฟรมที่ส่งเข้าโมเดล
 ```
-

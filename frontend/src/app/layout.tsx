@@ -3,7 +3,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "VideoMoment AI Studio - Pure Visual Spatiotemporal Grounding",
-  description: "Sub-Second Natural Language Video Moment Retrieval using SigLIP 2, Qwen2.5-VL 7B, Continuous Gaussian Waveform, and LanceDB IVF-PQ",
+  description: "Pure-visual natural language video moment retrieval using SigLIP 2, Qwen2.5-VL 7B, calibrated temporal proposals, and LanceDB",
 };
 
 export default function RootLayout({
@@ -26,9 +26,9 @@ export default function RootLayout({
             </div>
             <div>
               <h1 className="text-base font-bold tracking-tight text-white flex items-center gap-2">
-                VideoMoment <span className="text-[10px] font-mono uppercase tracking-wider px-2 py-0.5 rounded-full bg-cyan-950/80 text-cyan-300 border border-cyan-800">AI Studio SOTA</span>
+                VideoMoment <span className="text-[10px] font-mono uppercase tracking-wider px-2 py-0.5 rounded-full bg-cyan-950/80 text-cyan-300 border border-cyan-800">Pure Visual</span>
               </h1>
-              <p className="text-[11px] text-gray-400">SigLIP 2 (NaFlex 768-dim) • Qwen2.5-VL 7B • Continuous Waveform • LanceDB IVF-PQ</p>
+              <p className="text-[11px] text-gray-400">SigLIP 2 NaFlex • Qwen2.5-VL 7B • Calibrated Temporal Proposals • LanceDB</p>
             </div>
           </div>
 
@@ -51,4 +51,3 @@ export default function RootLayout({
     </html>
   );
 }
-

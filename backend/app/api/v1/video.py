@@ -24,14 +24,6 @@ def _get_ffmpeg_bin() -> str:
     except Exception:
         return "ffmpeg"
 
-def _format_srt_time(seconds: float) -> str:
-    """Format seconds into SRT timestamp HH:MM:SS,mmm"""
-    hrs = int(seconds // 3600)
-    mins = int((seconds % 3600) // 60)
-    secs = int(seconds % 60)
-    millis = int((seconds - int(seconds)) * 1000)
-    return f"{hrs:02d}:{mins:02d}:{secs:02d},{millis:03d}"
-
 @router.get("/list", response_model=List[VideoMetadata])
 async def list_videos():
     """Returns list of all indexed videos with metadata and ingestion phase."""
@@ -55,6 +47,8 @@ async def list_videos():
             resolution=str(row["resolution"]),
             total_frames=int(row["total_frames"]),
             ingestion_phase=str(row["ingestion_phase"]),
+            visual_index_version=row.get("visual_index_version"),
+            embedding_model=row.get("embedding_model"),
             created_at=str(row["created_at"])
         ))
     return records
@@ -86,7 +80,7 @@ async def get_video_keyframes(video_id: str):
     """
     Returns sorted list of extracted keyframes with timestamps for UI timeline scrubbing.
     """
-    tbl_frames = db_manager.get_table("video_frames")
+    tbl_frames = db_manager.get_table("video_frames_v2")
     try:
         matches = tbl_frames.search().where(f"video_id = '{video_id}'").limit(500).to_list()
     except Exception:
@@ -115,12 +109,9 @@ async def download_video_clip(clip_filename: str):
 async def cut_video_clip(
     video_id: str,
     t_start: float = Query(...),
-    t_end: float = Query(...),
-    burn_subtitles: bool = Query(default=False)
+    t_end: float = Query(...)
 ):
-    """
-    SOTA Video Exporter: Cuts highlight interval with optional hardcoded Thai/English subtitles.
-    """
+    """Cut a visual moment using a fast stream copy."""
     tbl_videos = db_manager.get_table("videos")
     try:
         matches = tbl_videos.search().where(f"id = '{video_id}'").limit(1).to_list()
@@ -131,72 +122,25 @@ async def cut_video_clip(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Video not found.")
 
     src_path = matches[0]["filepath"]
-    sub_tag = "_sub" if burn_subtitles else ""
-    clip_filename = f"moment_{video_id[:8]}_{t_start:.1f}_{t_end:.1f}{sub_tag}.mp4"
+    clip_filename = f"moment_{video_id[:8]}_{t_start:.1f}_{t_end:.1f}.mp4"
     out_dir = settings.DATA_DIR / "clips"
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / clip_filename
     duration = max(0.5, t_end - t_start)
 
-    # 1. Check Subtitle Burning
-    srt_path = None
-    if burn_subtitles:
-        try:
-            tbl_transcripts = db_manager.get_table("transcripts")
-            transcripts = [r for r in tbl_transcripts.to_arrow().to_pylist() if r.get("video_id") == video_id]
-            matched_subs = []
-            for tr in transcripts:
-                tr_s = float(tr.get("t_start", 0.0))
-                tr_e = float(tr.get("t_end", 0.0))
-                if tr_e >= t_start and tr_s <= t_end:
-                    rel_s = max(0.0, tr_s - t_start)
-                    rel_e = min(duration, tr_e - t_start)
-                    matched_subs.append((rel_s, rel_e, tr.get("spoken_text", "")))
-
-            if matched_subs:
-                srt_path = out_dir / f"temp_{video_id[:8]}.srt"
-                with open(srt_path, "w", encoding="utf-8") as f_srt:
-                    for i, (s_s, s_e, text) in enumerate(matched_subs, 1):
-                        f_srt.write(f"{i}\n")
-                        f_srt.write(f"{_format_srt_time(s_s)} --> {_format_srt_time(s_e)}\n")
-                        f_srt.write(f"{text.strip()}\n\n")
-        except Exception as e:
-            logger.debug(f"Subtitle extraction notice: {e}")
-
-    # 2. Execute FFmpeg
+    # Execute FFmpeg stream copy.
     try:
         ffmpeg_bin = _get_ffmpeg_bin()
-        if burn_subtitles and srt_path and srt_path.exists():
-            # Burn subtitles into video stream
-            srt_escaped = str(srt_path.resolve()).replace("\\", "/").replace(":", "\\:")
-            vf_filter = f"subtitles='{srt_escaped}'"
-            cmd = [
-                ffmpeg_bin, "-y", "-ss", str(t_start), "-i", src_path,
-                "-t", str(duration), "-vf", vf_filter,
-                "-c:v", "libx264", "-c:a", "aac", "-preset", "fast", str(out_path)
-            ]
-        else:
-            # Fast stream copy without re-encoding
-            cmd = [
-                ffmpeg_bin, "-y", "-ss", str(t_start), "-i", src_path,
-                "-t", str(duration), "-c", "copy", str(out_path)
-            ]
+        cmd = [ffmpeg_bin, "-y", "-ss", str(t_start), "-i", src_path,
+               "-t", str(duration), "-c", "copy", str(out_path)]
 
         subprocess.run(cmd, check=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         
-        # Cleanup temp srt
-        if srt_path and srt_path.exists():
-            try:
-                os.remove(srt_path)
-            except Exception:
-                pass
-
         return {
             "status": "success",
             "clip_path": str(out_path),
             "clip_filename": clip_filename,
             "download_url": f"/api/v1/videos/download-clip/{clip_filename}",
-            "burned_subtitles": burn_subtitles and (srt_path is not None)
         }
     except Exception as e:
         logger.error(f"FFmpeg clipping failed: {e}")
@@ -205,7 +149,7 @@ async def cut_video_clip(
 @router.delete("/{video_id}")
 async def delete_video(video_id: str):
     """
-    Cascade deletes video metadata, vector embeddings, transcripts, scene records, and physical files.
+    Cascade deletes video metadata, visual embeddings, scene records, and physical files.
     """
     tbl_videos = db_manager.get_table("videos")
     try:
@@ -223,9 +167,8 @@ async def delete_video(video_id: str):
     # 1. Delete from LanceDB tables
     tables_to_clean = [
         ("videos", f"id = '{video_id}'"),
-        ("video_frames", f"video_id = '{video_id}'"),
-        ("scenes", f"video_id = '{video_id}'"),
-        ("transcripts", f"video_id = '{video_id}'"),
+        ("video_frames_v2", f"video_id = '{video_id}'"),
+        ("scenes_v2", f"video_id = '{video_id}'"),
         ("search_logs", f"video_id = '{video_id}'"),
     ]
 
@@ -235,6 +178,11 @@ async def delete_video(video_id: str):
             tbl.delete(filter_expr)
         except Exception as e:
             logger.warning(f"Notice while deleting from {tbl_name}: {e}")
+
+    try:
+        db_manager.get_index_metadata_table().delete(f"id = '{video_id}'")
+    except Exception as e:
+        logger.warning(f"Notice while deleting index metadata: {e}")
 
     # 2. Delete raw video file
     if filepath and os.path.exists(filepath):

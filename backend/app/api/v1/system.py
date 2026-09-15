@@ -59,7 +59,7 @@ def get_system_telemetry():
     # 3. LanceDB Database Storage Stats
     tables_stats = {}
     total_records = 0
-    table_names = ["videos", "video_frames", "scenes", "transcripts", "search_logs"]
+    table_names = ["videos", "video_frames_v2", "scenes_v2", "search_logs"]
     for t_name in table_names:
         try:
             tbl = db_manager.get_table(t_name)
@@ -68,32 +68,32 @@ def get_system_telemetry():
             total_records += count
         except Exception:
             tables_stats[t_name] = 0
+    try:
+        metadata_table = db_manager.get_index_metadata_table()
+        tables_stats[db_manager.index_metadata_table_name] = metadata_table.count_rows()
+        total_records += tables_stats[db_manager.index_metadata_table_name]
+    except Exception:
+        tables_stats["index_metadata"] = 0
 
     # 4. Model Registry Configuration
     models_info = {
         "visual_encoder": {
             "name": "SigLIP 2 (NaFlex)",
             "model_id": settings.SIGLIP2_MODEL_ID,
-            "embedding_dim": 768,
+            "embedding_dim": settings.SIGLIP2_EMBEDDING_DIM,
+            "index_version": settings.VISUAL_INDEX_VERSION,
             "acceleration": "CUDA FP16 / Tensor Cores" if torch.cuda.is_available() else "CPU"
         },
-        "audio_asr": {
-            "name": "Faster-Whisper (Disabled)",
-            "model_size": "disabled",
-            "engine": "Visual-Centric Mode (Zero Audio Overhead)",
-            "beam_size": 0,
-            "vad_filter": False
-        },
-        "dense_captioner": {
-            "name": "Qwen2.5-VL-7B-Instruct",
+        "visual_temporal_reranker": {
+            "name": "Qwen2.5-VL-7B-Instruct (top-3)",
             "model_id": settings.QWEN_VL_MODEL_ID,
             "quantization": "4-bit NormalFloat (NF4) BitsAndBytes"
         },
         "temporal_localizer": {
-            "name": "2D-TAN + 1D Wasserstein NMS",
+            "name": "Multi-scale visual proposals + Soft-NMS",
             "iou_threshold": 0.5,
             "top_k": 5,
-            "gaussian_sigma": getattr(settings, "TEMPORAL_GAUSSIAN_SIGMA", 1.5)
+            "calibrated": (settings.CALIBRATION_ARTIFACT_PATH.exists() if hasattr(settings, "CALIBRATION_ARTIFACT_PATH") else False)
         }
     }
 
@@ -117,6 +117,7 @@ def get_system_telemetry():
             "total_records": total_records,
             "storage_path": str(settings.LANCEDB_DIR)
         },
+        "visual_index": db_manager.validate_visual_index(),
         "models": models_info,
         "recent_logs": log_lines
     }

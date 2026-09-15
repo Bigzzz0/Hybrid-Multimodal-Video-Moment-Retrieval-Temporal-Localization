@@ -43,5 +43,20 @@ class AdaptiveSceneDetector:
 
         except Exception as e:
             logger.error(f"Scene detection error: {e}. Falling back to default uniform chunking.")
-            # Default fallback: 10s uniform chunks
-            return [(i * 10.0, (i + 1) * 10.0) for i in range(10)]
+            # Default fallback: duration-aware 10s chunks.  Never invent a
+            # ten-minute timeline when the decoder only contains a short clip.
+            try:
+                import cv2
+                cap = cv2.VideoCapture(video_path)
+                fps = float(cap.get(cv2.CAP_PROP_FPS))
+                frame_count = float(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+                cap.release()
+                duration = frame_count / fps if fps > 0 else 0.0
+            except Exception:
+                duration = 0.0
+            if duration <= 0.0:
+                return [(0.0, 0.0)]
+            return [
+                (start, min(duration, start + 10.0))
+                for start in [float(value) for value in range(0, int(duration), 10)]
+            ]

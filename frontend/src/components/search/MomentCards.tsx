@@ -8,7 +8,6 @@ import {
   Download,
   Check,
   Loader2,
-  Subtitles,
   Repeat,
   Copy,
   Clock,
@@ -27,6 +26,8 @@ import { RadialConfidenceMeter } from "@/components/ui/RadialConfidenceMeter";
 interface MomentCardsProps {
   moments: MomentItem[];
   videoId?: string;
+  calibrated?: boolean;
+  warnings?: string[];
   onSelectMoment: (moment: MomentItem, autoLoop?: boolean) => void;
   activeMoment?: MomentItem | null;
 }
@@ -34,6 +35,8 @@ interface MomentCardsProps {
 export const MomentCards: React.FC<MomentCardsProps> = ({
   moments,
   videoId,
+  calibrated = false,
+  warnings = [],
   onSelectMoment,
   activeMoment,
 }) => {
@@ -42,7 +45,6 @@ export const MomentCards: React.FC<MomentCardsProps> = ({
   const [exportingIndex, setExportingIndex] = useState<number | null>(null);
   const [isBatchExporting, setIsBatchExporting] = useState(false);
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
-  const [showCoTDetail, setShowCoTDetail] = useState<number | null>(null);
 
   const toggleSelectMoment = (e: React.MouseEvent, idx: number) => {
     e.stopPropagation();
@@ -63,13 +65,13 @@ export const MomentCards: React.FC<MomentCardsProps> = ({
     }
   };
 
-  const handleExport = async (e: React.MouseEvent, m: MomentItem, idx: number, withSubtitles: boolean) => {
+  const handleExport = async (e: React.MouseEvent, m: MomentItem, idx: number) => {
     e.stopPropagation();
     if (!videoId) return;
 
     setExportingIndex(idx);
     try {
-      const res = await apiClient.exportClip(videoId, m.t_start, m.t_end, withSubtitles);
+      const res = await apiClient.exportClip(videoId, m.t_start, m.t_end);
       if (res && res.download_url) {
         const a = document.createElement("a");
         a.href = `http://localhost:8000${res.download_url}`;
@@ -93,7 +95,7 @@ export const MomentCards: React.FC<MomentCardsProps> = ({
     for (const idx of targetIndices) {
       const m = moments[idx];
       try {
-        const res = await apiClient.exportClip(videoId, m.t_start, m.t_end, false);
+          const res = await apiClient.exportClip(videoId, m.t_start, m.t_end);
         if (res && res.download_url) {
           const a = document.createElement("a");
           a.href = `http://localhost:8000${res.download_url}`;
@@ -142,6 +144,9 @@ export const MomentCards: React.FC<MomentCardsProps> = ({
         <p className="text-xs text-gray-500">
           พิมพ์คำค้นหาภาษาไทยหรืออังกฤษในช่องด้านบน หรือคลิกชิปหมวดการเคลื่อนไหวเพื่อเริ่มค้นหา
         </p>
+        {warnings.length > 0 && (
+          <p className="text-xs text-amber-300">{warnings.join(" • ")}</p>
+        )}
       </div>
     );
   }
@@ -200,10 +205,16 @@ export const MomentCards: React.FC<MomentCardsProps> = ({
           </div>
 
           <span className="text-[11px] font-mono text-cyan-400/80 bg-cyan-950/60 px-2 py-0.5 rounded-full border border-cyan-800/40">
-            SOTA Multi-Scale
+            {calibrated ? "Calibrated visual ranking" : "Visual ranking (calibration pending)"}
           </span>
         </div>
       </div>
+
+      {warnings.length > 0 && (
+        <div className="text-[11px] text-amber-300 bg-amber-950/30 border border-amber-800/50 rounded-lg px-3 py-2">
+          {warnings.join(" • ")}
+        </div>
+      )}
 
       {/* Cards Viewport */}
       {layoutMode === "list" ? (
@@ -216,10 +227,11 @@ export const MomentCards: React.FC<MomentCardsProps> = ({
             const duration = Math.max(0.1, m.t_end - m.t_start);
             const actionTags = extractActionTags(m.caption_preview);
 
-            // Compute Visual CoT Breakdown values (Subject, Verb, Context, Motion)
-            const subScore = m.visual_cot?.subject_score ?? Math.min(1.0, Math.max(0.4, m.score * 1.05));
-            const verbScore = m.visual_cot?.verb_score ?? Math.min(1.0, Math.max(0.45, m.score * 1.12));
-            const motLabel = m.visual_cot?.motion_label ?? (m.score >= 0.7 ? "High Dynamic" : "Moderate");
+            const breakdown = m.modality_breakdown || {};
+            const visualScore = Math.max(0, Math.min(1, breakdown.visual ?? 0));
+            const captionScore = Math.max(0, Math.min(1, breakdown.caption ?? 0));
+            const temporalScore = Math.max(0, Math.min(1, breakdown.temporal ?? 0));
+            const verifierScore = Math.max(0, Math.min(1, breakdown.verifier ?? 0));
 
             return (
               <div
@@ -279,6 +291,11 @@ export const MomentCards: React.FC<MomentCardsProps> = ({
                         <span className="text-sm font-mono font-bold text-white tracking-wide">
                           {m.t_start.toFixed(1)}s - {m.t_end.toFixed(1)}s
                         </span>
+                        {typeof m.occurrence_index === "number" && (
+                          <span className="text-[10px] font-mono text-indigo-300 bg-indigo-950/60 border border-indigo-800/60 rounded px-1.5 py-0.5">
+                            occurrence {m.occurrence_index}
+                          </span>
+                        )}
                         <button
                           type="button"
                           onClick={(e) => handleCopyTimestamp(e, m, idx)}
@@ -299,7 +316,7 @@ export const MomentCards: React.FC<MomentCardsProps> = ({
 
                     {/* VLM Caption Preview */}
                     <p className="text-xs text-gray-300 line-clamp-2 leading-relaxed">
-                      {m.caption_preview || "Ground-truth physical action sequence detected."}
+                      {m.caption_preview || "Visual action sequence candidate (caption unavailable)."}
                     </p>
 
                     {/* Action Micro-Tags */}
@@ -318,47 +335,45 @@ export const MomentCards: React.FC<MomentCardsProps> = ({
                   </div>
                 </div>
 
-                {/* Visual CoT Reasoning Breakdown (Subject, Verb, Motion) */}
-                <div className="grid grid-cols-3 gap-1.5 pt-2 border-t border-surfaceBorder/60 text-[10px] font-mono">
-                  {/* Subject Alignment */}
+                {/* Evidence breakdown from the retrieval pipeline (no fabricated scores). */}
+                <div className="grid grid-cols-4 gap-1.5 pt-2 border-t border-surfaceBorder/60 text-[10px] font-mono">
                   <div className="bg-surface/90 p-1.5 rounded-lg border border-surfaceBorder/60">
                     <div className="flex items-center justify-between text-gray-400">
-                      <span className="flex items-center gap-1">
-                        <User className="w-2.5 h-2.5 text-cyan-400" /> SUB
-                      </span>
-                      <span className="text-cyan-300 font-bold">{(subScore * 100).toFixed(0)}%</span>
+                      <span className="flex items-center gap-1"><User className="w-2.5 h-2.5 text-cyan-400" /> VIS</span>
+                      <span className="text-cyan-300 font-bold">{(visualScore * 100).toFixed(0)}%</span>
                     </div>
                     <div className="w-full bg-gray-800 h-1 rounded-full overflow-hidden mt-1">
-                      <div className="bg-cyan-400 h-full rounded-full" style={{ width: `${subScore * 100}%` }} />
+                      <div className="bg-cyan-400 h-full rounded-full" style={{ width: `${visualScore * 100}%` }} />
                     </div>
                   </div>
 
-                  {/* Action Verb Match */}
                   <div className="bg-surface/90 p-1.5 rounded-lg border border-surfaceBorder/60">
                     <div className="flex items-center justify-between text-gray-400">
-                      <span className="flex items-center gap-1">
-                        <Zap className="w-2.5 h-2.5 text-indigo-400" /> VERB
-                      </span>
-                      <span className="text-indigo-300 font-bold">{(verbScore * 100).toFixed(0)}%</span>
+                      <span className="flex items-center gap-1"><Sparkles className="w-2.5 h-2.5 text-indigo-400" /> CAP</span>
+                      <span className="text-indigo-300 font-bold">{(captionScore * 100).toFixed(0)}%</span>
                     </div>
                     <div className="w-full bg-gray-800 h-1 rounded-full overflow-hidden mt-1">
-                      <div className="bg-indigo-400 h-full rounded-full" style={{ width: `${verbScore * 100}%` }} />
+                      <div className="bg-indigo-400 h-full rounded-full" style={{ width: `${captionScore * 100}%` }} />
                     </div>
                   </div>
 
-                  {/* Kinematic Motion Energy */}
                   <div className="bg-surface/90 p-1.5 rounded-lg border border-surfaceBorder/60">
                     <div className="flex items-center justify-between text-gray-400">
-                      <span className="flex items-center gap-1">
-                        <Activity className="w-2.5 h-2.5 text-amber-400" /> MOT
-                      </span>
-                      <span className="text-amber-300 font-bold truncate">{motLabel}</span>
+                      <span className="flex items-center gap-1"><Activity className="w-2.5 h-2.5 text-amber-400" /> TMP</span>
+                      <span className="text-amber-300 font-bold">{(temporalScore * 100).toFixed(0)}%</span>
                     </div>
                     <div className="w-full bg-gray-800 h-1 rounded-full overflow-hidden mt-1">
-                      <div
-                        className="bg-amber-400 h-full rounded-full"
-                        style={{ width: motLabel === "High Dynamic" ? "85%" : "45%" }}
-                      />
+                      <div className="bg-amber-400 h-full rounded-full" style={{ width: `${temporalScore * 100}%` }} />
+                    </div>
+                  </div>
+
+                  <div className="bg-surface/90 p-1.5 rounded-lg border border-surfaceBorder/60">
+                    <div className="flex items-center justify-between text-gray-400">
+                      <span className="flex items-center gap-1"><Zap className="w-2.5 h-2.5 text-emerald-400" /> VLM</span>
+                      <span className="text-emerald-300 font-bold">{(verifierScore * 100).toFixed(0)}%</span>
+                    </div>
+                    <div className="w-full bg-gray-800 h-1 rounded-full overflow-hidden mt-1">
+                      <div className="bg-emerald-400 h-full rounded-full" style={{ width: `${verifierScore * 100}%` }} />
                     </div>
                   </div>
                 </div>
@@ -385,7 +400,7 @@ export const MomentCards: React.FC<MomentCardsProps> = ({
                     <button
                       type="button"
                       disabled={exportingIndex === idx}
-                      onClick={(e) => handleExport(e, m, idx, false)}
+                      onClick={(e) => handleExport(e, m, idx)}
                       className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-surface hover:bg-surfaceBorder text-gray-300 hover:text-white border border-surfaceBorder text-[11px] font-medium transition-colors"
                       title="Download MP4 clip"
                     >
@@ -397,16 +412,6 @@ export const MomentCards: React.FC<MomentCardsProps> = ({
                       <span>Clip</span>
                     </button>
 
-                    <button
-                      type="button"
-                      disabled={exportingIndex === idx}
-                      onClick={(e) => handleExport(e, m, idx, true)}
-                      className="flex items-center gap-1 px-2 py-1 rounded-lg bg-surface hover:bg-surfaceBorder text-gray-300 hover:text-white border border-surfaceBorder text-[11px] font-medium transition-colors"
-                      title="Burn subtitles and export"
-                    >
-                      <Subtitles className="w-3 h-3 text-indigo-400" />
-                      <span>Sub</span>
-                    </button>
                   </div>
                 </div>
               </div>

@@ -1,0 +1,28 @@
+{
+  "name": "legacy-pure-visual-regression-baseline",
+  "immutable": true,
+  "source_report": "evaluation/benchmark_real_results.json",
+  "run_metadata": {
+    "commit_sha": "unknown (legacy report did not record SHA)",
+    "hardware": "not recorded in legacy report",
+    "embedding_model": "legacy SigLIP checkpoint (pre-v2)",
+    "caption_model": "legacy caption pipeline (pre-v2)",
+    "index_version": "v1",
+    "settings": {
+      "profile": "legacy-fast",
+      "top_k": 5
+    }
+  },
+  "query_count": 28,
+  "video_count": 2,
+  "metrics": {
+    "R@1@IoU=0.3": 71.43,
+    "R@1@IoU=0.5": 46.43,
+    "R@1@IoU=0.7": 42.86,
+    "R@5@IoU=0.3": 100.0,
+    "mIoU": 0.4419,
+    "mean_delta_t_start_sec": 12.1,
+    "avg_query_latency_ms": 458.72
+  },
+  "notes": "Smoke/regression only. It is not a held-out acceptance benchmark and carries no SOTA claim. Re-run with a video-disjoint test set before accepting changes."
+}

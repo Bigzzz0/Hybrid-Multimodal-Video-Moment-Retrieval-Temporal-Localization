@@ -27,8 +27,8 @@ class VideoQAResponse(BaseModel):
 
 class VideoRAGEngine:
     """
-    SOTA Multimodal Video-RAG Engine.
-    Retrieves visual keyframes & speech context to answer complex questions about the video.
+    Visual Video-RAG Engine.
+    Retrieves visual keyframes and captions to answer complex questions about the video.
     """
 
     def __init__(self):
@@ -40,7 +40,7 @@ class VideoRAGEngine:
         logger.info(f"Video-RAG answering question for video {video_id}: '{question}'")
 
         # 1. Retrieve Visual Frames with SigLIP 2 & Caption Matching
-        tbl_frames = db_manager.get_table("video_frames")
+        tbl_frames = db_manager.get_table("video_frames_v2")
         try:
             video_frames = tbl_frames.search().where(f"video_id = '{video_id}'").limit(1000).to_list()
         except Exception:
@@ -51,8 +51,6 @@ class VideoRAGEngine:
         if q_norm > 0:
             query_vec = query_vec / q_norm
 
-        q_tokens = [w.strip().lower() for w in question.split() if len(w.strip()) > 1]
-
         scored_frames = []
         for f in video_frames:
             emb = f.get("siglip2_vector")
@@ -60,21 +58,15 @@ class VideoRAGEngine:
             if emb is not None and len(emb) == 768:
                 sim = float(np.dot(np.array(emb, dtype=np.float32), query_vec))
             
-            # Action caption boost
-            caption = (f.get("vlm_caption") or "").lower()
-            if caption and q_tokens:
-                match_count = sum(1 for tok in q_tokens if tok in caption)
-                if match_count > 0:
-                    sim += 0.25 * (match_count / len(q_tokens))
-            
             scored_frames.append((sim, f))
 
         scored_frames.sort(key=lambda x: x[0], reverse=True)
         top_frames = scored_frames[:3]
 
         # 2. Formulate Visual Context
+        scenes = {str(row.get("id")): row for row in db_manager.get_table("scenes_v2").to_arrow().to_pylist()}
         context_visual_str = "\n".join([
-            f"[เวลา {f.get('timestamp'):.1f}s]: {f.get('vlm_caption') or 'ภาพแสดงการกระทำและเหตุการณ์ในฉาก'}"
+            f"[เวลา {f.get('timestamp'):.1f}s]: {scenes.get(str(f.get('scene_id')), {}).get('caption') or 'ภาพแสดงการกระทำและเหตุการณ์ในฉาก'}"
             for sim, f in top_frames if sim > 0.05
         ])
 
@@ -86,7 +78,7 @@ class VideoRAGEngine:
                 evidence_citations.append(GroundedMoment(
                     t_start=round(max(0.0, ts - 1.5), 1),
                     t_end=round(ts + 3.5, 1),
-                    citation_text=(f.get("vlm_caption") or "ฉากเหตุการณ์ที่ตรงกับคำถาม")[:100],
+                    citation_text=(scenes.get(str(f.get("scene_id")), {}).get("caption") or "ฉากเหตุการณ์ที่ตรงกับคำถาม")[:100],
                     thumbnail_path=f.get("frame_path")
                 ))
 

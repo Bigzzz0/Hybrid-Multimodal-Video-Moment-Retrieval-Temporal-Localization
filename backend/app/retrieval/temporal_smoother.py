@@ -5,7 +5,7 @@ from app.core.config import settings
 
 class TemporalSmoother:
     """
-    SOTA Multi-Scale 1D Gaussian Temporal Pyramid Smoother.
+    Display-only multi-scale temporal smoother; raw scores remain untouched.
     Fuses micro-actions (0.5s), normal actions (1.5s), and macro-activities (3.5s).
     """
 
@@ -36,8 +36,18 @@ class TemporalSmoother:
         Returns:
             (time_axis, smoothed_scores)
         """
-        total_steps = max(1, int(np.ceil(duration_sec * resolution_hz)))
-        time_axis = np.linspace(0.0, duration_sec, total_steps)
+        # Include both endpoints on a true resolution_hz grid.  A final short
+        # interval is added only when the duration is not an exact grid point.
+        step_sec = 1.0 / max(1, int(resolution_hz))
+        if duration_sec <= 0.0:
+            time_axis = np.asarray([0.0], dtype=np.float32)
+        else:
+            time_axis = np.arange(0.0, duration_sec, step_sec, dtype=np.float32)
+            if len(time_axis) == 0 or time_axis[-1] < duration_sec - 1e-6:
+                time_axis = np.append(time_axis, np.float32(duration_sec))
+            else:
+                time_axis[-1] = np.float32(duration_sec)
+        total_steps = len(time_axis)
         # Sort discrete timestamp scores chronologically and interpolate continuous signal
         if not timestamp_scores:
             return time_axis, np.zeros(total_steps, dtype=np.float32)
@@ -67,12 +77,6 @@ class TemporalSmoother:
             sigma_steps = max(0.5, actual_sigma * resolution_hz)
             smoothed = gaussian_filter1d(raw_signal, sigma=sigma_steps, mode="nearest")
 
-        # Normalize smoothed signal to [0.0, 1.0]
-        max_val = np.max(smoothed)
-        min_val = np.min(smoothed)
-        if max_val > min_val:
-            norm_smoothed = (smoothed - min_val) / (max_val - min_val)
-        else:
-            norm_smoothed = smoothed
-
-        return time_axis, norm_smoothed
+        # Keep raw score scale for calibration. The caller may derive a
+        # display-only normalized copy for the heatmap/proposal visualization.
+        return time_axis, smoothed.astype(np.float32)

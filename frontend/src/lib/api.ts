@@ -50,13 +50,15 @@ export const apiClient = {
   // 4. Moment Search
   async searchMoments(
     query: string,
-    videoId?: string,
-    topK: number = 5
+    videoId: string,
+    topK: number = 5,
+    profile: "fast" | "accurate" = "fast"
   ): Promise<SearchResponse> {
     const res = await api.post<SearchResponse>("/search/moment", {
       query,
-      video_id: videoId || null,
+      video_id: videoId,
       top_k: topK,
+      profile,
     });
     return res.data;
   },
@@ -77,8 +79,7 @@ export const apiClient = {
   async exportClip(
     videoId: string,
     tStart: number,
-    tEnd: number,
-    burnSubtitles: boolean = false
+    tEnd: number
   ): Promise<ClipExportResponse> {
     const res = await api.post<ClipExportResponse>(
       `/videos/${videoId}/cut-clip`,
@@ -87,7 +88,6 @@ export const apiClient = {
         params: {
           t_start: tStart,
           t_end: tEnd,
-          burn_subtitles: burnSubtitles,
         },
       }
     );

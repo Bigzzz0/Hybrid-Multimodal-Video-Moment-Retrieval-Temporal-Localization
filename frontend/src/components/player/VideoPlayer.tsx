@@ -162,7 +162,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
         )}
       </div>
 
-      {/* SOTA Spline Timeline Heatmap with Live Hover Scrubbing & Drag Handles */}
+      {/* Visual relevance timeline with live hover scrubbing & drag handles */}
       <TimelineHeatmap
         heatmapData={heatmapData}
         duration={duration}

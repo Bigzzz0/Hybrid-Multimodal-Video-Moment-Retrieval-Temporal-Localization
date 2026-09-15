@@ -19,7 +19,8 @@ def recaption_demo_video():
     logger.info(f"Targeted recaptioning for video: {target_vid}")
     
     captioner = QwenVLDenseCaptioner()
-    tbl_frames = db_manager.get_table("video_frames")
+    tbl_frames = db_manager.get_table("video_frames_v2")
+    tbl_scenes = db_manager.get_table("scenes_v2")
     frames = tbl_frames.to_arrow().to_pylist()
     
     demo_frames = [f for f in frames if f.get("video_id") == target_vid]
@@ -51,19 +52,11 @@ def recaption_demo_video():
             caption = captioner.generate_scene_caption(images)
             logger.info(f"Caption generated: {caption}")
             
-            for f in valid_frames:
-                fid = f.get("id")
-                if fid:
-                    try:
-                        tbl_frames.update(
-                            where=f"id = '{fid}'",
-                            values={
-                                "vlm_caption": caption,
-                                "has_dense_caption": True
-                            }
-                        )
-                    except Exception as ex:
-                        logger.debug(f"Frame update error: {ex}")
+            try:
+                caption_status = "generated" if caption else getattr(captioner, "last_status", "unavailable")
+                tbl_scenes.update(where=f"id = '{sid}'", values={"caption": caption, "caption_status": caption_status})
+            except Exception as ex:
+                logger.debug(f"Scene update error: {ex}")
                         
     logger.info("Demo video recaptioning complete!")
 

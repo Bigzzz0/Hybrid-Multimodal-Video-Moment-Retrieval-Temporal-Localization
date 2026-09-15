@@ -1,7 +1,7 @@
 {
   "name": "video-event-retrieval",
   "version": "1.0.0",
-  "description": "Hybrid Multimodal Video Moment Retrieval & Temporal Localization with NanoNets Graft Context Layer",
+  "description": "Pure-Visual Video Moment Retrieval & Temporal Localization with NanoNets Graft Context Layer",
   "private": true,
   "scripts": {
     "graft:build": "graft build",

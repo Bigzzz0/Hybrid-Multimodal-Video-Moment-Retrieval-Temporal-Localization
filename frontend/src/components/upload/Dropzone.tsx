@@ -7,7 +7,6 @@ import {
   AlertCircle,
   Loader2,
   Film,
-  Mic,
   Cpu,
   Database,
   Sparkles,
@@ -30,8 +29,8 @@ const PIPELINE_STAGES: PipelineStage[] = [
   { id: "decoding", name: "1. Hardware Video Decoding", desc: "Decord GPU NVDEC reading frames", icon: Film },
   { id: "scene_detect", name: "2. Adaptive Scene Cuts", desc: "PySceneDetect boundary segmentation", icon: Layers },
   { id: "keyframe_ssim", name: "3. Keyframe Sampling", desc: "SSIM structural difference filtering", icon: Film },
-  { id: "siglip2_embedding", name: "4. Temporal & Visual Embedding", desc: "SigLIP 2 NaFlex + Multi-frame Context", icon: Cpu },
-  { id: "vlm_caption", name: "5. Dense Action Understanding", desc: "Qwen2.5-VL-7B 4-bit Spatiotemporal Actions", icon: Sparkles }
+  { id: "siglip2_embedding", name: "4. Temporal & Visual Embedding", desc: "SigLIP 2 NaFlex frame representations", icon: Cpu },
+  { id: "dense_visual_caption", name: "5. Dense Visual Scene Captions", desc: "Qwen2.5-VL-7B 4-bit visual actions", icon: Sparkles }
 ];
 
 export const Dropzone: React.FC<DropzoneProps> = ({ onUploadSuccess }) => {
@@ -76,9 +75,9 @@ export const Dropzone: React.FC<DropzoneProps> = ({ onUploadSuccess }) => {
       setStageDetails(data.details);
     }
     if (data.stage) {
-      const normalizedStage = data.stage === "minicpmv_caption" ? "vlm_caption" : data.stage;
+      const normalizedStage = data.stage;
       setCurrentStage(normalizedStage);
-      const stageOrder = ["decoding", "scene_detect", "keyframe_ssim", "siglip2_embedding", "lancedb_commit", "vlm_caption", "complete"];
+      const stageOrder = ["decoding", "scene_detect", "keyframe_ssim", "siglip2_embedding", "lancedb_commit", "dense_visual_caption", "complete"];
       const currentIdx = stageOrder.indexOf(normalizedStage);
       if (currentIdx > 0) {
         const done = stageOrder.slice(0, currentIdx);
@@ -286,23 +285,20 @@ export const Dropzone: React.FC<DropzoneProps> = ({ onUploadSuccess }) => {
                       <div className="mt-2.5 pt-2 border-t border-cyan-800/30 space-y-1.5 animate-in fade-in duration-200">
                         <div className="flex items-center justify-between text-[11px] font-mono">
                           <span className="text-gray-300 flex items-center gap-1.5">
-                            {stg.id === "asr_whisper" && stageDetails?.current_sec !== undefined && (
-                              <>⏱️ Transcribed: <b className="text-cyan-300">{stageDetails.current_sec}s</b> / {stageDetails.total_sec}s ({stageDetails.segment_count || 0} segments)</>
-                            )}
                             {stg.id === "keyframe_ssim" && stageDetails?.scene_idx !== undefined && (
                               <>🖼️ Keyframes: Scene <b className="text-cyan-300">{stageDetails.scene_idx}</b> / {stageDetails.total_scenes} ({stageDetails.frame_count || 0} frames)</>
                             )}
                             {stg.id === "siglip2_embedding" && stageDetails?.processed_frames !== undefined && (
                               <>⚡ Encoded: <b className="text-cyan-300">{stageDetails.processed_frames}</b> / {stageDetails.total_frames} frames (Batch {stageDetails.batch}/{stageDetails.total_batches})</>
                             )}
-                            {(stg.id === "vlm_caption" || stg.id === "minicpmv_caption") && stageDetails?.scene_idx !== undefined && (
+                            {stg.id === "dense_visual_caption" && stageDetails?.scene_idx !== undefined && (
                               <>🤖 Captioned: Scene <b className="text-cyan-300">{stageDetails.scene_idx}</b> / {stageDetails.total_scenes}</>
                             )}
                             {stg.id === "scene_detect" && stageDetails?.duration_sec !== undefined && (
                               <>✂️ Length: {stageDetails.duration_sec?.toFixed(1)}s • {stageDetails.resolution} @ {stageDetails.fps}fps</>
                             )}
                             {stg.id === "lancedb_commit" && stageDetails?.frame_count !== undefined && (
-                              <>💾 Indexing: {stageDetails.frame_count} visual frames • {stageDetails.transcript_count} speech rows</>
+                              <>💾 Indexing: {stageDetails.frame_count || 0} visual frames</>
                             )}
                           </span>
                           <span className="text-cyan-400 font-bold">{subPct}%</span>

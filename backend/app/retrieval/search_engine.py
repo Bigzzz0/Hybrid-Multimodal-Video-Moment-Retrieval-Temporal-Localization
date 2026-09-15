@@ -1,326 +1,290 @@
+"""Hybrid pure-visual retrieval engine (frame embeddings + scene captions)."""
+
+import json
 import time
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
+
 import numpy as np
-from typing import List, Dict, Any, Tuple, Optional
+
 from app.core.config import settings
-from app.core.logger import logger
 from app.db.connection import db_manager
 from app.db.schemas import MomentItem, SearchResponse
 from app.pipeline.visual_encoder import SigLIP2VisualEncoder
-from app.retrieval.rank_fusion import ReciprocalRankFusion
-from app.retrieval.temporal_smoother import TemporalSmoother
 from app.retrieval.boundary_extractor import TemporalBoundaryExtractor
 from app.retrieval.query_expander import query_expander
+from app.retrieval.rank_fusion import ReciprocalRankFusion
+from app.retrieval.temporal_smoother import TemporalSmoother
 from app.retrieval.vlm_verifier import vlm_verifier
 
-class HybridMomentSearchEngine:
-    """
-    SOTA Unified Moment Retrieval Engine with Cross-Modal Query Expansion,
-    Multi-Scale Gaussian Temporal Pyramid, and Adaptive Valley Boundary Extraction.
-    """
 
-    def __init__(self):
+def _lexical_score(text: str, query: str) -> float:
+    tokens = {token.casefold() for token in query.split() if token.strip()}
+    if not text or not tokens:
+        return 0.0
+    haystack = text.casefold()
+    return sum(1 for token in tokens if token in haystack) / len(tokens)
+
+
+class HybridMomentSearchEngine:
+    """Search every frame of one video and produce calibrated proposals."""
+
+    def __init__(self) -> None:
         self.text_encoder = SigLIP2VisualEncoder()
         self.rrf = ReciprocalRankFusion(k=settings.DEFAULT_RRF_K)
         self.smoother = TemporalSmoother(default_sigma=settings.TEMPORAL_GAUSSIAN_SIGMA)
         self.boundary_extractor = TemporalBoundaryExtractor()
+        self._calibration_cache: Optional[Dict[str, Any]] = None
+        self._fusion_cache: Optional[Dict[str, float]] = None
 
-    def search_moments(
-        self,
-        query: str,
-        video_id: Optional[str] = None,
-        top_k: int = 5,
-        weight_visual: float = settings.DEFAULT_WEIGHT_VISUAL,
-        weight_caption: float = settings.DEFAULT_WEIGHT_CAPTION,
-        weight_audio: float = settings.DEFAULT_WEIGHT_AUDIO,
-        gaussian_sigma: float = settings.TEMPORAL_GAUSSIAN_SIGMA,
-        threshold_factor: float = settings.DYNAMIC_THRESHOLD_FACTOR
-    ) -> SearchResponse:
-        """
-        Executes multi-modal SOTA retrieval and returns timestamped moments with dynamic density heatmap.
-        """
-        t0 = time.time()
-        logger.info(f"Executing SOTA Moment Search for query: '{query}' (video_id: {video_id})")
-
-        # 1. Fetch Video Metadata from LanceDB
-        tbl_videos = db_manager.get_table("videos")
+    @staticmethod
+    def _rows(table: Any, where: Optional[str] = None, limit: int = 5000) -> List[Dict[str, Any]]:
         try:
-            if video_id:
-                video_records = tbl_videos.search().where(f"id = '{video_id}'").limit(1).to_list()
-            else:
-                video_records = tbl_videos.to_arrow().to_pylist()
+            search = table.search()
+            if where:
+                search = search.where(where)
+            return search.limit(limit).to_list()
         except Exception:
-            video_records = [r for r in tbl_videos.to_arrow().to_pylist() if not video_id or r.get("id") == video_id]
+            try:
+                rows = table.to_arrow().to_pylist()
+            except Exception:
+                return []
+            if where and " = '" in where:
+                key, value = where.split(" = '", 1)
+                rows = [row for row in rows if str(row.get(key)) == value.rstrip("'")]
+            return rows[:limit]
 
-        if not video_records:
-            logger.warning(f"No video found for search with video_id: {video_id}")
-            return SearchResponse(
-                query=query,
-                video_id=video_id,
-                moments=[],
-                timeline_heatmap=[],
-                total_duration=0.0,
-                latency_ms=0.0,
-                top_k=top_k
-            )
-
-        target_video = video_records[0]
-        actual_video_id = target_video.get("id")
-        duration_sec = float(target_video.get("duration_sec", 10.0))
-
-        # 2. Fetch all frames for this video
-        tbl_frames = db_manager.get_table("video_frames")
+    def _caption_rows(self, query: str, video_id: str) -> List[Dict[str, Any]]:
+        """Query the scene FTS index; lexical scoring is only a safe fallback."""
+        table = db_manager.get_table("scenes_v2")
+        rows: List[Dict[str, Any]] = []
         try:
-            video_frames = tbl_frames.search().where(f"video_id = '{actual_video_id}'").limit(5000).to_list()
+            rows = table.search(query, query_type="fts").where(
+                f"video_id = '{video_id}' AND caption_status = 'generated'"
+            ).limit(200).to_list()
         except Exception:
-            video_frames = [r for r in tbl_frames.to_arrow().to_pylist() if r.get("video_id") == actual_video_id]
+            all_rows = self._rows(table, f"video_id = '{video_id}'", 5000)
+            rows = [row for row in all_rows
+                    if row.get("caption_status") == "generated" and _lexical_score(str(row.get("caption", "")), query) > 0]
+            for row in rows:
+                row["_score"] = _lexical_score(str(row.get("caption", "")), query)
+        return rows
 
-        # 3. Disentangle Query into Subject, Verb, Context, and Static Null Anchor
-        expanded = query_expander.expand_query(query)
-        visual_keywords = expanded["visual_keywords"]
-        audio_keywords = expanded["audio_keywords"]
+    def _load_calibration(self) -> Optional[Dict[str, Any]]:
+        if self._calibration_cache is not None:
+            return self._calibration_cache
+        path = Path(settings.CALIBRATION_ARTIFACT_PATH)
+        if not path.exists():
+            self._calibration_cache = None
+            return None
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            if data.get("index_version") != settings.VISUAL_INDEX_VERSION:
+                return None
+            if data.get("model_id") != settings.SIGLIP2_MODEL_ID:
+                return None
+            self._calibration_cache = data
+            return data
+        except Exception:
+            return None
 
-        if getattr(settings, "ENABLE_CONCEPT_DISENTANGLEMENT", True):
-            disentangled = query_expander.disentangle_query(query)
-            vec_sub = np.array(self.text_encoder.encode_text(disentangled["subject"]), dtype=np.float32)
-            vec_verb = np.array(self.text_encoder.encode_text(disentangled["verb"]), dtype=np.float32)
-            vec_ctx = np.array(self.text_encoder.encode_text(disentangled["context"]), dtype=np.float32)
-            vec_null = np.array(self.text_encoder.encode_text(disentangled["null_anchor"]), dtype=np.float32)
+    def _fusion_weights(self) -> Tuple[float, float]:
+        if self._fusion_cache is None:
+            try:
+                data = json.loads(Path(settings.FUSION_ARTIFACT_PATH).read_text(encoding="utf-8"))
+                if data.get("index_version") not in {None, settings.VISUAL_INDEX_VERSION}:
+                    raise ValueError("fusion artifact index version mismatch")
+                if data.get("model_id") not in {None, "", settings.SIGLIP2_MODEL_ID}:
+                    raise ValueError("fusion artifact model mismatch")
+                visual = float(data.get("visual_weight", settings.DEFAULT_WEIGHT_VISUAL))
+                caption = float(data.get("caption_weight", settings.DEFAULT_WEIGHT_CAPTION))
+                total = max(1e-8, visual + caption)
+                self._fusion_cache = {"visual": visual / total, "caption": caption / total}
+            except Exception:
+                self._fusion_cache = {"visual": settings.DEFAULT_WEIGHT_VISUAL, "caption": settings.DEFAULT_WEIGHT_CAPTION}
+        return self._fusion_cache["visual"], self._fusion_cache["caption"]
+    def _probability(self, raw_score: float, display_score: float) -> Tuple[float, bool, Optional[float]]:
+        artifact = self._load_calibration()
+        if not artifact:
+            # This is explicitly uncalibrated; display score keeps the API
+            # useful for development without pretending it is a probability.
+            return float(np.clip(display_score, 0.0, 1.0)), False, None
+        slope = float(artifact.get("slope", 1.0))
+        intercept = float(artifact.get("intercept", -0.5))
+        value = slope * float(raw_score) + intercept
+        probability = float(1.0 / (1.0 + np.exp(-np.clip(value, -60.0, 60.0))))
+        return probability, True, float(artifact.get("no_match_threshold", settings.NO_MATCH_THRESHOLD))
 
-            for v in [vec_sub, vec_verb, vec_ctx, vec_null]:
-                nrm = np.linalg.norm(v)
-                if nrm > 0:
-                    v /= nrm
-        else:
-            vec_sub = vec_verb = vec_ctx = vec_null = None
+    @staticmethod
+    def _normalize_display(signal: np.ndarray) -> np.ndarray:
+        if len(signal) == 0:
+            return signal
+        lo, hi = float(np.min(signal)), float(np.max(signal))
+        if hi <= lo + 1e-8:
+            return np.zeros_like(signal, dtype=np.float32)
+        return np.clip((signal - lo) / (hi - lo), 0.0, 1.0).astype(np.float32)
 
-        # 4. Standard/TTA Query Encoding (for fallback or general query representation)
-        if getattr(settings, "ENABLE_TTA_ENSEMBLE", True):
-            tta_items = query_expander.get_tta_queries(query)  # List of (q_str, weight)
-            accum_vec = np.zeros(768, dtype=np.float32)
-            total_weight = 0.0
-            for q_str, w in tta_items:
-                v = np.array(self.text_encoder.encode_text(q_str), dtype=np.float32)
-                vn = np.linalg.norm(v)
-                if vn > 0:
-                    v = v / vn
-                accum_vec += w * v
-                total_weight += w
-            if total_weight > 0:
-                accum_vec /= total_weight
-            q_norm = np.linalg.norm(accum_vec)
-            query_vec = accum_vec / q_norm if q_norm > 0 else accum_vec
-        else:
-            query_vec = np.array(self.text_encoder.encode_text(expanded["expanded_search_str"]), dtype=np.float32)
-            q_norm = np.linalg.norm(query_vec)
-            if q_norm > 0:
-                query_vec = query_vec / q_norm
+    def search_moments(self, query: str, video_id: str, top_k: int = 5, profile: str = "fast") -> SearchResponse:
+        started = time.monotonic()
+        profile = profile if profile in {"fast", "accurate"} else "fast"
+        top_k = max(1, min(int(top_k), 20))
+        warnings: List[str] = []
+        videos = self._rows(db_manager.get_table("videos"), f"id = '{video_id}'", 1)
+        if not videos:
+            warnings.append("video_not_found")
+            return SearchResponse(query=query, video_id=video_id, moments=[], timeline_heatmap=[], total_duration=0.0,
+                                  latency_ms=round((time.monotonic() - started) * 1000, 2), top_k=top_k,
+                                  profile=profile, calibrated=False, index_version=settings.VISUAL_INDEX_VERSION, warnings=warnings)
+        target = videos[0]
+        duration = max(0.0, float(target.get("duration_sec", 0.0)))
+        target_index_version = str(target.get("visual_index_version") or "")
+        if target_index_version and target_index_version != settings.VISUAL_INDEX_VERSION:
+            warnings.append("reindex_required")
+            return SearchResponse(query=query, video_id=video_id, moments=[], timeline_heatmap=[], total_duration=round(duration, 2),
+                                  latency_ms=round((time.monotonic() - started) * 1000, 2), top_k=top_k,
+                                  profile=profile, calibrated=False, index_version=settings.VISUAL_INDEX_VERSION, warnings=warnings)
+        # Older ``videos`` tables may not have the v2 metadata columns.  A
+        # newly ingested video is still valid when its v2 metadata/frames are
+        # present; a legacy-only video must explicitly reindex.
+        if not target_index_version:
+            legacy_rows = self._rows(db_manager.get_table("video_frames"), f"video_id = '{video_id}'", 1)
+            if legacy_rows:
+                warnings.append("reindex_required")
+                return SearchResponse(query=query, video_id=video_id, moments=[], timeline_heatmap=[], total_duration=round(duration, 2),
+                                      latency_ms=round((time.monotonic() - started) * 1000, 2), top_k=top_k,
+                                      profile=profile, calibrated=False, index_version=settings.VISUAL_INDEX_VERSION, warnings=warnings)
+        compatibility = db_manager.visual_index_compatibility(video_id)
+        if not compatibility.get("compatible", False):
+            warnings.append("reindex_required")
+            return SearchResponse(query=query, video_id=video_id, moments=[], timeline_heatmap=[], total_duration=round(duration, 2),
+                                  latency_ms=round((time.monotonic() - started) * 1000, 2), top_k=top_k,
+                                  profile=profile, calibrated=False, index_version=settings.VISUAL_INDEX_VERSION, warnings=warnings)
+        frames = self._rows(db_manager.get_table("video_frames_v2"), f"video_id = '{video_id}'", 200000)
+        dim = int(settings.SIGLIP2_EMBEDDING_DIM)
+        frames = [frame for frame in frames if frame.get("siglip2_vector") is not None and len(frame.get("siglip2_vector")) == dim]
+        if not frames:
+            warnings.append("index_empty")
+            return SearchResponse(query=query, video_id=video_id, moments=[], timeline_heatmap=[], total_duration=round(duration, 2),
+                                  latency_ms=round((time.monotonic() - started) * 1000, 2), top_k=top_k,
+                                  profile=profile, calibrated=False, index_version=settings.VISUAL_INDEX_VERSION, warnings=warnings)
 
-        # 5. Extract Frame Embeddings, Timestamps, and Pixel Motion
-        frame_embs = []
-        frame_meta = []
-        for f in video_frames:
-            emb = f.get("siglip2_vector")
-            if emb is not None and len(emb) == 768:
-                frame_embs.append(emb)
-                frame_meta.append(f)
+        variants = query_expander.get_query_variants(query)
+        vectors: List[np.ndarray] = []
+        weights: List[float] = []
+        for text, weight in variants:
+            vector = np.asarray(self.text_encoder.encode_text(text), dtype=np.float32)
+            vector /= max(1e-8, float(np.linalg.norm(vector)))
+            vectors.append(vector)
+            weights.append(float(weight))
+        qvec = np.average(np.stack(vectors), axis=0, weights=np.asarray(weights))
+        qvec /= max(1e-8, float(np.linalg.norm(qvec)))
+        matrix = np.asarray([frame["siglip2_vector"] for frame in frames], dtype=np.float32)
+        matrix /= np.maximum(np.linalg.norm(matrix, axis=1, keepdims=True), 1e-8)
+        cosine = matrix @ qvec
+        visual_relevance = np.clip((cosine + 1.0) / 2.0, 0.0, 1.0)
 
-        timestamp_score_map: Dict[float, float] = {}
+        # Caption BM25/FTS results are distributed only to their own scene.
+        scenes = self._rows(db_manager.get_table("scenes_v2"), f"video_id = '{video_id}'", 10000)
+        scene_by_id = {str(scene.get("id")): scene for scene in scenes}
+        caption_rows = self._caption_rows(" ".join(text for text, _ in variants), video_id)
+        caption_by_scene: Dict[str, float] = {}
+        for row in caption_rows:
+            scene_id = str(row.get("id"))
+            score = float(row.get("_score", row.get("score", 0.0)) or 0.0)
+            if score <= 0.0:
+                score = _lexical_score(str(row.get("caption", "")), query)
+            caption_by_scene[scene_id] = max(caption_by_scene.get(scene_id, 0.0), score)
+        caption_relevance = np.asarray([caption_by_scene.get(str(frame.get("scene_id")), 0.0) for frame in frames], dtype=np.float32)
 
-        if frame_embs:
-            emb_matrix = np.array(frame_embs, dtype=np.float32)  # [N, 768]
-            timestamps = np.array([float(f.get("timestamp", 0.0)) for f in frame_meta], dtype=np.float32)
-            pixel_motions = np.array([
-                float(f.get("pixel_motion", 0.0) if "pixel_motion" in f and f["pixel_motion"] is not None else 0.0)
-                for f in frame_meta
-            ], dtype=np.float32)
+        visual_rank = [{"id": str(frame.get("id")), "timestamp": float(frame.get("timestamp", 0.0)), "score": float(score), "frame": frame}
+                       for frame, score in zip(frames, visual_relevance)]
+        caption_rank = [{"id": str(frame.get("id")), "timestamp": float(frame.get("timestamp", 0.0)), "score": float(score), "frame": frame}
+                        for frame, score in zip(frames, caption_relevance) if score > 0]
+        visual_rank.sort(key=lambda item: (-item["score"], item["timestamp"], item["id"]))
+        caption_rank.sort(key=lambda item: (-item["score"], item["timestamp"], item["id"]))
+        tuned_visual, tuned_caption = self._fusion_weights()
+        caption_weight = tuned_caption if caption_rank else 0.0
+        visual_weight = 1.0 if not caption_rank else tuned_visual
+        if caption_rank:
+            total_weight = visual_weight + caption_weight
+            visual_weight, caption_weight = visual_weight / total_weight, caption_weight / total_weight
+        fused = self.rrf.fuse({"visual": visual_rank, "caption": caption_rank}, {"visual": visual_weight, "caption": caption_weight})
 
-            sim_full = np.maximum(0.0, np.dot(emb_matrix, query_vec))
+        raw_by_timestamp: Dict[float, float] = {}
+        transition_by_timestamp: Dict[float, float] = {}
+        visual_by_timestamp: Dict[float, float] = {}
+        caption_by_timestamp: Dict[float, float] = {}
+        frame_by_timestamp: Dict[float, Dict[str, Any]] = {}
+        for frame, visual in zip(frames, visual_relevance):
+            ts = float(frame.get("timestamp", 0.0))
+            visual_by_timestamp[ts] = float(visual)
+            caption_by_timestamp[ts] = float(caption_by_scene.get(str(frame.get("scene_id")), 0.0))
+            transition_by_timestamp[ts] = float(frame.get("transition_energy", 0.0) or 0.0)
+            frame_by_timestamp[ts] = frame
+        for result in fused.values():
+            item = result["item_data"]
+            ts = float(item.get("timestamp", 0.0))
+            raw_by_timestamp[ts] = max(raw_by_timestamp.get(ts, -1.0), float(result["fused_score"]))
+        axis, raw_timeline = self.smoother.smooth_timeline(duration, list(raw_by_timestamp.items()), sigma=settings.TEMPORAL_GAUSSIAN_SIGMA,
+                                                           resolution_hz=2, use_multiscale=(profile == "accurate"))
+        display_timeline = self._normalize_display(raw_timeline)
+        transition_timeline = np.interp(axis, sorted(transition_by_timestamp), [transition_by_timestamp[t] for t in sorted(transition_by_timestamp)]) if transition_by_timestamp else np.zeros_like(axis)
+        boundaries = [0.0, duration]
+        for scene in scenes:
+            boundaries.extend([float(scene.get("t_start", 0.0)), float(scene.get("t_end", duration))])
+        candidates = self.boundary_extractor.extract_multiscale_proposals(axis, display_timeline, raw_scores=raw_timeline,
+                                                                          transition_energy=transition_timeline, scene_boundaries=sorted(set(boundaries)))
+        if not candidates:
+            warnings.append("no_candidates")
+        calibration_available = self._load_calibration() is not None
+        if not calibration_available:
+            warnings.append("calibration_missing")
+        if profile == "accurate" and settings.ENABLE_VLM_STAGE2_VERIFY and candidates:
+            verify_limit = max(1, int(settings.VLM_VERIFY_TOP_K))
+            # Pass the source path as ephemeral metadata so Accurate mode can
+            # decode a fresh 2fps window around each candidate.  It is never
+            # persisted into LanceDB and is ignored by Fast mode.
+            verifier_frames = [{"_video_path": str(target.get("filepath", ""))}] + frames
+            candidates = vlm_verifier.verify(candidates[:verify_limit], verifier_frames, query) + candidates[verify_limit:]
+            warnings.extend(vlm_verifier.last_warnings)
 
-            # Strategy 6: Concept Disentanglement Scoring (3-Way Geometric Mean)
-            if getattr(settings, "ENABLE_CONCEPT_DISENTANGLEMENT", True) and vec_sub is not None:
-                sim_sub = np.maximum(0.0, np.dot(emb_matrix, vec_sub))
-                sim_verb = np.maximum(0.0, np.dot(emb_matrix, vec_verb))
-                sim_ctx = np.maximum(0.0, np.dot(emb_matrix, vec_ctx))
-                w_sub = getattr(settings, "DISENTANGLE_WEIGHT_SUB", 0.25)
-                w_verb = getattr(settings, "DISENTANGLE_WEIGHT_VERB", 0.50)
-                w_ctx = getattr(settings, "DISENTANGLE_WEIGHT_CTX", 0.25)
-                disentangled_scores = ((sim_sub + 1e-6) ** w_sub) * ((sim_verb + 1e-6) ** w_verb) * ((sim_ctx + 1e-6) ** w_ctx)
-                blended_scores = 0.50 * sim_full + 0.50 * disentangled_scores
-            else:
-                blended_scores = sim_full
+        scored: List[Tuple[float, Dict[str, Any]]] = []
+        threshold: Optional[float] = None
+        for candidate in candidates:
+            rank_score = float(candidate.get("rank_score", candidate.get("score", 0.0)))
+            display_score = float(np.clip(candidate.get("score", 0.0), 0.0, 1.0))
+            probability, calibrated, artifact_threshold = self._probability(rank_score, display_score)
+            threshold = artifact_threshold if artifact_threshold is not None else threshold
+            candidate["probability"] = probability
+            candidate["calibrated"] = calibrated
+            scored.append((probability, candidate))
+        if threshold is not None and scored and max(score for score, _ in scored) < threshold:
+            warnings.append("no_match")
+            scored = []
+        scored.sort(key=lambda pair: (-pair[0], float(pair[1].get("t_start", 0.0))))
+        moments: List[MomentItem] = []
+        for occurrence_index, (probability, candidate) in enumerate(scored[:top_k], start=1):
+            start, end = float(candidate["t_start"]), float(candidate["t_end"])
+            timestamps = [ts for ts in frame_by_timestamp if start <= ts <= end]
+            nearest = min(frames, key=lambda frame: abs(float(frame.get("timestamp", 0.0)) - (start + end) / 2.0), default={})
+            visual = max((visual_by_timestamp.get(ts, 0.0) for ts in timestamps), default=0.0)
+            caption = max((caption_by_timestamp.get(ts, 0.0) for ts in timestamps), default=0.0)
+            verifier = float(candidate.get("verifier_confidence", 0.0))
+            breakdown = {"visual": round(float(visual), 4), "caption": round(float(caption), 4),
+                         "temporal": round(float(candidate.get("score", 0.0)), 4), "verifier": round(verifier, 4)}
+            scene_caption = ""
+            if nearest.get("scene_id") in scene_by_id:
+                scene_caption = str(scene_by_id[nearest["scene_id"]].get("caption", "") or "")
+            moments.append(MomentItem(t_start=start, t_end=end, score=round(float(probability), 4),
+                                      raw_score=round(rank_score, 6), display_score=round(float(candidate.get("score", 0.0)), 4),
+                                      preview_frame_path=nearest.get("frame_path"), caption_preview=scene_caption or None,
+                                      modality_breakdown=breakdown, occurrence_index=occurrence_index))
+        # one heatmap value per second, derived only from display timeline
+        heatmap = [round(float(display_timeline[min(len(display_timeline) - 1, int(sec * 2))]), 4) for sec in range(max(0, int(np.ceil(duration))))] if len(display_timeline) else []
+        return SearchResponse(query=query, video_id=video_id, moments=moments, timeline_heatmap=heatmap,
+                              total_duration=round(duration, 2), latency_ms=round((time.monotonic() - started) * 1000, 2),
+                              top_k=top_k, profile=profile, calibrated=calibration_available,
+                              index_version=settings.VISUAL_INDEX_VERSION, warnings=warnings)
 
-            # Strategy 4: Hard Static Negative Anchor Subtraction
-            if getattr(settings, "ENABLE_STATIC_NEGATIVE", True) and vec_null is not None:
-                sim_null = np.maximum(0.0, np.dot(emb_matrix, vec_null))
-                lambda_null = getattr(settings, "STATIC_NEGATIVE_LAMBDA", 0.20)
-                rectified_scores = np.maximum(0.0, blended_scores - lambda_null * sim_null)
-            else:
-                rectified_scores = blended_scores
-
-            # Strategy 1: Pixel Motion Energy Gating Multiplier
-            if getattr(settings, "ENABLE_PIXEL_MOTION_GATE", True) and len(pixel_motions) == len(rectified_scores):
-                gamma_motion = getattr(settings, "PIXEL_MOTION_WEIGHT", 0.35)
-                beta_slope = getattr(settings, "PIXEL_MOTION_TANH_BETA", 2.5)
-                motion_multiplier = 1.0 + gamma_motion * np.tanh(beta_slope * pixel_motions)
-                gated_scores = rectified_scores * motion_multiplier
-            else:
-                gated_scores = rectified_scores
-
-            for f_data, s in zip(frame_meta, gated_scores):
-                ts = float(f_data.get("timestamp", 0.0))
-                timestamp_score_map[ts] = float(s) * weight_visual
-
-            # Action Caption Keyword & Semantic Boosting
-            action_keywords = expanded.get("action_keywords", [])
-            if weight_caption > 0:
-                for f_data in video_frames:
-                    caption = (f_data.get("vlm_caption") or "").lower()
-                    ts = float(f_data.get("timestamp", 0.0))
-                    if caption and visual_keywords:
-                        match_count = sum(1 for kw in visual_keywords if kw.lower() in caption)
-                        if match_count > 0:
-                            boost = (match_count / max(1, len(visual_keywords))) * weight_caption
-                            if action_keywords and any(act.lower() in caption for act in action_keywords):
-                                boost *= 1.25
-                            timestamp_score_map[ts] = timestamp_score_map.get(ts, 0.0) + boost
-
-        # 6. Build (Timestamp, Score) List
-        timestamp_scores: List[Tuple[float, float]] = list(timestamp_score_map.items())
-        if not timestamp_scores:
-            timestamp_scores = [(0.0, 0.1)]
-
-        # 7. SOTA Multi-Scale 1D Gaussian Temporal Pyramid
-        time_axis, smoothed_scores = self.smoother.smooth_timeline(
-            duration_sec=duration_sec,
-            timestamp_scores=timestamp_scores,
-            sigma=gaussian_sigma,
-            resolution_hz=2,
-            use_multiscale=True
-        )
-
-        # 8. Absolute Confidence Floor & Dynamic Contrast Calibration
-        min_s, max_s = float(np.min(smoothed_scores)), float(np.max(smoothed_scores))
-        
-        if max_s < 0.12:
-            logger.info(f"Query '{query}' max relevance ({max_s:.3f}) below confidence floor (0.12). No match.")
-            return SearchResponse(
-                query=query,
-                video_id=actual_video_id,
-                moments=[],
-                timeline_heatmap=[round(float(s), 3) for s in smoothed_scores[::2]],
-                total_duration=round(duration_sec, 2),
-                latency_ms=round((time.time() - t0) * 1000.0, 2),
-                top_k=top_k
-            )
-
-        if max_s > min_s:
-            contrast_smoothed = (smoothed_scores - min_s) / (max_s - min_s)
-            raw_peak_factor = min(1.0, max(0.40, max_s / 0.35))
-        else:
-            contrast_smoothed = smoothed_scores
-            raw_peak_factor = min(1.0, max(0.40, max_s / 0.35))
-
-        # 9. Adaptive Valley Boundary Extraction with 1D Wasserstein Snapping & OMTG
-        candidate_moments = self.boundary_extractor.extract_moments(
-            time_axis=time_axis,
-            smoothed_scores=contrast_smoothed,
-            threshold_factor=threshold_factor,
-            enable_wasserstein=True,
-            nms_iou_threshold=0.25
-        )
-
-        # Strategy 3: SSM Gradient Boundary Snapping
-        if getattr(settings, "ENABLE_SSM_BOUNDARY_SNAP", True) and frame_embs and len(emb_matrix) >= 4:
-            snapped_moments = self.boundary_extractor.snap_boundaries_to_ssm_gradient(
-                moments=candidate_moments,
-                emb_matrix=emb_matrix,
-                timestamps=timestamps,
-                snap_radius_sec=getattr(settings, "SSM_SNAP_WINDOW_SEC", 1.5)
-            )
-        else:
-            snapped_moments = candidate_moments
-
-        # Strategy 7: 1D Continuous Gaussian Soft-NMS
-        if getattr(settings, "ENABLE_GAUSSIAN_SOFT_NMS", True) and snapped_moments:
-            nms_moments = self.boundary_extractor.apply_gaussian_soft_nms(
-                moments=snapped_moments,
-                sigma=getattr(settings, "GAUSSIAN_SOFT_NMS_SIGMA", 0.40),
-                score_threshold=getattr(settings, "GAUSSIAN_SOFT_NMS_FLOOR", 0.20)
-            )
-        else:
-            nms_moments = snapped_moments
-
-        # Strategy 5: Two-Stage VLM Temporal Verification & Endpoint Snapping (TimeLens CVPR 2026)
-        if getattr(settings, "ENABLE_VLM_STAGE2_VERIFY", False) and nms_moments:
-            extracted_moments = vlm_verifier.verify_and_refine(
-                candidate_moments=nms_moments,
-                video_frames=video_frames,
-                query=query,
-                top_k_verify=getattr(settings, "VLM_VERIFY_TOP_K", 3)
-            )
-        else:
-            extracted_moments = nms_moments
-
-        # 10. Hydrate Moment Items with Previews
-        moments_response: List[MomentItem] = []
-        for m in extracted_moments[:top_k]:
-            t_mid = (m["t_start"] + m["t_end"]) / 2.0
-            
-            # Find closest keyframe
-            closest_frame = None
-            closest_caption = None
-            min_dist = 999.0
-            for f in video_frames:
-                dist = abs(float(f.get("timestamp", 0.0)) - t_mid)
-                if dist < min_dist:
-                    min_dist = dist
-                    closest_frame = f.get("frame_path")
-                    closest_caption = f.get("vlm_caption")
-
-            # Clean and sanitize caption preview
-            clean_caption = closest_caption
-            refusal_check_list = [
-                "sorry", "cannot browse", "can't browse", "unable to browse", 
-                "large language model", "training data", "cutoff date",
-                "对不起", "抱歉", "语言模型", "无法访问", "没有访问", "作为ai",
-                "你好", "提供帮助", "javascript", "const numbers"
-            ]
-            if clean_caption:
-                c_low = clean_caption.lower()
-                if any(w in c_low or w in clean_caption for w in refusal_check_list):
-                    clean_caption = "Visual keyframe capturing scene activity and subjects."
-            else:
-                clean_caption = "Visual keyframe capturing scene activity and subjects."
-
-            calibrated_score = round(float(m["score"] * raw_peak_factor), 3)
-
-            moments_response.append(MomentItem(
-                t_start=m["t_start"],
-                t_end=m["t_end"],
-                score=calibrated_score,
-                preview_frame_path=closest_frame,
-                caption_preview=clean_caption,
-                transcript_preview=None
-            ))
-
-        # 11. Construct 1-Hz Heatmap array for Frontend Canvas
-        heatmap_1hz = []
-        total_seconds = int(np.ceil(duration_sec))
-        for sec in range(total_seconds):
-            idx = min(len(contrast_smoothed) - 1, int(sec * 2))
-            heatmap_1hz.append(round(float(contrast_smoothed[idx]), 3))
-
-        latency_ms = round((time.time() - t0) * 1000.0, 2)
-        logger.info(f"SOTA Search for '{query}' completed in {latency_ms} ms.")
-
-        return SearchResponse(
-            query=query,
-            video_id=actual_video_id,
-            moments=moments_response,
-            timeline_heatmap=heatmap_1hz,
-            total_duration=round(duration_sec, 2),
-            latency_ms=latency_ms,
-            top_k=top_k
-        )
 
 search_engine = HybridMomentSearchEngine()

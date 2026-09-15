@@ -18,7 +18,7 @@ import {
   HelpCircle,
   Tv,
 } from "lucide-react";
-import { VideoMetadata, MomentItem, SearchResponse, VideoKeyframeItem, FilterCriteria } from "@/lib/types";
+import { VideoMetadata, MomentItem, SearchResponse, VideoKeyframeItem } from "@/lib/types";
 import { apiClient } from "@/lib/api";
 import { VideoLibraryReel } from "@/components/library/VideoLibraryReel";
 import { VideoPlayer } from "@/components/player/VideoPlayer";
@@ -34,8 +34,11 @@ export default function DashboardPage() {
   const [selectedVideo, setSelectedVideo] = useState<VideoMetadata | null>(null);
   const [keyframeRecords, setKeyframeRecords] = useState<VideoKeyframeItem[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
+  const [searchProfile, setSearchProfile] = useState<"fast" | "accurate">("fast");
   const [isSearching, setIsSearching] = useState(false);
   const [searchResult, setSearchResult] = useState<SearchResponse | null>(null);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const [needsReindex, setNeedsReindex] = useState(false);
   const [seekTime, setSeekTime] = useState<number | null>(null);
   const [highlightInterval, setHighlightInterval] = useState<[number, number] | null>(null);
   const [activeMoment, setActiveMoment] = useState<MomentItem | null>(null);
@@ -133,19 +136,38 @@ export default function DashboardPage() {
     }
 
     saveRecentQuery(q);
+    if (!selectedVideo?.id) {
+      setSearchError("กรุณาเลือกวิดีโอก่อนค้นหา");
+      return;
+    }
     setIsSearching(true);
+    setSearchError(null);
+    setNeedsReindex(false);
+    setSearchResult(null);
     setActiveTab("moments");
 
     try {
-      const res = await apiClient.searchMoments(q, selectedVideo?.id);
+      const res = await apiClient.searchMoments(q, selectedVideo.id, 5, searchProfile);
       setSearchResult(res);
+      if (res.warnings?.includes("reindex_required")) {
+        setNeedsReindex(true);
+        setSearchError("วิดีโอนี้ต้องทำดัชนี visual v2 ใหม่ กรุณาอัปโหลด/ทำ reindex ก่อนค้นหา");
+      } else if (res.warnings?.length) {
+        setSearchError(`คำเตือน: ${res.warnings.join(", ")}`);
+      }
 
       if (res.moments && res.moments.length > 0) {
         const topMoment = res.moments[0];
         handleSelectMoment(topMoment);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error("Search failed:", err);
+      const detail = err?.response?.data?.detail;
+      const message = typeof detail === "string" ? detail : detail?.message;
+      if (detail?.code === "reindex_required") {
+        setNeedsReindex(true);
+      }
+      setSearchError(message || "ค้นหาไม่สำเร็จ กรุณาตรวจสอบวิดีโอหรือทำดัชนีใหม่");
     } finally {
       setIsSearching(false);
     }
@@ -224,6 +246,8 @@ export default function DashboardPage() {
         onSelectVideo={(vid) => {
           setSelectedVideo(vid);
           setSearchResult(null);
+          setSearchError(null);
+          setNeedsReindex(false);
           setHighlightInterval(null);
           setActiveMoment(null);
         }}
@@ -288,6 +312,25 @@ export default function DashboardPage() {
             )}
           </button>
 
+          {/* Retrieval profile: Accurate invokes the bounded visual verifier. */}
+          <div className="flex items-center gap-1 rounded-xl bg-surface border border-surfaceBorder p-1 flex-shrink-0">
+            {(["fast", "accurate"] as const).map((profile) => (
+              <button
+                key={profile}
+                type="button"
+                onClick={() => setSearchProfile(profile)}
+                className={`px-2.5 py-2 rounded-lg text-[10px] font-mono font-semibold transition-colors ${
+                  searchProfile === profile
+                    ? "bg-cyan-500/20 text-cyan-300 border border-cyan-500/40"
+                    : "text-gray-500 hover:text-gray-300"
+                }`}
+                title={profile === "accurate" ? "ตรวจสอบภาพซ้ำด้วย VLM (ไม่เกิน 15 วินาที)" : "ค้นหาเร็วจากดัชนีภาพ"}
+              >
+                {profile === "accurate" ? "Accurate" : "Fast"}
+              </button>
+            ))}
+          </div>
+
           {/* Keyboard Shortcuts Sheet Button */}
           <button
             type="button"
@@ -319,6 +362,20 @@ export default function DashboardPage() {
           }}
           currentQuery={searchQuery}
         />
+        {searchError && (
+          <div className="text-xs text-amber-300 bg-amber-950/30 border border-amber-700/40 rounded-lg px-3 py-2 flex items-center justify-between gap-3">
+            <span>{searchError}</span>
+            {needsReindex && (
+              <button
+                type="button"
+                onClick={() => setShowUploader(true)}
+                className="shrink-0 rounded-md border border-amber-500/50 px-2 py-1 text-[10px] font-semibold text-amber-200 hover:bg-amber-500/10"
+              >
+                เปิดอัปโหลดเพื่อสร้างดัชนีใหม่
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {/* 3. Collapsible Video Upload Drawer */}
@@ -418,9 +475,14 @@ export default function DashboardPage() {
               <span className="truncate pr-2">
                 คำค้นหา: <b className="text-white font-medium">"{searchResult.query}"</b>
               </span>
-              <span className="font-mono text-cyan-400 font-bold bg-cyan-950 px-2 py-0.5 rounded border border-cyan-800 flex-shrink-0">
-                ⚡ {searchResult.latency_ms} ms
-              </span>
+              <div className="flex items-center gap-2 flex-shrink-0">
+                <span className="font-mono text-cyan-400 font-bold bg-cyan-950 px-2 py-0.5 rounded border border-cyan-800">
+                  ⚡ {searchResult.latency_ms} ms
+                </span>
+                <span className="font-mono text-[10px] text-indigo-300 bg-indigo-950/60 px-2 py-0.5 rounded border border-indigo-800/60">
+                  {searchResult.profile} {searchResult.calibrated ? "• calibrated" : "• uncalibrated"}
+                </span>
+              </div>
             </div>
           )}
 
@@ -429,6 +491,8 @@ export default function DashboardPage() {
             <MomentCards
               moments={searchResult?.moments || []}
               videoId={selectedVideo?.id}
+              calibrated={searchResult?.calibrated || false}
+              warnings={searchResult?.warnings || []}
               onSelectMoment={handleSelectMoment}
               activeMoment={activeMoment}
             />

@@ -1,4 +1,4 @@
-# Hybrid Multimodal Video Moment Retrieval & Temporal Localization
+# Pure-Visual Video Moment Retrieval & Temporal Localization
 
 <p align="center">
   <img src="https://img.shields.io/badge/Python-3.11-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python" />
@@ -11,7 +11,7 @@
 
 <p align="center">
   <b>Natural Language Video Moment Retrieval & Temporal Boundary Localization System</b><br />
-  Powered by <b>SigLIP 2 (NaFlex)</b>, <b>Qwen2.5-VL-7B (4-bit)</b>, <b>Whisper-Large-v3-Turbo</b>, and <b>LanceDB (IVF-PQ & FTS)</b>.<br />
+  Powered by <b>SigLIP 2 (NaFlex)</b>, <b>Qwen2.5-VL-7B (4-bit)</b>, calibrated temporal proposals, and <b>LanceDB (IVF-PQ & FTS)</b>.<br />
   <i>100% Local On-Premise Execution on Consumer GPUs (&le; 8GB VRAM) with Zero Cloud API Costs.</i>
 </p>
 
@@ -20,10 +20,10 @@
 ## 🌟 จุดเด่นของระบบ (Key Highlights)
 
 * 🔒 **100% Local On-Premise & Complete Data Privacy:** ประมวลผลและจัดเก็บข้อมูลเวกเตอร์ภายในเครื่องทั้งหมด ข้อมูลวิดีโอไม่รั่วไหลสู่คลาวด์ภายนอก และไม่มีค่าใช้จ่าย API รายเดือน
-* ⚡ **Consumer GPU Optimized ($\le 8\text{ GB}$ VRAM):** ทำงานได้อย่างเสถียรบนการ์ดจอระดับผู้บริโภคทั่วไป (NVIDIA RTX 3060, RTX 4060, RTX 5070) ด้วยการบีบอัดโมเดล 4-bit Quantization (NF4) และ CTranslate2 FP16
-* 🚀 **Progressive Two-Phase Ingestion:** ค้นหาวิดีโอได้ทันทีภายใน ~45 วินาทีหลังอัปโหลด (Phase 1: Visual + Speech ASR) พร้อมระบบประมวลผลคำบรรยายเชิงลึกและ OCR แบบ Background Task (Phase 2: Qwen2.5-VL Dense Action Captioning)
+* ⚡ **Consumer GPU Optimized ($\le 8\text{ GB}$ VRAM):** ทำงานบน GPU ระดับผู้บริโภคด้วย SigLIP2 และ Qwen 4-bit โดยไม่ส่งวิดีโอออกนอกเครื่อง
+* 🚀 **Progressive Visual Ingestion:** สกัด scene, keyframe และ frame embeddings ก่อนค้นหา พร้อมสร้าง dense visual captions แบบ background
 * 📈 **Dynamic Relevance Density Heatmap:** แถบเรืองแสงแสดงระดับความเกี่ยวข้องของเนื้อหาตลอดทั้งวิดีโอแบบ 1-Hz Canvas Visualizer ช่วยให้ผู้ใช้เห็นภาพรวมของทั้งคลิปได้ในเสี้ยววินาที
-* ⏱️ **Sub-Second Temporal Localization & Auto-Seek:** สกัดช่วงเวลาเริ่มต้น-สิ้นสุด $[t_{start}, t_{end}]$ ด้วย 1D Gaussian Temporal Convolution และกระโดดไปยังฉากเหตุการณ์ทันทีที่คลิกผลลัพธ์
+* ⏱️ **Calibrated Multi-scale Temporal Localization:** สกัดช่วงเวลาเริ่มต้น-สิ้นสุด $[t_{start}, t_{end}]$ ด้วย rolling proposals, boundary/transition refinement และ Gaussian Soft-NMS ก่อนจัดลำดับหลายเหตุการณ์
 
 ---
 
@@ -39,23 +39,24 @@
                                    [ Decord GPU Decoder (NVDEC) ]
                                                  │
                   ┌──────────────────────────────┴──────────────────────────────┐
-                  ▼                                                             ▼
-    [ PySceneDetect Adaptive Cuts ]                            [ Faster-Whisper Large-v3-Turbo ]
-                  │                                                             │
-                  ▼                                                             ▼
-     [ SSIM Keyframe Filter ]                                       [ Word-Level Timestamps ]
-                  │                                                             │
-        ┌─────────┴──────────────────────┐                                      │
-        ▼                                ▼                                      │
- [ SigLIP 2 (NaFlex) ]         [ Qwen2.5-VL-7B (4-bit) ]                        │
-  (768-dim Embeddings)          (Action Dense Captions & OCR)                   │
-        │                                │                                      │
-        └────────────────┬───────────────┘                                      │
-                         ▼                                                      ▼
+                   ▼
+     [ PySceneDetect Adaptive Cuts ]
+                   │
+                   ▼
+      [ Visual Keyframe Sampling ]
+                   │
+         ┌─────────┴──────────────────────┐
+         ▼                                ▼
+  [ SigLIP 2 (NaFlex) ]         [ Qwen2.5-VL-7B (4-bit) ]
+   (768-dim Frame Embeddings)    (Dense Visual Scene Captions)
+         │                                │
+         └────────────────┬───────────────┘
+                          ▼
     =================================================================================
        [ LanceDB Serverless Columnar Vector Database (Apache Arrow & Disk-based) ]
-        • Disk-based IVF-PQ Cosine Vector Index
-        • Tantivy Full-Text Search (BM25) Index
+        • Disk-based IVF-PQ Cosine Vector Index (video_frames_v2)
+        • Tantivy Full-Text Search (BM25) Index (scenes_v2 captions)
+        • Per-video index_metadata: schema/model/version/dimension/timestamp
     =================================================================================
                                                  ▲
                                                  │
@@ -67,11 +68,11 @@
                                                  │
         ┌────────────────────────────────────────┼────────────────────────────────────────┐
         ▼                                        ▼                                        ▼
- [ Visual Vector Similarity ]         [ Caption Keyword Boost ]              [ Audio Transcript Match ]
+  [ Visual Vector Similarity ]         [ Scene Caption BM25 / FTS ]
         │                                        │                                        │
         └────────────────────────────────────────┼────────────────────────────────────────┘
                                                  ▼
-                       [ Dynamic Reciprocal Rank Fusion (RRF) ]
+  [ Weighted Reciprocal Rank Fusion (RRF) ]
                                                  │
                                                  ▼
                       [ 1D Gaussian Temporal Convolution: S(t) * G_σ ]
@@ -84,7 +85,7 @@
 │                           NEXT.JS 14 INTERACTIVE VIDEO DASHBOARD                        │
 ├─────────────────────────────────────────────────────────────────────────────────────────┤
 │  • Dynamic Relevance Density Heatmap Canvas Bar                                         │
-│  • Instant Sub-Second Auto-Seek Video Player                                            │
+│  • Timeline Auto-Seek Video Player (measured in benchmark)                             │
 │  • Ranked Moment Cards with Timestamp Badges & Previews                                 │
 └─────────────────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -95,10 +96,9 @@
 
 | ส่วนประกอบ | เทคโนโลยีที่เลือกใช้ | บทบาทและจุดเด่น |
 | :--- | :--- | :--- |
-| **Visual-Text Backbone** | `google/siglip2-base-patch16-256` | สกัดเวกเตอร์หลายมิติ 768-dim ด้วย Pairwise Sigmoid Loss |
-| **Dense Action Captioner**| `Qwen/Qwen2.5-VL-7B-Instruct` (4-bit) | โมเดล VLM SOTA วิเคราะห์การกระทำต่อเนื่องและ OCR ในฉาก (VRAM $\le 5.5\text{GB}$) |
-| **Speech-to-Text (ASR)**  | `Whisper-Large-v3-Turbo` (CTranslate2) | ถอดเสียงพูดพร้อมระบุ Word-Level Timestamps เร็วกว่าเดิม 7 เท่า |
-| **Video Decoding**        | `Decord` (NVDEC GPU Hardware Fallback) | ถอดรหัสเฟรมวิดีโอระดับฮาร์ดแวร์ GPU เร็วกว่า OpenCV $>3\times$ |
+| **Visual-Text Backbone** | `google/siglip2-base-patch16-naflex` | สกัดเวกเตอร์ภาพ 768-dim โดยรักษา aspect ratio |
+| **Dense Visual Captioner**| `Qwen/Qwen2.5-VL-7B-Instruct` (4-bit) | วิเคราะห์เฉพาะวัตถุ การกระทำ และการเปลี่ยนสถานะจากภาพ |
+| **Video Decoding**        | `Decord` (NVDEC GPU Hardware Fallback) | ถอดรหัสเฟรมจริงพร้อมรักษา timestamp และ fallback บน CPU |
 | **Vector Storage**        | `LanceDB` (Apache Arrow Format) | Vector DB แบบ Serverless บน SSD พร้อมดัชนี IVF-PQ และ FTS |
 | **Temporal Algorithm**    | `1D Gaussian Convolution & RRF` | กรองสัญญาณรบกวนและสกัดช่วงเวลาต่อเนื่อง $[t_s, t_e]$ |
 | **Backend API**           | `FastAPI` + `Uvicorn` + `WebSockets` | REST API, HTTP 206 Byte-Range Streaming, Live Telemetry |
@@ -137,14 +137,13 @@ pip install -r requirements.txt
 ```env
 HF_TOKEN=hf_your_token_here
 
-SIGLIP2_MODEL_ID=google/siglip2-base-patch16-256
+SIGLIP2_MODEL_ID=google/siglip2-base-patch16-naflex
 QWEN_VL_MODEL_ID=Qwen/Qwen2.5-VL-7B-Instruct
-WHISPER_MODEL_SIZE=large-v3-turbo
 ```
 
 #### วอร์มโมเดล AI ล่วงหน้า (One-Click Preload):
 ```bash
-# โหลดและแคชโมเดลทั้ง 3 ตัวขึ้น GPU Memory ทันที (Zero Cold-Start)
+ # โหลดและแคชโมเดลภาพขึ้น GPU Memory ทันที (Zero Cold-Start)
 python preload_models.py
 ```
 
@@ -153,6 +152,17 @@ python preload_models.py
 python main.py
 ```
 * **Swagger API Documentation:** `http://localhost:8000/docs`
+
+วิดีโอที่ถูกสร้างด้วยดัชนี v1 จะตอบ HTTP `409 reindex_required` จนกว่าจะ ingest ใหม่เป็น
+`video_frames_v2`/`scenes_v2` โดยจะไม่ผสมเวกเตอร์คนละรุ่นระหว่างค้นหา
+
+หากฐานข้อมูลเดิมมีตารางข้อความที่ต้องเก็บไว้ ให้สำรองก่อนลบ (คำสั่งนี้ไม่ถูกเรียกจาก runtime):
+
+```bash
+python backend/scripts/migrate_legacy_index.py --db backend/data/lancedb \
+  --output backend/data/backups/legacy-text.jsonl
+# เมื่อตรวจสอบไฟล์ backup แล้วจึงค่อยเพิ่ม --drop-legacy
+```
 
 ---
 
@@ -171,18 +181,28 @@ npm run dev
 ```
 * **Web Dashboard Application:** `http://localhost:3000`
 
+### สัญญา Search API (v2)
+
+`POST /api/v1/search/moment` รับ `query`, `video_id` (บังคับ), `top_k` 1–20 และ
+`profile` เป็น `fast` หรือ `accurate` ค่า tuning รุ่นเก่าที่ส่งมาเกินจะถูก ignore
+ชั่วคราวเพื่อให้ client เดิมไม่พัง แต่ server เป็นผู้กำหนดน้ำหนักและ threshold เอง
+
+`fast` ใช้ frame embeddings + scene-caption RRF; `accurate` ตรวจ top-3 ด้วย Qwen
+visual temporal reranker ภายใต้งบเวลา 15 วินาที ผลลัพธ์คืน `score` ที่ calibrated
+(เมื่อมี artifact), `modality_breakdown`, `occurrence_index`, `profile`,
+`calibrated`, `index_version` และ `warnings` โดยคืนได้หลาย occurrence หรือ `moments=[]`
+สำหรับ no-match
+
 ---
 
 ## 📊 ตัวชี้วัดประสิทธิภาพและผลการประเมิน (Benchmark Results)
 
-| ตัวชี้วัด (Evaluation Metric) | ค่าเป้าหมายใน Proposal | ค่าที่ทำได้จริง (Proposed System) | สถานะ |
+| ตัวชี้วัด (Evaluation Metric) | Baseline snapshot (28 queries) | สถานะ |
 | :--- | :---: | :---: | :---: |
-| **$R@1@\text{IoU}=0.5$** | $\ge 55.0\%$ | **$58.4\%$** | 🎯 ผ่านเกณฑ์ |
-| **Mean IoU (mIoU)** | $\ge 0.58$ | **$0.612$** | 🎯 ผ่านเกณฑ์ |
-| **Mean Temporal Delta ($\Delta t_{start}$)** | $\le \pm 1.2\text{s}$ | **$\pm 0.85\text{s}$** | 🎯 ผ่านเกณฑ์ |
-| **Query Latency (เวลาตอบสนองคำค้นหา)** | $< 200\text{ ms}$ | **$45 - 90\text{ ms}$** | ⚡ เร็วกว่าเกณฑ์ $2\times$ |
-| **Ingestion Real-Time Factor (RTF)** | $\le 0.15$ | **$0.09$** | ⚡ เร็วกว่าเกณฑ์ |
-| **Peak GPU VRAM Footprint** | $\le 8.0\text{ GB}$ | **$6.71\text{ GB}$** | 🟢 ประหยัดแรม |
+| **$R@1@\text{IoU}=0.5$** | **46.43%** | ต้องวัดใหม่หลังปรับปรุง |
+| **Mean IoU (mIoU)** | **0.4419** | ต้องวัดใหม่หลังปรับปรุง |
+| **Mean Delta ($\Delta t_{start}$)** | **12.10 s** | ต้องวัดใหม่หลังปรับปรุง |
+| **Query Latency** | **458.72 ms avg** | ต้องรายงาน p50/p95 |
 
 ---
 
@@ -192,7 +212,7 @@ npm run dev
 $$S_{\text{vis}}(t) = \frac{\mathbf{e}_Q \cdot \mathbf{e}_{f_t}}{\|\mathbf{e}_Q\|_2 \|\mathbf{e}_{f_t}\|_2}$$
 
 ### 2. การรวมคะแนนหลายมิติ (Reciprocal Rank Fusion - RRF)
-$$\text{RRF}(d) = \sum_{m \in \{\text{visual}, \text{caption}, \text{audio}\}} \frac{w_m}{k + \text{rank}_m(d)}$$
+$$\text{RRF}(d) = \sum_{m \in \{\text{visual}, \text{caption}\}} \frac{w_m}{k + \text{rank}_m(d)}$$
 
 ### 3. การกรองสัญญาณรบกวนบนเส้นเวลา (1D Gaussian Temporal Convolution)
 $$\tilde{\mathcal{S}}(t) = \mathcal{S}(t) * G_\sigma(t) = \int_{-\infty}^{\infty} \mathcal{S}(\tau) \frac{1}{\sqrt{2\pi}\sigma} \exp\left(-\frac{(t-\tau)^2}{2\sigma^2}\right) d\tau$$
@@ -217,7 +237,7 @@ Video Event Retrieval/
 │   │   │   └── router.py
 │   │   ├── core/                        # Config, Logger, Device Maps
 │   │   ├── db/                          # LanceDB Schemas & Tables Init
-│   │   ├── pipeline/                    # Decord, SceneDetect, SSIM, Whisper, SigLIP 2, Qwen2.5-VL
+│   │   ├── pipeline/                    # Decord, SceneDetect, visual sampling, SigLIP 2, Qwen2.5-VL
 │   │   ├── retrieval/                   # RRF, Gaussian Smoother, Boundary Extractor
 │   │   └── utils/                       # HTTP 206 Byte-Range Video Streaming
 │   ├── tests/                           # Pytest Test Suite
@@ -237,10 +257,14 @@ Video Event Retrieval/
 │   └── tailwind.config.js
 │
 ├── evaluation/
-│   ├── compute_metrics.py               # R@K@IoU, mIoU, Latency Calculator
-│   └── run_benchmark.py                 # QVHighlights & Charades-STA Runner
+│   ├── compute_metrics.py               # R@K@IoU, tF1, count/no-match metrics
+│   ├── validate_dataset.py              # Held-out split/language/query contract
+│   ├── calibrate.py                     # Platt calibration + no-match threshold
+│   ├── tune_fusion.py                   # Dev-set RRF grid search
+│   ├── compare_benchmarks.py            # Paired bootstrap CI + ablation comparison
+│   └── run_real_video_benchmark.py      # Fast/Accurate real-video runner
 │
-├── Proposal.md                          # เล่มข้อเสนอโครงงานฉบับเต็มระดับ SOTA
+├── Proposal.md                          # ข้อเสนอโครงงาน pure-visual retrieval
 ├── README.md                            # คู่มือและเอกสารประกอบโครงงานฉบับสมบูรณ์
 └── .gitignore
 ```
@@ -254,9 +278,23 @@ Video Event Retrieval/
 cd backend
 pytest tests/
 
-# รัน Benchmark Suite วัดความแม่นยำทางวิชาการ
-python -m evaluation.run_benchmark
+# ตรวจสัญญา held-out set (ต้อง >=100 queries, >=10 วิดีโอ, video-disjoint splits)
+python evaluation/validate_dataset.py --dataset evaluation/datasets/heldout.json
+
+# สร้าง calibration/fusion artifacts จาก dev split เท่านั้น
+python evaluation/calibrate.py --input dev_predictions.jsonl --output backend/data/calibration_v2.json --model-id google/siglip2-base-patch16-naflex
+python evaluation/tune_fusion.py --input dev_fusion.jsonl --output backend/data/fusion_v2.json
+
+# รัน benchmark แยก Fast/Accurate และเปรียบเทียบด้วย paired bootstrap 95% CI
+python evaluation/run_real_video_benchmark.py --acceptance --profile fast --dataset evaluation/datasets/heldout.json --output fast.json
+python evaluation/run_real_video_benchmark.py --acceptance --profile accurate --dataset evaluation/datasets/heldout.json --output accurate.json
+python evaluation/compare_benchmarks.py --baseline baseline.json --candidate accurate.json --acceptance --output comparison.json
+# เพิ่ม --ablation name=report.json ซ้ำได้เพื่อเทียบ NaFlex/RRF/proposal/calibration/Qwen
 ```
+
+ไฟล์ `evaluation/datasets/real_video_benchmark.json` และค่าที่อยู่ใน
+`evaluation/baseline_manifest.json` เป็น smoke/regression fixture เท่านั้น ไม่ใช่
+ผล held-out หรือหลักฐาน SOTA ต้องใช้ชุด video-disjoint เดียวกันสำหรับ acceptance gate
 
 ---
 
@@ -290,7 +328,7 @@ npx @nanonets/graft viz
 
 ```bibtex
 @article{videomoment2026,
-  title   = {Hybrid Multimodal Video Moment Retrieval and Temporal Localization using SigLIP 2 and Local Dense Captioning},
+  title   = {Pure-Visual Video Moment Retrieval and Temporal Localization using SigLIP 2 and Local Dense Captioning},
   author  = {Senior Project Research Group},
   year    = {2026},
   journal = {Computer Science Senior Capstone Project}

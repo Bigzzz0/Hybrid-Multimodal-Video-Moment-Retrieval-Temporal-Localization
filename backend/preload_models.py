@@ -27,19 +27,19 @@ from app.pipeline.dense_captioner import QwenVLDenseCaptioner
 
 def preload_all_models():
     """
-    Pre-downloads, verifies, and warms up SOTA Vision AI Models in GPU VRAM before starting the server.
+    Pre-downloads, verifies, and warms up the configured visual models before starting the server.
     Ensures zero cold-start delay during video ingestion and moment search.
-    (Visual-Centric SOTA: Audio ASR and OCR disabled to save ~2GB VRAM and maximize visual speed).
+    Visual-only preload for the SigLIP2 index and optional visual captioner.
     """
     logger.info("==================================================================")
-    logger.info("🚀 PRELOADING SOTA VISUAL MOMENT RETRIEVAL AI MODELS")
+    logger.info("🚀 PRELOADING PURE-VISUAL RETRIEVAL MODELS")
     logger.info(f"Target Device: {settings.DEVICE.upper()} (CUDA Available: {torch.cuda.is_available()})")
     if torch.cuda.is_available():
         logger.info(f"GPU: {torch.cuda.get_device_name(0)}")
         logger.info(f"Initial VRAM Allocated: {torch.cuda.memory_allocated() / (1024**2):.1f} MB")
     logger.info("==================================================================")
 
-    # 1. SigLIP 2 (google/siglip2-base-patch16-256)
+    # 1. SigLIP 2 NaFlex (the v2 visual index contract)
     logger.info("1/2 [Vision-Text Embedding] Preloading SigLIP 2 (NaFlex 768-dim)...")
     try:
         siglip = SigLIP2VisualEncoder()
@@ -58,7 +58,7 @@ def preload_all_models():
         if captioner.model is not None:
             logger.info("✅ Qwen2.5-VL-7B 4-bit loaded successfully.")
         else:
-            logger.warning("⚠️ Qwen2.5-VL-7B loaded with fallback descriptor.")
+            logger.warning("⚠️ Qwen2.5-VL-7B unavailable; scene captions will be marked unavailable.")
     except Exception as e:
         logger.error(f"❌ Failed to load Qwen2.5-VL-7B: {e}")
 

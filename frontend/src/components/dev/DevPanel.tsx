@@ -322,7 +322,6 @@ export const DevPanel: React.FC<DevPanelProps> = ({ isOpen, onClose }) => {
                           {tbl === "videos" && "Video metadata catalog"}
                           {tbl === "video_frames" && "768-dim SigLIP 2 visual vectors"}
                           {tbl === "scenes" && "Temporal boundary cuts"}
-                          {tbl === "transcripts" && "Timestamped Whisper ASR text"}
                           {tbl === "search_logs" && "Query latency & evaluation logs"}
                         </p>
                       </div>
@@ -344,24 +343,6 @@ export const DevPanel: React.FC<DevPanelProps> = ({ isOpen, onClose }) => {
           {/* TAB 3: AI Models */}
           {activeTab === "models" && (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {/* Faster-Whisper */}
-              <div className="p-5 rounded-xl bg-surface border border-surfaceBorder space-y-3">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-lg bg-purple-500/20 text-purple-400 flex items-center justify-center">
-                    <Sparkles className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <h4 className="text-sm font-bold text-white">Speech ASR: Faster-Whisper</h4>
-                    <p className="text-xs text-gray-400">Timestamped Speech-to-Text</p>
-                  </div>
-                </div>
-                <div className="p-3 rounded-lg bg-background/80 border border-surfaceBorder space-y-1 text-xs font-mono">
-                  <p className="text-gray-300">Model: <span className="text-purple-300">Whisper-Large-v3-Turbo</span></p>
-                  <p className="text-gray-300">Engine: <span className="text-emerald-300">CTranslate2 (CUDA FP16)</span></p>
-                  <p className="text-gray-300">Beam Size: <span className="text-white">5</span> | VAD: <span className="text-white">Active</span></p>
-                </div>
-              </div>
-
               {/* SigLIP 2 */}
               <div className="p-5 rounded-xl bg-surface border border-surfaceBorder space-y-3">
                 <div className="flex items-center gap-2.5">
@@ -374,7 +355,7 @@ export const DevPanel: React.FC<DevPanelProps> = ({ isOpen, onClose }) => {
                   </div>
                 </div>
                 <div className="p-3 rounded-lg bg-background/80 border border-surfaceBorder space-y-1 text-xs font-mono">
-                  <p className="text-gray-300">Model ID: <span className="text-cyan-300">google/siglip2-base-patch16-256</span></p>
+                  <p className="text-gray-300">Model ID: <span className="text-cyan-300">google/siglip2-base-patch16-naflex</span></p>
                   <p className="text-gray-300">Vector Dimension: <span className="text-emerald-300">768-dim</span></p>
                   <p className="text-gray-300">Distance Metric: <span className="text-white">Cosine Similarity</span></p>
                 </div>
@@ -388,7 +369,7 @@ export const DevPanel: React.FC<DevPanelProps> = ({ isOpen, onClose }) => {
                   </div>
                   <div>
                     <h4 className="text-sm font-bold text-white">Dense Captioner: Qwen2.5-VL-7B</h4>
-                    <p className="text-xs text-gray-400">Phase 2 Action Reasoning & OCR</p>
+                    <p className="text-xs text-gray-400">Phase 2 visual action reasoning</p>
                   </div>
                 </div>
                 <div className="p-3 rounded-lg bg-background/80 border border-surfaceBorder space-y-1 text-xs font-mono">
@@ -405,12 +386,12 @@ export const DevPanel: React.FC<DevPanelProps> = ({ isOpen, onClose }) => {
                     <ShieldCheck className="w-4 h-4" />
                   </div>
                   <div>
-                    <h4 className="text-sm font-bold text-white">Boundary Localizer: 2D-TAN + NMS</h4>
-                    <p className="text-xs text-gray-400">Multi-Scale Temporal IoU + 1D Wasserstein NMS</p>
+                    <h4 className="text-sm font-bold text-white">Boundary Localizer: Multi-Scale Proposals</h4>
+                    <p className="text-xs text-gray-400">Multi-scale proposals + calibrated temporal ranking</p>
                   </div>
                 </div>
                 <div className="p-3 rounded-lg bg-background/80 border border-surfaceBorder space-y-1 text-xs font-mono">
-                  <p className="text-gray-300">Algorithm: <span className="text-amber-300">2D-TAN Anchor Ranking</span></p>
+                  <p className="text-gray-300">Algorithm: <span className="text-amber-300">Visual proposal ranking</span></p>
                   <p className="text-gray-300">NMS Suppress: <span className="text-emerald-300">IoU threshold = 0.5</span></p>
                   <p className="text-gray-300">Top-K Selection: <span className="text-white">K = 5 Moments</span></p>
                 </div>

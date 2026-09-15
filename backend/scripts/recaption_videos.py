@@ -18,7 +18,8 @@ def recaption_all_frames():
     logger.info("Initializing QwenVLDenseCaptioner for full database recaptioning...")
     captioner = QwenVLDenseCaptioner()
     
-    tbl_frames = db_manager.get_table("video_frames")
+    tbl_frames = db_manager.get_table("video_frames_v2")
+    tbl_scenes = db_manager.get_table("scenes_v2")
     frames = tbl_frames.to_arrow().to_pylist()
     logger.info(f"Found {len(frames)} frames to process.")
     
@@ -54,23 +55,14 @@ def recaption_all_frames():
         caption = captioner.generate_scene_caption(images)
         logger.info(f"-> Generated: {caption[:80]}...")
         
-        # Update all frames in this scene with the generated caption
-        for f in valid_frames:
-            fid = f.get("id")
-            if fid:
-                try:
-                    tbl_frames.update(
-                        where=f"id = '{fid}'",
-                        values={
-                            "vlm_caption": caption,
-                            "has_dense_caption": True
-                        }
-                    )
-                    updated_count += 1
-                except Exception as ex:
-                    logger.debug(f"Update error on frame {fid}: {ex}")
+        try:
+            caption_status = "generated" if caption else getattr(captioner, "last_status", "unavailable")
+            tbl_scenes.update(where=f"id = '{sid}'", values={"caption": caption, "caption_status": caption_status})
+            updated_count += 1
+        except Exception as ex:
+            logger.debug(f"Update error on scene {sid}: {ex}")
                     
-    logger.info(f"Successfully recaptioned {updated_count} frames across all scenes!")
+    logger.info(f"Successfully recaptioned {updated_count} scenes!")
 
 if __name__ == "__main__":
     recaption_all_frames()

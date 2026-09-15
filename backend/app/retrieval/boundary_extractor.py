@@ -1,305 +1,183 @@
+"""Pure-visual temporal proposal generation and overlap suppression."""
+
+from typing import Any, Dict, List, Optional, Sequence, Tuple
+
 import numpy as np
-from typing import List, Dict, Any, Optional, Tuple
-from app.core.config import settings
-from app.core.logger import logger
+
 
 class TemporalBoundaryExtractor:
-    """
-    SOTA Adaptive Valley & 1D Wasserstein Boundary Extractor with OMTG Support.
-    (Visual-Centric SOTA 2025-2026 / TimeLens2 & ICML OMTG Principles).
-    
-    Features:
-    1. Multi-Scale Peak Detection with dynamic standard deviation floor.
-    2. Local Valley Seeking: expands outward to local minima.
-    3. 1D Wasserstein Optimal Transport Snapping: refines [t_start, t_end]
-       against the Cumulative Distribution Function (CDF) for sub-second precision.
-    4. Disjoint One-to-Many Temporal Grounding (OMTG) with Temporal NMS.
-    """
+    """Generate multi-scale proposals without treating motion as relevance."""
 
-    def __init__(self, threshold_factor: float = settings.DYNAMIC_THRESHOLD_FACTOR):
-        self.threshold_factor = threshold_factor
-
-    def _find_valley_boundaries(
-        self,
-        scores: np.ndarray,
-        peak_idx: int,
-        floor_threshold: float
-    ) -> Tuple[int, int]:
-        """Expand outward from peak_idx to the nearest local minima (valleys)."""
-        n = len(scores)
-        
-        # Expand backwards (start boundary)
-        left = peak_idx
-        while left > 0:
-            if scores[left - 1] > scores[left] and scores[left] <= floor_threshold:
-                break
-            if scores[left - 1] < floor_threshold * 0.70:
-                left -= 1
-                break
-            left -= 1
-
-        # Expand forwards (end boundary)
-        right = peak_idx
-        while right < n - 1:
-            if scores[right + 1] > scores[right] and scores[right] <= floor_threshold:
-                break
-            if scores[right + 1] < floor_threshold * 0.70:
-                right += 1
-                break
-            right += 1
-
-        return max(0, left), min(n - 1, right)
-
-    def _wasserstein_refine_boundaries(
-        self,
-        time_axis: np.ndarray,
-        scores: np.ndarray,
-        left_idx: int,
-        right_idx: int
+    @staticmethod
+    def energy_quantile_refinement(
+        transition_energy: Sequence[float], lower: float = 0.08, upper: float = 0.92
     ) -> Tuple[float, float]:
+        """Return robust transition-energy bounds for boundary refinement.
+
+        This is deliberately an energy-quantile operation, not a semantic
+        relevance score and not a transport distance.  Quantiles reduce the
+        effect of isolated decoder spikes while keeping real scene cuts
+        available to the boundary snapper.
         """
-        1D Wasserstein Optimal Transport Snapping (TimeLens2 CVPR 2026).
-        Refines boundaries by fitting an empirical distribution to the signal energy
-        and finding the 10th and 90th energy percentiles within the valley window.
-        """
-        if right_idx <= left_idx:
-            return float(time_axis[left_idx]), float(time_axis[right_idx])
+        values = np.asarray(list(transition_energy), dtype=np.float32)
+        if values.size == 0:
+            return 0.0, 0.0
+        return float(np.quantile(values, lower)), float(np.quantile(values, upper))
 
-        segment_scores = scores[left_idx:right_idx + 1]
-        segment_times = time_axis[left_idx:right_idx + 1]
+    @staticmethod
+    def _temporal_iou(a: Dict[str, Any], b: Dict[str, Any]) -> float:
+        inter = max(0.0, min(float(a["t_end"]), float(b["t_end"])) - max(float(a["t_start"]), float(b["t_start"])))
+        union = max(1e-8, (float(a["t_end"]) - float(a["t_start"])) +
+                    (float(b["t_end"]) - float(b["t_start"])) - inter)
+        return inter / union
 
-        # Shift to positive energy
-        min_seg = np.min(segment_scores)
-        energy = np.maximum(0.0, segment_scores - min_seg)
-        total_energy = np.sum(energy)
+    def _refine_interval(
+        self, axis: np.ndarray, scores: np.ndarray, center: int,
+        half_window: int, transition_energy: Optional[np.ndarray] = None,
+        scene_boundaries: Optional[Sequence[float]] = None,
+    ) -> Tuple[float, float]:
+        peak = max(0.0, float(scores[center]))
+        cutoff = 0.60 * peak
+        lower_bound = max(0, center - half_window)
+        upper_bound = min(len(scores) - 1, center + half_window)
+        left = center
+        while left > lower_bound and float(scores[left - 1]) >= cutoff:
+            left -= 1
+        right = center
+        while right < upper_bound and float(scores[right + 1]) >= cutoff:
+            right += 1
+        if transition_energy is not None and len(transition_energy) == len(axis):
+            radius = max(1, int(round(0.5 / max(1e-6, float(axis[1] - axis[0]))))) if len(axis) > 1 else 1
+            energy_low, energy_high = self.energy_quantile_refinement(transition_energy)
+            for edge, direction in ((left, -1), (right, 1)):
+                lo = max(0, edge - radius)
+                hi = min(len(axis), edge + radius + 1)
+                if hi > lo:
+                    local_energy = np.asarray(transition_energy[lo:hi], dtype=np.float32)
+                    # Clip extreme outliers to the robust 8/92% range before
+                    # selecting the nearest observed transition peak.
+                    local_energy = np.clip(local_energy, energy_low, energy_high)
+                    best = lo + int(np.argmax(local_energy))
+                    if direction < 0:
+                        left = min(left, best)
+                    else:
+                        right = max(right, best)
+        start, end = float(axis[max(0, left)]), float(axis[min(len(axis) - 1, right)])
+        if scene_boundaries:
+            nearby_start = [b for b in scene_boundaries if abs(float(b) - start) <= 1.0]
+            nearby_end = [b for b in scene_boundaries if abs(float(b) - end) <= 1.0]
+            if nearby_start:
+                start = min(nearby_start, key=lambda value: abs(float(value) - start))
+            if nearby_end:
+                end = min(nearby_end, key=lambda value: abs(float(value) - end))
+        if end <= start:
+            end = min(float(axis[-1]), start + max(0.5, float(axis[1] - axis[0]) if len(axis) > 1 else 0.5))
+        return max(0.0, start), max(start, end)
 
-        if total_energy <= 1e-6:
-            return float(segment_times[0]), float(segment_times[-1])
-
-        # Compute empirical Cumulative Distribution Function (CDF)
-        cdf = np.cumsum(energy) / total_energy
-
-        # 10% and 90% energy thresholds define tight onset and offset
-        p_start_idx = np.searchsorted(cdf, 0.08)
-        p_end_idx = min(len(segment_times) - 1, np.searchsorted(cdf, 0.92))
-
-        t_start = float(segment_times[p_start_idx])
-        t_end = float(segment_times[p_end_idx])
-
-        return t_start, t_end
-
-    def extract_moments(
+    def extract_multiscale_proposals(
         self,
         time_axis: np.ndarray,
-        smoothed_scores: np.ndarray,
-        threshold_factor: Optional[float] = None,
-        min_duration_sec: float = 1.5,
-        max_duration_sec: float = 60.0,
-        enable_wasserstein: bool = True,
-        nms_iou_threshold: float = 0.25
+        scores: np.ndarray,
+        raw_scores: Optional[np.ndarray] = None,
+        transition_energy: Optional[np.ndarray] = None,
+        scene_boundaries: Optional[Sequence[float]] = None,
+        min_duration_sec: float = 0.5,
+        max_duration_sec: Optional[float] = None,
     ) -> List[Dict[str, Any]]:
+        """Return local maxima from 2/4/8/... second rolling windows.
+
+        ``scores`` is display-normalized for peak finding while ``raw_scores``
+        is preserved as ``rank_score`` for calibration.
         """
-        Extracts continuous temporal moment intervals [t_start, t_end]
-        using Valley Detection, 1D Wasserstein Transport Refinement, and OMTG Temporal NMS.
-        """
-        if len(smoothed_scores) == 0 or len(time_axis) == 0:
+        axis = np.asarray(time_axis, dtype=np.float32)
+        signal = np.asarray(scores, dtype=np.float32)
+        if len(axis) == 0 or len(signal) == 0:
             return []
+        if len(axis) != len(signal):
+            raise ValueError("time_axis and scores must have equal length")
+        raw = np.asarray(raw_scores if raw_scores is not None else signal, dtype=np.float32)
+        if len(raw) != len(signal):
+            raw = signal
+        hz = 1.0 / max(1e-6, float(axis[1] - axis[0])) if len(axis) > 1 else 1.0
+        duration = float(axis[-1])
+        # Use 2, 4, 8, ... second windows and cap the final window at the
+        # actual video duration so very long videos do not create an
+        # out-of-range proposal scale.
+        scales = [min(2.0, max(0.5, duration))]
+        while scales[-1] < duration:
+            next_scale = min(duration, scales[-1] * 2.0)
+            if next_scale <= scales[-1] + 1e-6:
+                break
+            scales.append(next_scale)
+        if max_duration_sec is not None:
+            scales = [s for s in scales if s <= max_duration_sec] or [max_duration_sec]
+        proposals: List[Dict[str, Any]] = []
+        for scale in scales:
+            width = max(1, int(round(scale * hz)))
+            kernel = np.ones(width, dtype=np.float32) / float(width)
+            mean_signal = np.convolve(signal, kernel, mode="same")
+            radius = max(1, width // 2)
+            for center in range(len(signal)):
+                lo, hi = max(0, center - radius), min(len(signal), center + radius + 1)
+                if float(signal[center]) <= 1e-6:
+                    continue
+                if float(signal[center]) < float(np.max(signal[lo:hi])) - 1e-7:
+                    continue
+                if center > 0 and signal[center] < signal[center - 1] - 1e-7:
+                    continue
+                if center + 1 < len(signal) and signal[center] < signal[center + 1] - 1e-7:
+                    continue
+                start, end = self._refine_interval(axis, signal, center, radius, transition_energy, scene_boundaries)
+                if end - start < min_duration_sec:
+                    end = min(float(axis[-1]), start + min_duration_sec)
+                if max_duration_sec is not None and end - start > max_duration_sec:
+                    end = min(float(axis[-1]), start + max_duration_sec)
+                local_mean = float(mean_signal[center])
+                contrast = float(signal[center] - np.mean(signal[lo:hi]))
+                display_score = float(np.clip(0.60 * signal[center] + 0.30 * local_mean + 0.10 * max(0.0, contrast), 0.0, 1.0))
+                mask = (axis >= start) & (axis <= end)
+                raw_values = raw[mask] if np.any(mask) else np.asarray([raw[center]], dtype=np.float32)
+                raw_peak = float(np.max(raw_values))
+                raw_mean = float(np.mean(raw_values))
+                raw_contrast = float(raw_peak - np.mean(raw[lo:hi]))
+                # Keep an unnormalised score for calibration.  The display
+                # score above is intentionally normalized only for the heatmap
+                # and peak visualisation.
+                raw_rank_score = 0.60 * raw_peak + 0.30 * raw_mean + 0.10 * max(0.0, raw_contrast)
+                proposals.append({
+                    "t_start": round(start, 3), "t_end": round(end, 3),
+                    "score": display_score, "rank_score": float(raw_rank_score), "scale_sec": scale,
+                })
+        proposals.sort(key=lambda item: (-float(item["score"]), float(item["t_start"]), float(item["t_end"])))
+        compact: List[Dict[str, Any]] = []
+        for item in proposals:
+            if all(self._temporal_iou(item, other) < 0.95 for other in compact):
+                compact.append(item)
+        return self.apply_gaussian_soft_nms(compact, sigma=0.40, iou_threshold=0.5, score_threshold=0.05)
 
-        if threshold_factor is None:
-            threshold_factor = self.threshold_factor
-
-        mu = float(np.mean(smoothed_scores))
-        std = float(np.std(smoothed_scores))
-        max_s = float(np.max(smoothed_scores))
-
-        raw_threshold = mu + threshold_factor * std
-        if raw_threshold >= max_s * 0.95:
-            threshold = max(0.15, min(mu, max_s * 0.80))
-        else:
-            threshold = raw_threshold
-
-        above_indices = np.where(smoothed_scores >= threshold)[0]
-        if len(above_indices) == 0:
-            return []
-
-        # Group contiguous clusters of active frames
-        clusters: List[List[int]] = []
-        current_cluster = [above_indices[0]]
-
-        for idx in above_indices[1:]:
-            if idx - current_cluster[-1] <= 3:
-                current_cluster.append(idx)
-            else:
-                clusters.append(current_cluster)
-                current_cluster = [idx]
-        clusters.append(current_cluster)
-
-        candidate_moments: List[Dict[str, Any]] = []
-
-        for grp in clusters:
-            peak_local_idx = grp[int(np.argmax(smoothed_scores[grp]))]
-            left_valley, right_valley = self._find_valley_boundaries(
-                smoothed_scores, peak_local_idx, floor_threshold=threshold
-            )
-            
-            if enable_wasserstein and (right_valley - left_valley) >= 3:
-                t_start, t_end = self._wasserstein_refine_boundaries(
-                    time_axis, smoothed_scores, left_valley, right_valley
-                )
-            else:
-                t_start = float(time_axis[left_valley])
-                t_end = float(time_axis[right_valley])
-
-            # Clamp durations
-            if (t_end - t_start) < min_duration_sec:
-                t_end = min(float(time_axis[-1]), t_start + min_duration_sec)
-            if (t_end - t_start) > max_duration_sec:
-                t_end = t_start + max_duration_sec
-
-            peak_score = float(smoothed_scores[peak_local_idx])
-            candidate_moments.append({
-                "t_start": round(t_start, 2),
-                "t_end": round(t_end, 2),
-                "score": round(peak_score, 4)
-            })
-
-        # Disjoint One-to-Many Temporal Grounding (OMTG) with Temporal NMS
-        candidate_moments.sort(key=lambda m: m["score"], reverse=True)
-        final_moments: List[Dict[str, Any]] = []
-
-        for m in candidate_moments:
-            suppress = False
-            for f in final_moments:
-                # Calculate 1D Temporal IoU
-                inter_s = max(m["t_start"], f["t_start"])
-                inter_e = min(m["t_end"], f["t_end"])
-                if inter_e > inter_s:
-                    intersection = inter_e - inter_s
-                    union = (m["t_end"] - m["t_start"]) + (f["t_end"] - f["t_start"]) - intersection
-                    iou = intersection / max(1e-5, union)
-                    if iou > nms_iou_threshold:
-                        suppress = True
-                        break
-            if not suppress:
-                final_moments.append(m)
-
-        return final_moments
-
-    def snap_boundaries_to_ssm_gradient(
-        self,
-        moments: List[Dict[str, Any]],
-        emb_matrix: np.ndarray,
-        timestamps: np.ndarray,
-        snap_radius_sec: float = 1.5
-    ) -> List[Dict[str, Any]]:
-        """
-        Strategy 3: Self-Similarity Matrix (SSM) Directional Gradient Snapping.
-        Calculates the first-derivative transition energy across the Gram matrix diagonal,
-        and snaps [t_start, t_end] to local energy peaks within snap_radius_sec.
-        """
-        n_frames = len(timestamps)
-        if n_frames < 4 or len(moments) == 0:
-            return moments
-
-        # 1. Gram Matrix: G = V * V^T [N, N]
-        G = np.dot(emb_matrix, emb_matrix.T)
-
-        # 2. Compute Temporal Transition Energy E_trans(t)
-        energy = np.zeros(n_frames, dtype=np.float32)
-        for t in range(1, n_frames - 1):
-            g_next = G[t, t + 1]
-            g_prev = G[t - 1, t]
-            discontinuity = abs(g_next - g_prev)
-            decoupling = 0.5 * (2.0 - g_prev - g_next)
-            energy[t] = discontinuity + decoupling
-
-        mean_energy = float(np.mean(energy))
-        std_energy = float(np.std(energy))
-        energy_threshold = mean_energy + 0.25 * std_energy
-
-        # 3. Snap Boundaries
-        snapped_moments = []
-        for m in moments:
-            ts = m["t_start"]
-            te = m["t_end"]
-
-            # Snap start boundary
-            idx_s_candidates = np.where((timestamps >= ts - snap_radius_sec) & (timestamps <= ts + snap_radius_sec))[0]
-            if len(idx_s_candidates) > 0:
-                best_s_idx = idx_s_candidates[np.argmax(energy[idx_s_candidates])]
-                if energy[best_s_idx] >= energy_threshold:
-                    new_ts = float(timestamps[best_s_idx])
-                else:
-                    new_ts = ts
-            else:
-                new_ts = ts
-
-            # Snap end boundary
-            idx_e_candidates = np.where((timestamps >= te - snap_radius_sec) & (timestamps <= te + snap_radius_sec))[0]
-            if len(idx_e_candidates) > 0:
-                best_e_idx = idx_e_candidates[np.argmax(energy[idx_e_candidates])]
-                if energy[best_e_idx] >= energy_threshold:
-                    new_te = float(timestamps[best_e_idx])
-                else:
-                    new_te = te
-            else:
-                new_te = te
-
-            # Ensure valid positive interval
-            if new_te <= new_ts:
-                new_te = new_ts + max(1.5, te - ts)
-
-            m_copy = dict(m)
-            m_copy["t_start"] = round(new_ts, 2)
-            m_copy["t_end"] = round(new_te, 2)
-            snapped_moments.append(m_copy)
-
-        return snapped_moments
+    def extract_moments(self, time_axis: np.ndarray, scores: np.ndarray, **kwargs: Any) -> List[Dict[str, Any]]:
+        """Compatibility wrapper for legacy callers."""
+        return self.extract_multiscale_proposals(time_axis, scores, max_duration_sec=kwargs.get("max_duration_sec"))
 
     def apply_gaussian_soft_nms(
-        self,
-        moments: List[Dict[str, Any]],
-        sigma: float = 0.40,
-        score_threshold: float = 0.20
+        self, moments: List[Dict[str, Any]], sigma: float = 0.40,
+        iou_threshold: float = 0.5, score_threshold: float = 0.05,
     ) -> List[Dict[str, Any]]:
-        """
-        Strategy 7: 1D Continuous Gaussian Soft-NMS.
-        Gradually attenuates overlapping moment scores with exp(-IoU^2 / sigma),
-        preventing catastrophic dropping of closely occurring or consecutive actions.
-        """
-        if len(moments) <= 1:
-            return moments
-
-        sorted_m = sorted(moments, key=lambda x: x["score"], reverse=True)
-        kept_moments: List[Dict[str, Any]] = []
-
-        while sorted_m:
-            best = sorted_m.pop(0)
-            kept_moments.append(best)
-
-            b_s, b_e = best["t_start"], best["t_end"]
-            remaining = []
-
-            for candidate in sorted_m:
-                c_s, c_e = candidate["t_start"], candidate["t_end"]
-                inter_s = max(b_s, c_s)
-                inter_e = min(b_e, c_e)
-                
-                if inter_e > inter_s:
-                    intersection = inter_e - inter_s
-                    union = (b_e - b_s) + (c_e - c_s) - intersection
-                    iou = intersection / max(1e-5, union)
-                else:
-                    iou = 0.0
-
-                # Apply Continuous Gaussian Decay
-                decay = np.exp(-(iou ** 2) / max(1e-5, sigma))
-                updated_score = candidate["score"] * decay
-
-                if updated_score >= score_threshold:
-                    candidate["score"] = round(float(updated_score), 4)
-                    remaining.append(candidate)
-
-            sorted_m = sorted(remaining, key=lambda x: x["score"], reverse=True)
-
-        return kept_moments
+        """Decay overlap scores while preserving disjoint events."""
+        pending = [dict(m) for m in moments]
+        kept: List[Dict[str, Any]] = []
+        sigma = max(1e-6, float(sigma))
+        while pending:
+            pending.sort(key=lambda item: (-float(item.get("score", 0.0)), float(item.get("t_start", 0.0))))
+            best = pending.pop(0)
+            kept.append(best)
+            updated: List[Dict[str, Any]] = []
+            for item in pending:
+                iou = self._temporal_iou(best, item)
+                if iou > iou_threshold:
+                    item["score"] = float(item.get("score", 0.0)) * float(np.exp(-(iou * iou) / sigma))
+                if float(item.get("score", 0.0)) >= score_threshold:
+                    updated.append(item)
+            pending = updated
+        kept.sort(key=lambda item: (-float(item.get("score", 0.0)), float(item.get("t_start", 0.0))))
+        return kept

@@ -6,7 +6,7 @@ router = APIRouter()
 @router.post("/chat", response_model=VideoQAResponse)
 async def chat_with_video(req: VideoQARequest):
     """
-    Video-RAG Endpoint: Answers natural language questions based on video transcripts & frames.
+    Video-RAG Endpoint: Answers natural language questions based on visual frames and captions.
     """
     try:
         response = video_rag_engine.answer_question(video_id=req.video_id, question=req.question)

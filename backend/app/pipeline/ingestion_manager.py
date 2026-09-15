@@ -1,6 +1,7 @@
 import os
 import uuid
 import datetime
+import numpy as np
 from pathlib import Path
 from PIL import Image
 from typing import Callable, Optional, Dict, Any
@@ -31,7 +32,7 @@ class ProgressiveIngestionManager:
     ):
         """
         Phase 1: Fast Ingestion (~45-60s) - Makes video searchable immediately.
-        Extracts Decord frames, ASR transcripts, and SigLIP 2 visual embeddings into LanceDB.
+        Extracts visual keyframes and raw SigLIP 2 NaFlex embeddings into LanceDB.
         """
         logger.info(f"=== Starting Phase 1 Ingestion for Video ID: {video_id} ({filename}) ===")
         if progress_callback:
@@ -77,13 +78,38 @@ class ProgressiveIngestionManager:
             scene_id = str(uuid.uuid4())
             scene_duration = t_end - t_start
             
-            # Sample at 1 fps within scene
-            sample_count = max(1, min(settings.MAX_FRAMES_PER_SCENE, int(scene_duration * settings.KEYFRAME_SAMPLE_INTERVAL_SEC)))
-            sample_timestamps = [t_start + (i / max(1, sample_count)) * scene_duration for i in range(sample_count)]
+            # Keep scene boundaries and a strict <=1s visual gap. Static scenes
+            # may later be compacted, but boundary/transition frames remain.
+            sample_count = max(1, int(np.ceil(scene_duration / 1.0)) + 1)
+            if scene_duration > 1.5:
+                sample_count = max(3, sample_count)
+            sample_count = min(settings.MAX_FRAMES_PER_SCENE, sample_count)
+            sample_timestamps = np.linspace(float(t_start), float(t_end), sample_count).tolist()
             sample_frame_indices = [int(ts * fps) for ts in sample_timestamps]
 
             raw_frames = decoder.get_batch_frames(sample_frame_indices)
             filtered_frames, filtered_ts = self.keyframe_filter.filter_keyframes(raw_frames, sample_timestamps)
+
+            # SSIM filtering is allowed to remove redundant frames, but it must
+            # never remove the temporal anchors required by the v2 contract.
+            # Keep scene start/end for every scene and add the midpoint for
+            # scenes longer than 1.5 seconds.  This preserves boundaries even
+            # when a scene is visually static.
+            mandatory_indices = [0, len(raw_frames) - 1]
+            if scene_duration > 1.5:
+                mandatory_indices.insert(1, len(raw_frames) // 2)
+            kept_timestamps = {round(float(ts), 6) for ts in filtered_ts}
+            for mandatory_index in mandatory_indices:
+                if not (0 <= mandatory_index < len(raw_frames)):
+                    continue
+                mandatory_ts = float(sample_timestamps[mandatory_index])
+                if round(mandatory_ts, 6) not in kept_timestamps:
+                    filtered_frames.append(raw_frames[mandatory_index])
+                    filtered_ts.append(mandatory_ts)
+                    kept_timestamps.add(round(mandatory_ts, 6))
+            ordered = sorted(zip(filtered_ts, filtered_frames), key=lambda pair: pair[0])
+            filtered_ts = [pair[0] for pair in ordered]
+            filtered_frames = [pair[1] for pair in ordered]
 
             scene_records.append({
                 "id": scene_id,
@@ -91,12 +117,19 @@ class ProgressiveIngestionManager:
                 "scene_index": s_idx,
                 "t_start": float(t_start),
                 "t_end": float(t_end),
-                "keyframe_count": len(filtered_frames)
+                "keyframe_count": len(filtered_frames),
+                "caption": "",
+                "caption_status": "unavailable",
+                "transition_energy": 0.0,
+                "embedding_model": settings.SIGLIP2_MODEL_ID,
+                "caption_model": settings.QWEN_VL_MODEL_ID,
             })
 
-            for f_img, f_ts in zip(filtered_frames, filtered_ts):
+            for frame_index, (f_img, f_ts) in enumerate(zip(filtered_frames, filtered_ts)):
                 frame_id = str(uuid.uuid4())
-                frame_filename = f"f_{f_ts:.2f}s.jpg"
+                # Include scene/frame indices so adjacent scene endpoints at
+                # the same timestamp never overwrite one another on disk.
+                frame_filename = f"s{s_idx:04d}_f{frame_index:03d}_{f_ts:.2f}s.jpg"
                 frame_save_path = video_keyframe_dir / frame_filename
                 f_img.save(str(frame_save_path), "JPEG", quality=85)
 
@@ -107,8 +140,6 @@ class ProgressiveIngestionManager:
                     "scene_id": scene_id,
                     "timestamp": float(f_ts),
                     "frame_path": str(frame_save_path),
-                    "vlm_caption": "",
-                    "has_dense_caption": False
                 })
 
             if progress_callback and (s_idx % max(1, total_scenes // 15) == 0 or s_idx == total_scenes - 1):
@@ -134,10 +165,9 @@ class ProgressiveIngestionManager:
 
         embeddings = self.visual_encoder.encode_images(all_sampled_images, batch_size=16, progress_callback=siglip_sub_progress)
         
-        # 5. Inter-Frame Pixel Motion Energy & Dual-Scale Temporal Context Hierarchy
-        import numpy as np
-        num_frames = len(embeddings)
-
+        # 5. Inter-Frame Pixel Motion Energy.  v2 stores the raw encoder output;
+        # temporal context is applied at retrieval time so re-indexing is not
+        # required when the proposal profile changes.
         # 5A. Compute Normalized Inter-Frame Pixel Motion
         pixel_motion_values = [0.0]
         for idx in range(1, len(all_sampled_images)):
@@ -152,39 +182,15 @@ class ProgressiveIngestionManager:
         else:
             norm_pixel_motion = [0.0] * len(pixel_motion_values)
 
-        # 5B. Dual-Scale Context Hierarchy Fusion (UniTime NeurIPS 2025)
         for i, meta in enumerate(all_sampled_meta):
             emb_curr = np.array(embeddings[i], dtype=np.float32)
-
-            if getattr(settings, "ENABLE_DUAL_SCALE_CONTEXT", True) and num_frames >= 4:
-                # Local Context (W=3)
-                emb_prev = np.array(embeddings[i - 1], dtype=np.float32) if i > 0 else emb_curr
-                emb_next = np.array(embeddings[i + 1], dtype=np.float32) if i < num_frames - 1 else emb_curr
-                v_local = 0.60 * emb_curr + 0.20 * emb_prev + 0.20 * emb_next
-                v_local /= (np.linalg.norm(v_local) + 1e-6)
-
-                # Global Context (W=7 with Gaussian decay kernel sigma=2.0)
-                win_start = max(0, i - 3)
-                win_end = min(num_frames, i + 4)
-                tau_indices = list(range(win_start, win_end))
-                weights = [np.exp(-((idx - i) ** 2) / (2.0 * (2.0 ** 2))) for idx in tau_indices]
-                w_sum = sum(weights)
-                v_global = sum((w / w_sum) * np.array(embeddings[idx], dtype=np.float32) for idx, w in zip(tau_indices, weights))
-                v_global /= (np.linalg.norm(v_global) + 1e-6)
-
-                # Hierarchical Convex Combination & Spherical Projection
-                alpha_l = getattr(settings, "DUAL_SCALE_LOCAL_WEIGHT", 0.65)
-                alpha_g = getattr(settings, "DUAL_SCALE_GLOBAL_WEIGHT", 0.35)
-                v_hierarchical = alpha_l * v_local + alpha_g * v_global
-                v_hierarchical /= (np.linalg.norm(v_hierarchical) + 1e-6)
-            else:
-                v_hierarchical = emb_curr / (np.linalg.norm(emb_curr) + 1e-6)
-
-            meta["siglip2_vector"] = v_hierarchical.tolist()
-            meta["pixel_motion"] = norm_pixel_motion[i]
+            meta["siglip2_vector"] = (emb_curr / (np.linalg.norm(emb_curr) + 1e-6)).tolist()
+            meta["embedding_model"] = settings.SIGLIP2_MODEL_ID
+            meta["embedding_version"] = settings.SIGLIP2_EMBEDDING_VERSION
+            meta["transition_energy"] = norm_pixel_motion[i]
             frame_records.append(meta)
 
-        # 6. Commit to LanceDB (Phase 1 Ready - Pure Visual SOTA)
+        # 6. Commit to the isolated visual index v2.
         if progress_callback:
             progress_callback(
                 video_id, 92,
@@ -195,7 +201,7 @@ class ProgressiveIngestionManager:
 
         # Insert Video Metadata
         tbl_videos = db_manager.get_table("videos")
-        tbl_videos.add([{
+        video_record = {
             "id": video_id,
             "filename": filename,
             "filepath": str(video_path),
@@ -204,18 +210,27 @@ class ProgressiveIngestionManager:
             "resolution": resolution,
             "total_frames": int(total_frames),
             "ingestion_phase": "phase1_ready",
+            "visual_index_version": settings.VISUAL_INDEX_VERSION,
+            "embedding_model": settings.SIGLIP2_MODEL_ID,
             "created_at": datetime.datetime.now().isoformat()
-        }])
+        }
+        try:
+            names = set(tbl_videos.schema.names)
+            video_record = {key: value for key, value in video_record.items() if key in names}
+        except Exception:
+            pass
+        tbl_videos.add([video_record])
 
         # Insert Scenes
         if scene_records:
-            tbl_scenes = db_manager.get_table("scenes")
+            tbl_scenes = db_manager.get_table("scenes_v2")
             tbl_scenes.add(scene_records)
 
         # Insert Frames
         if frame_records:
-            tbl_frames = db_manager.get_table("video_frames")
+            tbl_frames = db_manager.get_table("video_frames_v2")
             tbl_frames.add(frame_records)
+            db_manager.mark_visual_index_v2(video_id)
 
         # Create Indices
         db_manager.create_indices()
@@ -223,7 +238,7 @@ class ProgressiveIngestionManager:
         if progress_callback:
             progress_callback(
                 video_id, 100,
-                f"Phase 1 Ready: Indexed {len(frame_records)} visual keyframes with Temporal Context. Instant Search is Active!",
+                f"Phase 1 Ready: Indexed {len(frame_records)} raw v2 visual keyframes. Instant Search is Active!",
                 "complete",
                 {"duration_sec": duration, "keyframes": len(frame_records)}
             )
@@ -239,11 +254,11 @@ class ProgressiveIngestionManager:
         """
         logger.info(f"=== Starting Phase 2 Background Captioning for Video ID: {video_id} ===")
         if progress_callback:
-            progress_callback(video_id, 10, "Generating Qwen2.5-VL Dense Action Captions (Background)...", "vlm_caption", {})
+            progress_callback(video_id, 10, "Generating Qwen2.5-VL Dense Visual Captions (Background)...", "dense_visual_caption", {})
 
         try:
             from collections import defaultdict
-            tbl_frames = db_manager.get_table("video_frames")
+            tbl_frames = db_manager.get_table("video_frames_v2")
             
             # Fetch frames for this video natively using PyArrow / LanceDB
             try:
@@ -266,16 +281,14 @@ class ProgressiveIngestionManager:
                 
                 if images:
                     caption = self.dense_captioner.generate_scene_caption(images)
-                    for g in group:
-                        fid = g.get("id")
-                        if fid:
-                            try:
-                                tbl_frames.update(
-                                    where=f"id = '{fid}'",
-                                    values={"vlm_caption": caption, "has_dense_caption": True}
-                                )
-                            except Exception as up_err:
-                                logger.debug(f"Update frame caption error: {up_err}")
+                    caption_status = "generated" if caption else getattr(self.dense_captioner, "last_status", "unavailable")
+                    try:
+                        db_manager.get_table("scenes_v2").update(
+                            where=f"id = '{scene_id}'",
+                            values={"caption": caption, "caption_status": caption_status}
+                        )
+                    except Exception as up_err:
+                        logger.debug(f"Update scene caption error: {up_err}")
 
                 if progress_callback:
                     sub_pct = int(((s_idx + 1) / total_scene_groups) * 100)
@@ -283,7 +296,7 @@ class ProgressiveIngestionManager:
                         video_id,
                         sub_pct,
                         f"Generating Qwen2.5-VL Action Captions: Scene {s_idx + 1}/{total_scene_groups} ({sub_pct}%)",
-                        "vlm_caption",
+                        "dense_visual_caption",
                         {
                             "sub_percent": sub_pct,
                             "scene_idx": s_idx + 1,
@@ -298,8 +311,11 @@ class ProgressiveIngestionManager:
                 values={"ingestion_phase": "phase2_complete"}
             )
             
-            # Refresh FTS Index
-            tbl_frames.create_fts_index("vlm_caption", replace=True)
+            # Refresh the scene-caption FTS index only after captions exist.
+            try:
+                db_manager.get_table("scenes_v2").create_fts_index("caption", replace=True)
+            except Exception as fts_err:
+                logger.debug(f"Caption FTS refresh deferred: {fts_err}")
 
             if progress_callback:
                 progress_callback(video_id, 100, "Phase 2 Complete: Deep Action Captions Generated!", "complete", {})

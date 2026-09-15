@@ -33,24 +33,18 @@ class SigLIP2VisualEncoder:
         if self.model is None:
             logger.info(f"Loading SigLIP 2 model: {self.model_id} on {self.device}...")
             dtype = torch.float16 if self.device == "cuda" else torch.float32
-            try:
-                self.model = AutoModel.from_pretrained(
-                    self.model_id,
-                    torch_dtype=dtype,
-                    device_map="auto" if self.device == "cuda" else None
-                ).eval()
-                self.processor = AutoProcessor.from_pretrained(self.model_id)
-                logger.info(f"SigLIP 2 ({self.model_id}) successfully loaded.")
-            except Exception as e:
-                logger.warning(f"Failed to load {self.model_id} directly ({e}), attempting fallback to standard SigLIP base.")
-                fallback_id = "google/siglip-base-patch16-256"
-                self.model = AutoModel.from_pretrained(fallback_id, torch_dtype=dtype).to(self.device).eval()
-                self.processor = AutoProcessor.from_pretrained(fallback_id)
+            self.model = AutoModel.from_pretrained(
+                self.model_id,
+                torch_dtype=dtype,
+                device_map="auto" if self.device == "cuda" else None
+            ).eval()
+            self.processor = AutoProcessor.from_pretrained(self.model_id)
+            logger.info(f"SigLIP 2 ({self.model_id}) successfully loaded.")
 
     def encode_images(self, images: List[Image.Image], batch_size: int = 16, progress_callback=None) -> List[List[float]]:
         """
-        Encode list of PIL images into normalized 768-dim vector embeddings with live batch progress.
-        Returns: list of 768-float vectors.
+        Encode list of PIL images into normalized raw SigLIP2 NaFlex vectors.
+        Temporal context is intentionally not baked into the stored vector.
         """
         self._lazy_load()
         if not images:
@@ -67,6 +61,11 @@ class SigLIP2VisualEncoder:
             with torch.no_grad():
                 features = self.model.get_image_features(**inputs)
                 tensor_features = _extract_tensor(features)
+                if tensor_features.ndim != 2 or tensor_features.shape[-1] != settings.SIGLIP2_EMBEDDING_DIM:
+                    raise ValueError(
+                        f"SigLIP2 returned dimension {tuple(tensor_features.shape)}; "
+                        f"expected {settings.SIGLIP2_EMBEDDING_DIM} for visual index v2"
+                    )
                 norm_features = F.normalize(tensor_features, p=2, dim=-1)
                 all_embeddings.extend(norm_features.cpu().to(torch.float32).tolist())
 

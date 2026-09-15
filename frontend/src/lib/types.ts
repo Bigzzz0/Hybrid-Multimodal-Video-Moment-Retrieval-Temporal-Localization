@@ -8,6 +8,8 @@ export interface VideoMetadata {
   total_frames: number;
   ingestion_phase: string;
   created_at: string;
+  visual_index_version?: string | null;
+  embedding_model?: string | null;
 }
 
 export interface VideoKeyframeItem {
@@ -37,23 +39,14 @@ export interface ActionSuggestionCategory {
 }
 
 
-export interface VisualCoTBreakdown {
-  subject_score: number;
-  verb_score: number;
-  context_score: number;
-  motion_energy: number; // 0.0 to 1.0
-  motion_label: "Static" | "Moderate" | "High Dynamic";
-}
-
 export interface MomentItem {
   t_start: number;
   t_end: number;
   score: number;
   preview_frame_path?: string | null;
   caption_preview?: string | null;
-  transcript_preview?: string | null;
   modality_breakdown?: Record<string, number> | null;
-  visual_cot?: VisualCoTBreakdown | null;
+  occurrence_index?: number;
 }
 
 export interface DragHandleState {
@@ -77,12 +70,16 @@ export interface FilterCriteria {
 
 export interface SearchResponse {
   query: string;
-  video_id?: string | null;
+  video_id: string;
   moments: MomentItem[];
   timeline_heatmap: number[];
   total_duration: number;
   latency_ms: number;
   top_k: number;
+  profile: "fast" | "accurate";
+  calibrated: boolean;
+  index_version: string;
+  warnings: string[];
 }
 
 export interface GroundedMoment {
@@ -122,7 +119,6 @@ export interface ClipExportResponse {
   clip_path: string;
   clip_filename: string;
   download_url: string;
-  burned_subtitles: boolean;
 }
 
 export interface SystemTelemetry {
