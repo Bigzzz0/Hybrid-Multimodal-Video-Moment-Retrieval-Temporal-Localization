@@ -19,9 +19,10 @@ except ImportError:
                     os.environ.setdefault(k.strip(), v.strip())
 
 try:
-    from pydantic_settings import BaseSettings
+    from pydantic_settings import BaseSettings, SettingsConfigDict
 except ImportError:
     from pydantic import BaseModel as BaseSettings
+    SettingsConfigDict = None
 
 try:
     import torch
@@ -91,9 +92,13 @@ class Settings(BaseSettings):
     GAUSSIAN_SOFT_NMS_SIGMA: float = 0.40      # sigma_soft
     GAUSSIAN_SOFT_NMS_FLOOR: float = 0.05
     
-    class Config:
-        case_sensitive = True
-        env_file = ".env"
+    if SettingsConfigDict is not None:
+        model_config = SettingsConfigDict(case_sensitive=True, env_file=".env", extra="ignore")
+    else:
+        class Config:
+            case_sensitive = True
+            env_file = ".env"
+            extra = "ignore"
 
 settings = Settings()
 
