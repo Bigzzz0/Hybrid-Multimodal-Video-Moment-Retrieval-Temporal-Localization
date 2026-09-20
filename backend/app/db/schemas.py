@@ -149,6 +149,24 @@ SCENE_ANALYSIS_SCHEMA = pa.schema([
     pa.field("created_at", pa.string()),
 ])
 
+QWEN_VERIFICATION_SCHEMA = pa.schema([
+    pa.field("id", pa.string()),
+    pa.field("video_id", pa.string()),
+    pa.field("video_fingerprint", pa.string()),
+    pa.field("normalized_query", pa.string()),
+    pa.field("t_start", pa.float32()),
+    pa.field("t_end", pa.float32()),
+    pa.field("sampled_timestamps", pa.list_(pa.float32())),
+    pa.field("event_present", pa.bool_()),
+    pa.field("confidence", pa.float32()),
+    pa.field("reason", pa.string()),
+    pa.field("model_id", pa.string()),
+    pa.field("verification_version", pa.string()),
+    pa.field("prompt_version", pa.string()),
+    pa.field("created_at", pa.string()),
+    pa.field("last_accessed_at", pa.string()),
+])
+
 # ======================= Pydantic Models for REST API =======================
 
 class VideoMetadata(BaseModel):
@@ -206,6 +224,10 @@ class SearchResponse(BaseModel):
     models_used: List[str] = Field(default_factory=list)
     stage_latency_ms: Dict[str, float] = Field(default_factory=dict)
     cache_hits: Dict[str, bool] = Field(default_factory=dict)
+    cascade_path: List[str] = Field(default_factory=list)
+    models_attempted: List[str] = Field(default_factory=list)
+    stage_status: Dict[str, str] = Field(default_factory=dict)
+    planner_version: str = ""
 
 class SearchQueryRequest(BaseModel):
     query: str

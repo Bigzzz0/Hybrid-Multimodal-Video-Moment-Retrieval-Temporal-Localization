@@ -40,6 +40,18 @@ class HybridMomentSearchEngine:
         self._fusion_cache: Optional[Dict[str, float]] = None
 
     @staticmethod
+    def _fuse_accurate_score(base: float, sam_score: float = 0.0, qwen_confidence: Optional[float] = None, qwen_present: bool = True) -> float:
+        if qwen_confidence is not None and not qwen_present:
+            return base * 0.20
+        if sam_score > 0.0 and qwen_confidence is not None:
+            return 0.45 * base + 0.25 * sam_score + 0.30 * qwen_confidence
+        if qwen_confidence is not None:
+            return 0.60 * base + 0.40 * qwen_confidence
+        if sam_score > 0.0:
+            return 0.55 * base + 0.45 * sam_score
+        return base
+
+    @staticmethod
     def _rows(table: Any, where: Optional[str] = None, limit: int = 5000) -> List[Dict[str, Any]]:
         try:
             search = table.search()
@@ -190,8 +202,12 @@ class HybridMomentSearchEngine:
         warnings: List[str] = []
         stage_latency_ms: Dict[str, float] = {}
         models_used: List[str] = [settings.SIGLIP2_MODEL_ID]
+        models_attempted: List[str] = [settings.SIGLIP2_MODEL_ID]
         strategy_used = "fast"
         cache_hits: Dict[str, bool] = {}
+        cascade_path: List[str] = []
+        stage_status: Dict[str, str] = {}
+        planner_version = ""
         accurate_deadline = started + float(settings.ACCURATE_MAX_SECONDS) if profile == "accurate" else None
         videos = self._rows(db_manager.get_table("videos"), f"id = '{video_id}'", 1)
         if not videos:
@@ -233,10 +249,20 @@ class HybridMomentSearchEngine:
                                   profile=profile, calibrated=False, index_version=settings.VISUAL_INDEX_VERSION, warnings=warnings)
 
         variants = query_expander.get_query_variants(query)
+        siglip_started = time.monotonic()
         vectors: List[np.ndarray] = []
         weights: List[float] = []
-        for text, weight in variants:
-            vector = np.asarray(self.text_encoder.encode_text(text), dtype=np.float32)
+        if hasattr(self.text_encoder, "encode_texts"):
+            encoded_variants = self.text_encoder.encode_texts(
+                [text for text, _ in variants],
+                release_after=profile == "accurate",
+            )
+        else:
+            encoded_variants = [self.text_encoder.encode_text(text) for text, _ in variants]
+            if profile == "accurate" and callable(getattr(self.text_encoder, "unload", None)):
+                self.text_encoder.unload()
+        for (_, weight), encoded in zip(variants, encoded_variants):
+            vector = np.asarray(encoded, dtype=np.float32)
             vector /= max(1e-8, float(np.linalg.norm(vector)))
             vectors.append(vector)
             weights.append(float(weight))
@@ -246,6 +272,10 @@ class HybridMomentSearchEngine:
         matrix /= np.maximum(np.linalg.norm(matrix, axis=1, keepdims=True), 1e-8)
         cosine = matrix @ qvec
         visual_relevance = np.clip((cosine + 1.0) / 2.0, 0.0, 1.0)
+        stage_latency_ms["siglip"] = round((time.monotonic() - siglip_started) * 1000, 2)
+        stage_status["siglip"] = "success"
+        if profile == "accurate":
+            cascade_path.extend(["siglip:success", "siglip:unloaded"])
 
         # Caption BM25/FTS results are distributed only to their own scene.
         scenes = self._rows(db_manager.get_table("scenes_v2"), f"video_id = '{video_id}'", 10000)
@@ -310,101 +340,130 @@ class HybridMomentSearchEngine:
         calibration_available = self._load_calibration() is not None
         if not calibration_available:
             warnings.append("calibration_missing")
-        route_info = query_router.route(query) if profile == "accurate" else {"route": "fast", "object_prompts": []}
+        route_info = query_router.route(query) if profile == "accurate" else {"route": "fast"}
         route = str(route_info.get("route", "fast"))
-        if profile == "accurate" and not settings.ENABLE_SAM_GROUNDING and route in {"object_grounding", "mixed"}:
-            # SAM 3.1 is paused while its gated checkpoint is under review.
-            # Qwen can still verify visible object presence/attributes.
-            route = "action_relation"
-            route_info = dict(route_info)
-            route_info["route"] = route
-            warnings.append("sam_paused_vlm_fallback")
-        if profile == "accurate" and settings.ENABLE_SAM_GROUNDING and route in {"object_grounding", "mixed"}:
-            # Grounding needs a separate cold-start allowance. Without this,
-            # the SigLIP load plus SAM checkpoint load consumes the regular
-            # VLM budget before the first mask can be returned.
-            accurate_deadline = started + max(
-                float(settings.ACCURATE_MAX_SECONDS),
-                float(settings.SAM_ACCURATE_MAX_SECONDS),
-            )
-        if profile == "accurate" and candidates and route in {"object_grounding", "mixed"}:
-            grounding_started = time.monotonic()
+        if profile == "accurate":
+            planner_version = str(route_info.get("planner_version", "cascade-planner-v2"))
+            for candidate in candidates:
+                candidate["fast_score"] = float(candidate.get("score", 0.0))
+
             grounding_limit = max(1, int(settings.SAM_SEARCH_TOP_K))
-            candidates, grounding_warnings, grounding_cache_hits = grounding_orchestrator.ground_candidates(
-                video_id=video_id,
-                candidates=candidates,
-                frames=frames,
-                prompts=[str(prompt) for prompt in route_info.get("object_prompts", [])],
-                limit=grounding_limit,
-                deadline=accurate_deadline,
-            )
-            warnings.extend(grounding_warnings)
-            cache_hits.update(grounding_cache_hits)
-            stage_latency_ms["sam"] = round((time.monotonic() - grounding_started) * 1000, 2)
-            if any(float(candidate.get("sam_score", 0.0)) > 0.0 for candidate in candidates[:grounding_limit]):
-                strategy_used = "sam"
-                models_used.append(settings.SAM_MODEL_ID)
-                for candidate in candidates[:grounding_limit]:
-                    base_score = float(candidate.get("fast_score", candidate.get("score", 0.0)))
-                    sam_score = float(candidate.get("sam_score", 0.0))
-                    candidate["grounding_verified"] = sam_score > 0.0
-                    candidate["fast_score"] = base_score
-                    candidate["score"] = 0.55 * base_score + 0.45 * sam_score
-                    candidate["rank_score"] = candidate["score"]
-
-        # Object/attribute queries belong to SAM. Do not let Qwen replace SAM
-        # when the worker is disabled, because a small VLM can reject a static
-        # object and make Accurate worse than the Fast baseline.
-        should_verify_with_qwen = profile == "accurate" and settings.ENABLE_VLM_STAGE2_VERIFY and candidates and route in {"action_relation", "mixed"}
-        if should_verify_with_qwen and accurate_deadline is not None and time.monotonic() >= accurate_deadline:
-            warnings.append("accurate_budget_exhausted")
-            should_verify_with_qwen = False
-        if should_verify_with_qwen:
-            verifier_started = time.monotonic()
-            verify_limit = max(1, int(settings.VLM_VERIFY_TOP_K))
-            # Carry the already-generated scene caption into verification as a
-            # weak visual hint. It is also surfaced in the result card, but
-            # candidates did not previously receive it before Qwen ran.
-            for candidate in candidates[:verify_limit]:
-                midpoint = (float(candidate.get("t_start", 0.0)) + float(candidate.get("t_end", 0.0))) / 2.0
-                scene = next(
-                    (item for item in scenes
-                     if float(item.get("t_start", 0.0)) <= midpoint <= float(item.get("t_end", duration))),
-                    None,
+            grounding_started = time.monotonic()
+            if settings.ENABLE_SAM_GROUNDING and candidates:
+                models_attempted.append(settings.SAM_MODEL_ID)
+                candidates, grounding_warnings, grounding_cache_hits = grounding_orchestrator.ground_candidates(
+                    video_id=video_id,
+                    candidates=candidates,
+                    frames=frames,
+                    prompts=[str(prompt) for prompt in route_info.get("sam_prompts", [])],
+                    limit=grounding_limit,
+                    deadline=accurate_deadline,
+                    release_after=True,
                 )
-                if scene:
-                    candidate["caption_preview"] = str(scene.get("caption", "") or "")
-            # Pass the source path as ephemeral metadata so Accurate mode can
-            # decode a fresh 2fps window around each candidate.  It is never
-            # persisted into LanceDB and is ignored by Fast mode.
-            verifier_frames = [{"_video_path": str(target.get("filepath", ""))}] + frames
-            remaining_budget = max(0.0, accurate_deadline - time.monotonic()) if accurate_deadline is not None else None
-            candidates = vlm_verifier.verify(
-                candidates[:verify_limit],
-                verifier_frames,
-                query,
-                budget_seconds=remaining_budget,
-            ) + candidates[verify_limit:]
-            warnings.extend(vlm_verifier.last_warnings)
-            stage_latency_ms["qwen"] = round((time.monotonic() - verifier_started) * 1000, 2)
-            if settings.QWEN_VL_MODEL_ID not in models_used:
-                models_used.append(settings.QWEN_VL_MODEL_ID)
-            has_qwen_evidence = any("verifier_confidence" in candidate for candidate in candidates)
-            if has_qwen_evidence:
-                strategy_used = "sam_qwen" if strategy_used == "sam" else "qwen"
+                warnings.extend(grounding_warnings)
+                cache_hits.update({f"sam:{key}": value for key, value in grounding_cache_hits.items()})
+                sam_checked = candidates[:grounding_limit]
+                has_sam_evidence = any(float(item.get("sam_score", 0.0)) > 0.0 for item in sam_checked)
+                has_sam_error = any(item.get("sam_error") for item in sam_checked) or any(
+                    code in grounding_warnings for code in ("sam_timeout_fallback", "sam_oom_fallback", "sam_worker_unavailable")
+                )
+                if has_sam_evidence:
+                    stage_status["sam"] = "detected"
+                    cascade_path.append("sam:detected")
+                    models_used.append(settings.SAM_MODEL_ID)
+                elif has_sam_error:
+                    stage_status["sam"] = "unavailable"
+                    cascade_path.append("sam:unavailable")
+                else:
+                    stage_status["sam"] = "no_detection"
+                    cascade_path.append("sam:no_detection")
+                    warnings.append("sam_no_detection_qwen_fallback")
+                cascade_path.append("sam:unloaded")
             else:
-                candidates = baseline_candidates
-                strategy_used = "fast"
-                warnings.append("accurate_fallback_fast")
+                has_sam_evidence = False
+                stage_status["sam"] = "disabled"
+                cascade_path.append("sam:disabled")
+                warnings.append("sam_worker_unavailable")
+            stage_latency_ms["sam"] = round((time.monotonic() - grounding_started) * 1000, 2)
 
-        # SAM can be unavailable in the normal single-process development path.
-        # In that case preserve Fast candidates and make the fallback explicit.
-        if profile == "accurate" and route in {"object_grounding", "mixed"}:
-            has_sam_evidence = any(float(candidate.get("sam_score", 0.0)) > 0.0 for candidate in candidates)
-            if not has_sam_evidence and not any("verifier_confidence" in candidate for candidate in candidates):
-                candidates = baseline_candidates
-                if strategy_used == "fast":
-                    warnings.append("accurate_fallback_fast")
+            sam_scores = [float(item.get("sam_score", 0.0)) for item in candidates[:grounding_limit]]
+            qwen_required = (
+                not sam_scores
+                or max(sam_scores, default=0.0) < float(settings.SAM_STRONG_SCORE_THRESHOLD)
+                or bool(route_info.get("ambiguous"))
+                or bool(route_info.get("semantic_requirements"))
+                or len({e.get("concept") for item in candidates[:grounding_limit] for e in item.get("grounding_evidence", [])}) > 1
+            )
+            if route_info.get("ambiguous"):
+                warnings.append("sam_ambiguous_qwen_fallback")
+
+            remaining_budget = max(0.0, accurate_deadline - time.monotonic()) if accurate_deadline else 0.0
+            should_verify_with_qwen = (
+                qwen_required
+                and settings.ENABLE_VLM_STAGE2_VERIFY
+                and bool(candidates)
+                and remaining_budget >= float(settings.QWEN_MIN_REMAINING_SECONDS)
+            )
+            if qwen_required and not should_verify_with_qwen:
+                warnings.append("accurate_partial_budget" if remaining_budget < float(settings.QWEN_MIN_REMAINING_SECONDS) else "accurate_fallback_fast")
+                stage_status["qwen"] = "skipped"
+
+            if should_verify_with_qwen:
+                verify_limit = max(1, int(settings.QWEN_FALLBACK_TOP_K))
+                for candidate in candidates[:verify_limit]:
+                    midpoint = (float(candidate.get("t_start", 0.0)) + float(candidate.get("t_end", 0.0))) / 2.0
+                    scene = next((item for item in scenes if float(item.get("t_start", 0.0)) <= midpoint <= float(item.get("t_end", duration))), None)
+                    if scene:
+                        candidate["caption_preview"] = str(scene.get("caption", "") or "")
+                verifier_started = time.monotonic()
+                models_attempted.append(settings.QWEN_VL_MODEL_ID)
+                verifier_frames = [{"_video_path": str(target.get("filepath", ""))}] + frames
+                video_fingerprint = grounding_orchestrator._video_fingerprint(video_id)
+                verified_head = vlm_verifier.verify(
+                    candidates[:verify_limit],
+                    verifier_frames,
+                    query,
+                    budget_seconds=remaining_budget,
+                    semantic_requirements=list(route_info.get("semantic_requirements", [])),
+                    release_after=True,
+                    video_id=video_id,
+                    video_fingerprint=video_fingerprint,
+                    limit_override=verify_limit,
+                )
+                candidates = verified_head + candidates[verify_limit:]
+                warnings.extend(vlm_verifier.last_warnings)
+                cache_hits.update({f"qwen:{key}": value for key, value in vlm_verifier.last_cache_hits.items()})
+                stage_latency_ms["qwen"] = round((time.monotonic() - verifier_started) * 1000, 2)
+                has_qwen_evidence = any("verifier_confidence" in item for item in candidates[:verify_limit])
+                stage_status["qwen"] = "verified" if has_qwen_evidence else "unavailable"
+                cascade_path.extend(["qwen:verified" if has_qwen_evidence else "qwen:unavailable", "qwen:unloaded"])
+                if has_qwen_evidence:
+                    models_used.append(settings.QWEN_VL_MODEL_ID)
+                    if any(bool(item.get("action_present")) for item in candidates[:verify_limit]):
+                        warnings.append("qwen_fallback_verified")
+                    else:
+                        warnings.append("qwen_fallback_rejected")
+
+            for candidate in candidates:
+                base = float(candidate.get("fast_score", candidate.get("score", 0.0)))
+                sam_score = float(candidate.get("sam_score", 0.0))
+                has_sam = sam_score > 0.0
+                has_qwen = "verifier_confidence" in candidate
+                fused_score = self._fuse_accurate_score(
+                    base,
+                    sam_score,
+                    float(candidate["verifier_confidence"]) if has_qwen else None,
+                    bool(candidate.get("action_present", False)),
+                )
+                candidate["grounding_verified"] = has_sam
+                candidate["score"] = fused_score
+                candidate["rank_score"] = fused_score
+
+            has_qwen_evidence = any("verifier_confidence" in item for item in candidates)
+            has_sam_evidence = any(float(item.get("sam_score", 0.0)) > 0.0 for item in candidates)
+            strategy_used = "sam_qwen" if has_sam_evidence and has_qwen_evidence else "qwen" if has_qwen_evidence else "sam" if has_sam_evidence else "fast"
+            if strategy_used == "fast":
+                warnings.append("accurate_fallback_fast")
 
         scored: List[Tuple[float, Dict[str, Any]]] = []
         threshold: Optional[float] = None
@@ -432,7 +491,7 @@ class HybridMomentSearchEngine:
         # available instead of showing SAM=0 on the first card while hiding
         # the useful evidence lower in the list.
         scored.sort(key=lambda pair: (
-            0 if route in {"object_grounding", "mixed"} and pair[1].get("grounding_verified") else 1,
+            0 if pair[1].get("action_present") is True else 1 if pair[1].get("grounding_verified") else 2,
             -pair[0],
             float(pair[1].get("t_start", 0.0)),
         ))
@@ -451,7 +510,7 @@ class HybridMomentSearchEngine:
             if nearest.get("scene_id") in scene_by_id:
                 scene_caption = str(scene_by_id[nearest["scene_id"]].get("caption", "") or "")
             moments.append(MomentItem(t_start=start, t_end=end, score=round(float(probability), 4),
-                                      raw_score=round(rank_score, 6), display_score=round(float(candidate.get("score", 0.0)), 4),
+                                      raw_score=round(float(candidate.get("rank_score", candidate.get("score", 0.0))), 6), display_score=round(float(candidate.get("score", 0.0)), 4),
                                       preview_frame_path=nearest.get("frame_path"), caption_preview=scene_caption or None,
                                       modality_breakdown=breakdown,
                                       occurrence_index=occurrence_by_key.get((start, end), 0),
@@ -472,7 +531,9 @@ class HybridMomentSearchEngine:
                               top_k=top_k, profile=profile, calibrated=calibration_available,
                               index_version=settings.VISUAL_INDEX_VERSION, warnings=warnings,
                               strategy_used=strategy_used, models_used=models_used,
-                              stage_latency_ms=stage_latency_ms, cache_hits=cache_hits)
+                              stage_latency_ms=stage_latency_ms, cache_hits=cache_hits,
+                              cascade_path=cascade_path, models_attempted=models_attempted,
+                              stage_status=stage_status, planner_version=planner_version)
 
 
 search_engine = HybridMomentSearchEngine()

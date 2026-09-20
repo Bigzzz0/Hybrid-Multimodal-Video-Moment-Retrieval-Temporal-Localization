@@ -83,7 +83,16 @@ class GroundingOrchestrator:
         return tracks
 
     @staticmethod
-    def _persist(video_id: str, video_fingerprint: str, key: str, response: Any, source: str) -> List[Dict[str, Any]]:
+    def _persist(
+        video_id: str,
+        video_fingerprint: str,
+        key: str,
+        response: Any,
+        source: str,
+        requested_start: float,
+        requested_end: float,
+        prompts: List[str],
+    ) -> List[Dict[str, Any]]:
         now = datetime.now().isoformat()
         track_rows: List[Dict[str, Any]] = []
         observation_rows: List[Dict[str, Any]] = []
@@ -131,9 +140,9 @@ class GroundingOrchestrator:
             "id": key,
             "video_id": video_id,
             "task_type": "sam_ground",
-            "t_start": float(min((row["t_start"] for row in track_rows), default=0.0)),
-            "t_end": float(max((row["t_end"] for row in track_rows), default=0.0)),
-            "normalized_prompt": ",".join(sorted(row["normalized_prompt"] for row in track_rows)),
+            "t_start": float(requested_start),
+            "t_end": float(requested_end),
+            "normalized_prompt": ",".join(sorted(prompts)),
             "model_id": response.model_id,
             "artifact_version": response.grounding_version,
             "artifact_id": track_rows[0]["id"] if track_rows else artifact_id,
@@ -156,6 +165,7 @@ class GroundingOrchestrator:
         limit: int,
         deadline: float | None = None,
         fps: float | None = None,
+        release_after: bool = False,
     ) -> Tuple[List[Dict[str, Any]], List[str], Dict[str, bool]]:
         warnings: List[str] = []
         cache_hits: Dict[str, bool] = {}
@@ -169,6 +179,7 @@ class GroundingOrchestrator:
             return candidates, warnings, cache_hits
         sampling_fps = float(fps if fps is not None else settings.SAM_SEARCH_FPS)
         for candidate in candidates[:max(1, limit)]:
+            candidate["sam_attempted"] = True
             if deadline is not None and time.monotonic() >= deadline:
                 warnings.append("accurate_budget_exhausted")
                 break
@@ -194,7 +205,7 @@ class GroundingOrchestrator:
             else:
                 try:
                     remaining = None if deadline is None else max(0.1, deadline - time.monotonic())
-                    response = inference_client.ground(GroundRequest(
+                    request = GroundRequest(
                         video_fingerprint=video_fingerprint,
                         frame_paths=frame_paths,
                         timestamps=timestamps,
@@ -202,11 +213,27 @@ class GroundingOrchestrator:
                         fps=sampling_fps,
                         max_frames=cap,
                         request_source="search",
-                    ), timeout_sec=remaining)
-                    tracks = self._persist(video_id, video_fingerprint, key, response, "on_demand")
+                        release_after=release_after,
+                    )
+                    try:
+                        response = inference_client.ground(request, timeout_sec=remaining)
+                    except InferenceWorkerError as exc:
+                        if "oom" not in str(exc).lower() or len(frame_paths) <= 1:
+                            raise
+                        reduced_count = max(1, len(frame_paths) // 2)
+                        request.frame_paths = frame_paths[:reduced_count]
+                        request.timestamps = timestamps[:reduced_count]
+                        request.max_frames = reduced_count
+                        response = inference_client.ground(request, timeout_sec=remaining)
+                    tracks = self._persist(
+                        video_id, video_fingerprint, key, response, "on_demand", start, end, prompts
+                    )
                     cache_hits[key] = bool(response.cache_hit)
                 except InferenceWorkerError as exc:
-                    warnings.append("sam_timeout_fallback" if "timeout" in str(exc).lower() else "sam_worker_unavailable")
+                    error_text = str(exc).lower()
+                    warning = "sam_timeout_fallback" if "timeout" in error_text else "sam_oom_fallback" if "oom" in error_text else "sam_worker_unavailable"
+                    warnings.append(warning)
+                    candidate["sam_error"] = warning
                     continue
             evidence = []
             scores = []
@@ -226,6 +253,8 @@ class GroundingOrchestrator:
                 candidate["sam_score"] = 0.5 * (sum(scores) / len(scores)) + 0.5 * coverage
                 candidate["grounding_evidence"] = evidence
                 candidate["mask_artifact_ids"] = [item["track_id"] for item in evidence]
+            else:
+                candidate["sam_no_detection"] = True
         return candidates, warnings, cache_hits
 
 

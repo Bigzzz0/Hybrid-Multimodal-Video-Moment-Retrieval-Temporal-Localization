@@ -15,6 +15,7 @@ from app.db.schemas import (
     SAM_OBSERVATION_SCHEMA,
     MODEL_ARTIFACT_CACHE_SCHEMA,
     SCENE_ANALYSIS_SCHEMA,
+    QWEN_VERIFICATION_SCHEMA,
 )
 
 class LanceDBManager:
@@ -68,6 +69,7 @@ class LanceDBManager:
         ensure_table("sam_observations_v1", SAM_OBSERVATION_SCHEMA)
         ensure_table("model_artifact_cache", MODEL_ARTIFACT_CACHE_SCHEMA)
         ensure_table("scene_analysis_v1", SCENE_ANALYSIS_SCHEMA)
+        ensure_table("qwen_verifications_v1", QWEN_VERIFICATION_SCHEMA)
             
         # 4. Table: search_logs
         ensure_table("search_logs", SEARCH_LOG_SCHEMA)

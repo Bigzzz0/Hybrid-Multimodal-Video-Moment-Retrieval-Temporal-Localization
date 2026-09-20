@@ -134,6 +134,9 @@ class Qwen3VLService:
         mapping = list(enumerate([round(float(value), 3) for value in request.timestamps]))
         prompt = (
             f"Determine whether the visual event in this query is present: {request.query}. "
+            f"Semantic requirements to verify: {request.semantic_requirements}. "
+            f"SAM grounding evidence (location hint only, never sufficient by itself): "
+            f"{json.dumps(request.grounding_evidence, ensure_ascii=False)}. "
             f"Frame mapping is {mapping}. Return only JSON with keys event_present, start_frame_index, "
             "end_frame_index, confidence, reason. Use integer frame indices, not seconds. "
             "Do not identify people. Keep reason under 12 words."

@@ -1,16 +1,19 @@
 """Bounded visual temporal reranking for Accurate search."""
 
+import hashlib
 import json
 import math
 import os
 import re
 import time
+from datetime import datetime
 from typing import Any, Dict, List, Optional, Protocol
 
 from PIL import Image
 
 from app.core.config import settings
 from app.core.logger import logger
+from app.db.connection import db_manager
 
 
 class TemporalReranker(Protocol):
@@ -31,6 +34,70 @@ class QwenVisualReranker:
         self._captioner = None
         self.max_seconds = float(getattr(settings, "VLM_RERANK_MAX_SECONDS", settings.ACCURATE_MAX_SECONDS))
         self.last_warnings: List[str] = []
+        self.last_cache_hits: Dict[str, bool] = {}
+
+    @staticmethod
+    def _cache_key(video_fingerprint: str, candidate: Dict[str, Any], query: str, timestamps: List[float]) -> str:
+        raw = "|".join([
+            video_fingerprint,
+            f"{float(candidate.get('t_start', 0.0)):.3f}",
+            f"{float(candidate.get('t_end', 0.0)):.3f}",
+            " ".join(query.casefold().split()),
+            ",".join(f"{value:.3f}" for value in timestamps),
+            settings.QWEN_VL_MODEL_ID,
+            "qwen-verify-v1",
+            "cascade-verifier-v2",
+        ])
+        return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+    @staticmethod
+    def _cached_verification(key: str) -> Optional[Dict[str, Any]]:
+        try:
+            table = db_manager.get_table("qwen_verifications_v1")
+            rows = table.search().where(f"id = '{key}'").limit(1).to_list()
+            if not rows:
+                return None
+            table.update(where=f"id = '{key}'", values={"last_accessed_at": datetime.now().isoformat()})
+            row = rows[0]
+            return {
+                "action_present": bool(row.get("event_present", False)),
+                "confidence": float(row.get("confidence", 0.0)),
+                "reason": str(row.get("reason", "")),
+            }
+        except Exception:
+            return None
+
+    @staticmethod
+    def _persist_verification(
+        key: str,
+        video_id: str,
+        video_fingerprint: str,
+        query: str,
+        candidate: Dict[str, Any],
+        timestamps: List[float],
+        parsed: Dict[str, Any],
+    ) -> None:
+        now = datetime.now().isoformat()
+        try:
+            db_manager.get_table("qwen_verifications_v1").add([{
+                "id": key,
+                "video_id": video_id,
+                "video_fingerprint": video_fingerprint,
+                "normalized_query": " ".join(query.casefold().split()),
+                "t_start": float(candidate.get("t_start", 0.0)),
+                "t_end": float(candidate.get("t_end", 0.0)),
+                "sampled_timestamps": [float(value) for value in timestamps],
+                "event_present": bool(parsed["action_present"]),
+                "confidence": float(parsed["confidence"]),
+                "reason": str(parsed.get("reason", "")),
+                "model_id": settings.QWEN_VL_MODEL_ID,
+                "verification_version": "qwen-verify-v1",
+                "prompt_version": "cascade-verifier-v2",
+                "created_at": now,
+                "last_accessed_at": now,
+            }])
+        except Exception:
+            logger.debug("Qwen verification cache write failed", exc_info=True)
 
     @property
     def captioner(self):
@@ -180,8 +247,14 @@ class QwenVisualReranker:
         frames: List[Dict[str, Any]],
         query: str,
         budget_seconds: Optional[float] = None,
+        semantic_requirements: Optional[List[str]] = None,
+        release_after: bool = False,
+        video_id: str = "",
+        video_fingerprint: str = "",
+        limit_override: Optional[int] = None,
     ) -> List[Dict[str, Any]]:
         self.last_warnings = []
+        self.last_cache_hits = {}
         if not candidates:
             return []
         # Model loading is a one-time startup cost. Warm it before starting the
@@ -214,7 +287,8 @@ class QwenVisualReranker:
         motion_terms = ("drive", "driving", "drove", "walk", "walking", "run", "running", "turn", "turning", "enter", "entering", "fall", "falling", "move", "moving", "pass", "passing")
         object_only_query = not action_keywords and not any(term in query.lower() for term in motion_terms)
         verified: List[Dict[str, Any]] = []
-        limit = min(max(1, int(settings.VLM_VERIFY_TOP_K)), len(candidates))
+        configured_limit = settings.VLM_VERIFY_TOP_K if limit_override is None else limit_override
+        limit = min(max(1, int(configured_limit)), len(candidates))
         source_path = next((str(frame.get("_video_path")) for frame in frames if frame.get("_video_path")), None)
         decoder = None
         if source_path and os.path.exists(source_path):
@@ -234,6 +308,7 @@ class QwenVisualReranker:
                 verified.append(candidate)
                 continue
             timestamps = [round(float(f["timestamp"]), 3) for f in sampled]
+            cache_key = self._cache_key(video_fingerprint or video_id, candidate, query, timestamps)
             prompt = (
                 "Analyze only visible objects, physical actions, movement and state changes; do not use audio, OCR, "
                 "subtitles or readable on-screen text as evidence. "
@@ -252,6 +327,13 @@ class QwenVisualReranker:
                 "Return exactly one JSON object with keys action_present, start_frame_index, end_frame_index, confidence. "
                 "Do not use markdown fences, explanations, or extra text."
             )
+            if semantic_requirements:
+                prompt += f" Explicit semantic requirements: {semantic_requirements}."
+            if candidate.get("grounding_evidence"):
+                prompt += (
+                    " SAM evidence is only a location hint and must be visually verified: "
+                    f"{json.dumps(candidate['grounding_evidence'], ensure_ascii=False)}."
+                )
             candidate_caption = str(
                 candidate.get("caption_preview") or candidate.get("caption") or ""
             ).strip()
@@ -261,6 +343,12 @@ class QwenVisualReranker:
                     f"'{candidate_caption}'."
                 )
             worker_response = None
+            cached_response = self._cached_verification(cache_key) if (video_fingerprint or video_id) else None
+            if cached_response is not None:
+                cached_response["start_frame_index"] = 0
+                cached_response["end_frame_index"] = max(0, len(timestamps) - 1)
+                worker_response = cached_response
+                self.last_cache_hits[cache_key] = True
             try:
                 from app.inference.client import inference_client
                 from app.inference.contracts import VerifyRequest
@@ -268,17 +356,33 @@ class QwenVisualReranker:
                 # deterministic unit doubles and an already-loaded fallback
                 # usable even when the worker is enabled globally.
                 if (
+                    worker_response is None
+                    and
                     self._captioner is None
                     and inference_client.enabled
                     and all(item.get("frame_path") for item in sampled)
                 ):
-                    worker = inference_client.verify(VerifyRequest(
+                    request = VerifyRequest(
                         query=query,
                         frame_paths=[str(item["frame_path"]) for item in sampled],
                         timestamps=timestamps,
                         caption_hint=str(candidate.get("caption_preview") or candidate.get("caption") or ""),
                         max_new_tokens=settings.QWEN_VERIFY_MAX_NEW_TOKENS,
-                    ))
+                        grounding_evidence=list(candidate.get("grounding_evidence", [])),
+                        semantic_requirements=list(semantic_requirements or []),
+                        release_after=release_after,
+                    )
+                    try:
+                        worker = inference_client.verify(request)
+                    except Exception as exc:
+                        if "oom" not in str(exc).lower() or len(request.frame_paths) <= 2:
+                            raise
+                        reduced_count = max(2, len(request.frame_paths) // 2)
+                        request.frame_paths = request.frame_paths[:reduced_count]
+                        request.timestamps = request.timestamps[:reduced_count]
+                        timestamps = timestamps[:reduced_count]
+                        cache_key = self._cache_key(video_fingerprint or video_id, candidate, query, timestamps)
+                        worker = inference_client.verify(request)
                     worker_response = {
                         "action_present": worker.event_present,
                         "start_frame_index": worker.start_frame_index,
@@ -286,6 +390,7 @@ class QwenVisualReranker:
                         "confidence": worker.confidence,
                         "reason": worker.reason,
                     }
+                    self.last_cache_hits[cache_key] = False
             except Exception as exc:
                 self.last_warnings.append("qwen_timeout_fallback" if "timeout" in str(exc).lower() else "qwen_worker_unavailable")
                 logger.warning("Qwen worker verifier fallback: {}", exc)
@@ -317,6 +422,11 @@ class QwenVisualReranker:
                 self.last_warnings.append("verifier_oom_fallback" if is_oom else "verifier_error_fallback")
                 verified.append(candidate)
                 continue
+            finally:
+                if release_after and worker_response is None and self._captioner is not None:
+                    unload = getattr(self._captioner, "unload", None)
+                    if callable(unload):
+                        unload()
             try:
                 total_seconds = time.monotonic() - started
                 logger.debug(
@@ -338,6 +448,10 @@ class QwenVisualReranker:
                     self.last_warnings.append("verifier_invalid_json_fallback")
                     verified.append(candidate)
                     continue
+                if cached_response is None and (video_fingerprint or video_id):
+                    self._persist_verification(
+                        cache_key, video_id, video_fingerprint, query, candidate, timestamps, parsed
+                    )
                 # Qwen can conservatively reject a static object even when
                 # the indexed dense visual caption independently names it.
                 # For object-only queries, use that visual caption as a narrow
