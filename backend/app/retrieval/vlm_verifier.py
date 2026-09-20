@@ -14,7 +14,13 @@ from app.core.logger import logger
 
 
 class TemporalReranker(Protocol):
-    def verify(self, candidates: List[Dict[str, Any]], frames: List[Dict[str, Any]], query: str) -> List[Dict[str, Any]]:
+    def verify(
+        self,
+        candidates: List[Dict[str, Any]],
+        frames: List[Dict[str, Any]],
+        query: str,
+        budget_seconds: Optional[float] = None,
+    ) -> List[Dict[str, Any]]:
         ...
 
 
@@ -23,7 +29,7 @@ class QwenVisualReranker:
 
     def __init__(self) -> None:
         self._captioner = None
-        self.max_seconds = float(getattr(settings, "VLM_RERANK_MAX_SECONDS", 15.0))
+        self.max_seconds = float(getattr(settings, "VLM_RERANK_MAX_SECONDS", settings.ACCURATE_MAX_SECONDS))
         self.last_warnings: List[str] = []
 
     @property
@@ -73,6 +79,7 @@ class QwenVisualReranker:
                 "start_frame_index": start_num,
                 "end_frame_index": end_num,
                 "confidence": confidence,
+                "reason": str(data.get("reason", "")).strip(),
             }
         return None
 
@@ -116,12 +123,20 @@ class QwenVisualReranker:
             (str(frame.get("_video_path")) for frame in frames if frame.get("_video_path")),
             None,
         )
+        try:
+            from app.inference.client import inference_client
+            if inference_client.enabled:
+                # The worker contract is path-only.  Use indexed local frames
+                # so verification never serializes decoded PIL images.
+                source_path = None
+        except Exception:
+            pass
         if source_path and os.path.exists(source_path):
             try:
                 from app.pipeline.video_decoder import GPUVideoDecoder
 
                 # Keep decoding on CPU so the verifier's bounded GPU budget is
-                # reserved for Qwen/SigLIP and remains below the 8GB target.
+                # reserved for Qwen/SigLIP and remains below the configured budget.
                 decoder = decoder or GPUVideoDecoder(source_path, use_gpu=False)
                 start = max(0.0, float(candidate["t_start"]) - 2.0)
                 end = min(float(decoder.duration_sec), float(candidate["t_end"]) + 2.0)
@@ -152,29 +167,42 @@ class QwenVisualReranker:
         selected = [f for f in selected if os.path.exists(str(f.get("frame_path")))]
         selected.sort(key=lambda f: float(f.get("timestamp", 0.0)))
         # Approximate 2 fps from the indexed frames while respecting the
-        # configured per-candidate cap (8 by default).
+        # configured per-candidate cap (4 by default).
         frame_cap = max(1, int(settings.VLM_VERIFY_FRAMES_PER_MOMENT))
         if len(selected) > frame_cap:
             step = max(1, len(selected) // frame_cap)
             selected = selected[::step][:frame_cap]
         return selected
 
-    def verify(self, candidates: List[Dict[str, Any]], frames: List[Dict[str, Any]], query: str) -> List[Dict[str, Any]]:
+    def verify(
+        self,
+        candidates: List[Dict[str, Any]],
+        frames: List[Dict[str, Any]],
+        query: str,
+        budget_seconds: Optional[float] = None,
+    ) -> List[Dict[str, Any]]:
         self.last_warnings = []
         if not candidates:
             return []
         # Model loading is a one-time startup cost. Warm it before starting the
-        # 15-second verification budget so a cold GPU does not consume the
+        # bounded verification budget so a cold GPU does not consume the
         # entire budget before the first candidate is analyzed.
         try:
-            captioner = self.captioner
-            warmup = getattr(captioner, "_lazy_load", None)
-            if callable(warmup):
-                warmup()
+            from app.inference.client import inference_client
+            worker_enabled = inference_client.enabled
+        except Exception:
+            worker_enabled = False
+        try:
+            if not worker_enabled:
+                captioner = self.captioner
+                warmup = getattr(captioner, "_lazy_load", None)
+                if callable(warmup):
+                    warmup()
         except Exception as exc:
             logger.warning("Qwen verifier warm-up failed: {}", exc)
             self.last_warnings.append("verifier_error_fallback")
         started = time.monotonic()
+        budget = self.max_seconds if budget_seconds is None else max(0.0, float(budget_seconds))
         try:
             from app.retrieval.query_expander import query_expander
             expanded_query = query_expander.expand_query(query)
@@ -196,7 +224,7 @@ class QwenVisualReranker:
             except Exception as exc:
                 logger.debug("Accurate verifier decoder setup fallback: {}", exc)
         for candidate_index, candidate in enumerate(candidates[:limit]):
-            if time.monotonic() - started >= self.max_seconds:
+            if time.monotonic() - started >= budget:
                 self.last_warnings.append("verifier_timeout_fallback")
                 verified.append(candidate)
                 continue
@@ -206,11 +234,6 @@ class QwenVisualReranker:
                 verified.append(candidate)
                 continue
             timestamps = [round(float(f["timestamp"]), 3) for f in sampled]
-            images = [
-                item["image"] if item.get("image") is not None
-                else Image.open(str(item["frame_path"])).convert("RGB")
-                for item in sampled
-            ]
             prompt = (
                 "Analyze only visible objects, physical actions, movement and state changes; do not use audio, OCR, "
                 "subtitles or readable on-screen text as evidence. "
@@ -237,29 +260,76 @@ class QwenVisualReranker:
                     f" Indexed dense visual caption (a weak hint, verify it against the frames): "
                     f"'{candidate_caption}'."
                 )
+            worker_response = None
             try:
-                generation_started = time.monotonic()
-                response = self.captioner.generate_scene_caption(
-                    images,
-                    prompt_override=prompt,
-                    max_frames=len(images),
-                    # The verifier emits a small JSON object. A short output
-                    # budget reduces latency and discourages explanations.
-                    max_new_tokens=48,
-                )
-                generation_seconds = time.monotonic() - generation_started
+                from app.inference.client import inference_client
+                from app.inference.contracts import VerifyRequest
+                # Prefer an explicitly injected/local captioner.  This keeps
+                # deterministic unit doubles and an already-loaded fallback
+                # usable even when the worker is enabled globally.
+                if (
+                    self._captioner is None
+                    and inference_client.enabled
+                    and all(item.get("frame_path") for item in sampled)
+                ):
+                    worker = inference_client.verify(VerifyRequest(
+                        query=query,
+                        frame_paths=[str(item["frame_path"]) for item in sampled],
+                        timestamps=timestamps,
+                        caption_hint=str(candidate.get("caption_preview") or candidate.get("caption") or ""),
+                        max_new_tokens=settings.QWEN_VERIFY_MAX_NEW_TOKENS,
+                    ))
+                    worker_response = {
+                        "action_present": worker.event_present,
+                        "start_frame_index": worker.start_frame_index,
+                        "end_frame_index": worker.end_frame_index,
+                        "confidence": worker.confidence,
+                        "reason": worker.reason,
+                    }
+            except Exception as exc:
+                self.last_warnings.append("qwen_timeout_fallback" if "timeout" in str(exc).lower() else "qwen_worker_unavailable")
+                logger.warning("Qwen worker verifier fallback: {}", exc)
+
+            images = []
+            generation_seconds = 0.0
+            try:
+                if worker_response is not None:
+                    response = json.dumps(worker_response)
+                else:
+                    images = [
+                        item["image"] if item.get("image") is not None
+                        else Image.open(str(item["frame_path"])).convert("RGB")
+                        for item in sampled
+                    ]
+                    generation_started = time.monotonic()
+                    response = self.captioner.generate_scene_caption(
+                        images,
+                        prompt_override=prompt,
+                        max_frames=len(images),
+                        # The verifier emits a small JSON object. A short output
+                        # budget reduces latency and discourages explanations.
+                        max_new_tokens=settings.QWEN_VERIFY_MAX_NEW_TOKENS,
+                    )
+                    generation_seconds = time.monotonic() - generation_started
+            except Exception as exc:
+                is_oom = exc.__class__.__name__ in {"OutOfMemoryError", "CUDAOutOfMemoryError"}
+                logger.warning("Qwen verifier generation fallback: {}", exc)
+                self.last_warnings.append("verifier_oom_fallback" if is_oom else "verifier_error_fallback")
+                verified.append(candidate)
+                continue
+            try:
                 total_seconds = time.monotonic() - started
                 logger.debug(
                     "Qwen verifier candidate {}/{}: {} frames, generation {:.2f}s, "
                     "total {:.2f}s, response: {}",
                     candidate_index + 1,
                     limit,
-                    len(images),
+                    len(sampled),
                     generation_seconds,
                     total_seconds,
                     (response or "")[:500].replace("\n", " "),
                 )
-                if total_seconds >= self.max_seconds:
+                if total_seconds >= budget:
                     self.last_warnings.append("verifier_timeout_fallback")
                     verified.append(candidate)
                     continue
@@ -296,6 +366,7 @@ class QwenVisualReranker:
                 conf = float(parsed["confidence"])
                 refined["verifier_confidence"] = conf
                 refined["action_present"] = bool(parsed["action_present"])
+                refined["verifier_reason"] = str(parsed.get("reason", "")).strip()
                 refined["fast_score"] = base
                 refined["score"] = 0.65 * base + 0.35 * conf if parsed["action_present"] else base * 0.20
                 refined["rank_score"] = refined["score"]

@@ -2,12 +2,14 @@ import time
 import numpy as np
 from typing import List, Dict, Any, Optional
 from PIL import Image
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from app.core.config import settings
 from app.core.logger import logger
 from app.db.connection import db_manager
 from app.pipeline.visual_encoder import SigLIP2VisualEncoder
 from app.pipeline.dense_captioner import QwenVLDenseCaptioner
+from app.inference.client import inference_client
+from app.inference.contracts import AnswerRequest
 
 class VideoQARequest(BaseModel):
     video_id: str
@@ -24,6 +26,8 @@ class VideoQAResponse(BaseModel):
     answer: str
     grounded_moments: List[GroundedMoment]
     latency_ms: float
+    models_used: List[str] = Field(default_factory=list)
+    warnings: List[str] = Field(default_factory=list)
 
 class VideoRAGEngine:
     """
@@ -61,7 +65,7 @@ class VideoRAGEngine:
             scored_frames.append((sim, f))
 
         scored_frames.sort(key=lambda x: x[0], reverse=True)
-        top_frames = scored_frames[:3]
+        top_frames = scored_frames[: max(3, int(settings.QWEN_MAX_FRAMES_PER_CANDIDATE))]
 
         # 2. Formulate Visual Context
         scenes = {str(row.get("id")): row for row in db_manager.get_table("scenes_v2").to_arrow().to_pylist()}
@@ -82,20 +86,67 @@ class VideoRAGEngine:
                     thumbnail_path=f.get("frame_path")
                 ))
 
-        # Synthesis
-        if context_visual_str.strip():
-            answer = f"จากการวิเคราะห์ภาพเหตุการณ์และการกระทำในวิดีโอ (Visual Evidence):\n{context_visual_str}"
-            if evidence_citations:
-                answer += f"\n\n(อ้างอิงช่วงเวลาสำคัญ: {evidence_citations[0].t_start}s - {evidence_citations[0].t_end}s)"
-        else:
-            answer = "ไม่พบภาพเหตุการณ์หรือการกระทำที่สอดคล้องกับคำถามนี้ในวิดีโอที่เลือก"
+        # Evidence-grounded Qwen3-VL answer.  The isolated worker is preferred;
+        # direct inference is retained only for the legacy single-process path.
+        answer = ""
+        models_used: List[str] = [settings.SIGLIP2_MODEL_ID]
+        warnings: List[str] = []
+        valid_frame_paths = [str(f.get("frame_path")) for _, f in top_frames if f.get("frame_path")]
+        evidence_payload = [moment.model_dump() for moment in evidence_citations]
+        if valid_frame_paths and context_visual_str.strip():
+            prompt = (
+                "Answer the user's question using only the supplied classroom CCTV frames and structured evidence. "
+                "Do not identify people, infer identity, or use audio/OCR. If evidence is insufficient, say so. "
+                f"Question: {question}. Evidence: {context_visual_str}"
+            )
+            if inference_client.enabled:
+                try:
+                    response = inference_client.answer(AnswerRequest(
+                        question=question,
+                        frame_paths=valid_frame_paths,
+                        timestamps=[float(f.get("timestamp", 0.0)) for _, f in top_frames if f.get("frame_path")],
+                        evidence=evidence_payload,
+                        max_new_tokens=256,
+                    ))
+                    answer = response.answer.strip()
+                    if response.model_id:
+                        models_used.append(response.model_id)
+                except Exception as exc:
+                    warnings.append("qwen_worker_unavailable")
+                    logger.warning(f"Video VQA worker fallback: {exc}")
+            else:
+                try:
+                    images = [Image.open(path).convert("RGB") for path in valid_frame_paths[:settings.QWEN_MAX_FRAMES_PER_CANDIDATE]]
+                    answer = self.captioner.generate_scene_caption(
+                        images,
+                        prompt_override=prompt,
+                        max_frames=len(images),
+                        max_new_tokens=256,
+                    ).strip()
+                    for image in images:
+                        image.close()
+                    if answer:
+                        models_used.append(settings.QWEN_VL_MODEL_ID)
+                except Exception as exc:
+                    warnings.append("qwen_vqa_fallback")
+                    logger.warning(f"Direct Qwen VQA fallback: {exc}")
+
+        if not answer:
+            if context_visual_str.strip():
+                answer = f"จากการวิเคราะห์ภาพเหตุการณ์และการกระทำในวิดีโอ (Visual Evidence):\n{context_visual_str}"
+                if evidence_citations:
+                    answer += f"\n\n(อ้างอิงช่วงเวลาสำคัญ: {evidence_citations[0].t_start}s - {evidence_citations[0].t_end}s)"
+            else:
+                answer = "ไม่พบภาพเหตุการณ์หรือการกระทำที่สอดคล้องกับคำถามนี้ในวิดีโอที่เลือก"
 
         latency_ms = round((time.time() - t0) * 1000.0, 2)
         return VideoQAResponse(
             question=question,
             answer=answer,
             grounded_moments=evidence_citations,
-            latency_ms=latency_ms
+            latency_ms=latency_ms,
+            models_used=models_used,
+            warnings=warnings,
         )
 
 video_rag_engine = VideoRAGEngine()

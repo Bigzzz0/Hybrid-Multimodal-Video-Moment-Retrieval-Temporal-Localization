@@ -14,6 +14,7 @@ ENV/
 env.bak/
 venv.bak/
 .venv/
+.venv-inference/
 
 # Environment Variables & Secrets (CRITICAL FOR GITHUB)
 .env
@@ -32,6 +33,8 @@ backend/data/lancedb/*
 !backend/data/lancedb/.gitkeep
 backend/data/clips/*
 !backend/data/clips/.gitkeep
+backend/data/grounding/*
+!backend/data/grounding/.gitkeep
 backend/data/*.log
 *.log
 
@@ -71,3 +74,12 @@ graft/
 
 # Scratch directory
 scratch/
+
+# Local pytest temporary base directory
+backend/.pytest-basetemp/
+
+# Local pytest artifacts
+.pytest-temp*/
+
+# Local dataset checkout (large, not source-controlled)
+AIRC-SMARTCLASS*/

@@ -361,21 +361,57 @@ export const DevPanel: React.FC<DevPanelProps> = ({ isOpen, onClose }) => {
                 </div>
               </div>
 
-              {/* Qwen2.5-VL-7B */}
+              {/* Qwen3-VL-2B */}
               <div className="p-5 rounded-xl bg-surface border border-surfaceBorder space-y-3">
                 <div className="flex items-center gap-2.5">
                   <div className="w-8 h-8 rounded-lg bg-blue-500/20 text-blue-400 flex items-center justify-center">
                     <Code2 className="w-4 h-4" />
                   </div>
                   <div>
-                    <h4 className="text-sm font-bold text-white">Dense Captioner: Qwen2.5-VL-7B</h4>
+                    <h4 className="text-sm font-bold text-white">Dense Captioner: Qwen3-VL-2B</h4>
                     <p className="text-xs text-gray-400">Phase 2 visual action reasoning</p>
                   </div>
                 </div>
                 <div className="p-3 rounded-lg bg-background/80 border border-surfaceBorder space-y-1 text-xs font-mono">
-                  <p className="text-gray-300">Model ID: <span className="text-blue-300">Qwen/Qwen2.5-VL-7B-Instruct</span></p>
+                  <p className="text-gray-300">Model ID: <span className="text-blue-300">Qwen/Qwen3-VL-2B-Instruct</span></p>
                   <p className="text-gray-300">Quantization: <span className="text-emerald-300">4-bit NF4 (BitsAndBytes)</span></p>
                   <p className="text-gray-300">Execution: <span className="text-white">Background Worker</span></p>
+                </div>
+              </div>
+
+              {/* SAM 3.1 */}
+              <div className="p-5 rounded-xl bg-surface border border-surfaceBorder space-y-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-fuchsia-500/20 text-fuchsia-400 flex items-center justify-center">
+                    <Gauge className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-bold text-white">Grounding: SAM 3.1</h4>
+                    <p className="text-xs text-gray-400">Object masks, boxes and temporal evidence</p>
+                  </div>
+                </div>
+                <div className="p-3 rounded-lg bg-background/80 border border-surfaceBorder space-y-1 text-xs font-mono">
+                  <p className="text-gray-300">Model ID: <span className="text-fuchsia-300">facebook/sam3.1</span></p>
+                  <p className="text-gray-300">Execution: <span className="text-white">Routed Accurate / Local Worker</span></p>
+                </div>
+              </div>
+
+              {/* Local inference worker */}
+              <div className="p-5 rounded-xl bg-surface border border-surfaceBorder space-y-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center">
+                    <Server className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-bold text-white">Local Inference Worker</h4>
+                    <p className="text-xs text-gray-400">GPU queue, residency and cache boundary</p>
+                  </div>
+                </div>
+                <div className="p-3 rounded-lg bg-background/80 border border-surfaceBorder space-y-1 text-xs font-mono">
+                  <p className="text-gray-300">Status: <span className="text-emerald-300">{telemetry?.inference_worker?.status || "unknown"}</span></p>
+                  <p className="text-gray-300">Queue: <span className="text-cyan-300">{telemetry?.inference_worker?.models?.queue_depth ?? "—"}</span></p>
+                  <p className="text-gray-300">Models: <span className="text-white">{JSON.stringify(telemetry?.inference_worker?.models?.states || {})}</span></p>
+                  <p className="text-gray-300">VRAM budget: <span className="text-amber-300">{telemetry?.inference_worker?.models?.budget_mb ?? "—"} MB</span></p>
                 </div>
               </div>
 

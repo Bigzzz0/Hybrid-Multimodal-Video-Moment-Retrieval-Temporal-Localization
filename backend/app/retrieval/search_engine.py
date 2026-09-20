@@ -16,6 +16,8 @@ from app.retrieval.query_expander import query_expander
 from app.retrieval.rank_fusion import ReciprocalRankFusion
 from app.retrieval.temporal_smoother import TemporalSmoother
 from app.retrieval.vlm_verifier import vlm_verifier
+from app.retrieval.query_router import query_router
+from app.retrieval.grounding import grounding_orchestrator
 
 
 def _lexical_score(text: str, query: str) -> float:
@@ -186,6 +188,11 @@ class HybridMomentSearchEngine:
         profile = profile if profile in {"fast", "accurate"} else "fast"
         top_k = max(1, min(int(top_k), 20))
         warnings: List[str] = []
+        stage_latency_ms: Dict[str, float] = {}
+        models_used: List[str] = [settings.SIGLIP2_MODEL_ID]
+        strategy_used = "fast"
+        cache_hits: Dict[str, bool] = {}
+        accurate_deadline = started + float(settings.ACCURATE_MAX_SECONDS) if profile == "accurate" else None
         videos = self._rows(db_manager.get_table("videos"), f"id = '{video_id}'", 1)
         if not videos:
             warnings.append("video_not_found")
@@ -282,8 +289,11 @@ class HybridMomentSearchEngine:
             item = result["item_data"]
             ts = float(item.get("timestamp", 0.0))
             raw_by_timestamp[ts] = max(raw_by_timestamp.get(ts, -1.0), float(result["fused_score"]))
+        # Keep the proposal generator identical between profiles. Accurate
+        # gets its extra signal from SAM/Qwen; it must not discard a good Fast
+        # proposal merely because a second-stage verifier is unavailable.
         axis, raw_timeline = self.smoother.smooth_timeline(duration, list(raw_by_timestamp.items()), sigma=settings.TEMPORAL_GAUSSIAN_SIGMA,
-                                                           resolution_hz=2, use_multiscale=(profile == "accurate"))
+                                                           resolution_hz=2, use_multiscale=False)
         display_timeline = self._normalize_display(raw_timeline)
         transition_timeline = np.interp(axis, sorted(transition_by_timestamp), [transition_by_timestamp[t] for t in sorted(transition_by_timestamp)]) if transition_by_timestamp else np.zeros_like(axis)
         boundaries = [0.0, duration]
@@ -293,10 +303,64 @@ class HybridMomentSearchEngine:
                                                                           transition_energy=transition_timeline, scene_boundaries=sorted(set(boundaries)))
         if not candidates:
             warnings.append("no_candidates")
+        # Snapshot the profile-independent retrieval result. If a heavy model
+        # is disabled, times out, or returns no valid evidence, Accurate must
+        # return this exact baseline instead of silently degrading ranking.
+        baseline_candidates = [dict(candidate) for candidate in candidates]
         calibration_available = self._load_calibration() is not None
         if not calibration_available:
             warnings.append("calibration_missing")
-        if profile == "accurate" and settings.ENABLE_VLM_STAGE2_VERIFY and candidates:
+        route_info = query_router.route(query) if profile == "accurate" else {"route": "fast", "object_prompts": []}
+        route = str(route_info.get("route", "fast"))
+        if profile == "accurate" and not settings.ENABLE_SAM_GROUNDING and route in {"object_grounding", "mixed"}:
+            # SAM 3.1 is paused while its gated checkpoint is under review.
+            # Qwen can still verify visible object presence/attributes.
+            route = "action_relation"
+            route_info = dict(route_info)
+            route_info["route"] = route
+            warnings.append("sam_paused_vlm_fallback")
+        if profile == "accurate" and settings.ENABLE_SAM_GROUNDING and route in {"object_grounding", "mixed"}:
+            # Grounding needs a separate cold-start allowance. Without this,
+            # the SigLIP load plus SAM checkpoint load consumes the regular
+            # VLM budget before the first mask can be returned.
+            accurate_deadline = started + max(
+                float(settings.ACCURATE_MAX_SECONDS),
+                float(settings.SAM_ACCURATE_MAX_SECONDS),
+            )
+        if profile == "accurate" and candidates and route in {"object_grounding", "mixed"}:
+            grounding_started = time.monotonic()
+            grounding_limit = max(1, int(settings.SAM_SEARCH_TOP_K))
+            candidates, grounding_warnings, grounding_cache_hits = grounding_orchestrator.ground_candidates(
+                video_id=video_id,
+                candidates=candidates,
+                frames=frames,
+                prompts=[str(prompt) for prompt in route_info.get("object_prompts", [])],
+                limit=grounding_limit,
+                deadline=accurate_deadline,
+            )
+            warnings.extend(grounding_warnings)
+            cache_hits.update(grounding_cache_hits)
+            stage_latency_ms["sam"] = round((time.monotonic() - grounding_started) * 1000, 2)
+            if any(float(candidate.get("sam_score", 0.0)) > 0.0 for candidate in candidates[:grounding_limit]):
+                strategy_used = "sam"
+                models_used.append(settings.SAM_MODEL_ID)
+                for candidate in candidates[:grounding_limit]:
+                    base_score = float(candidate.get("fast_score", candidate.get("score", 0.0)))
+                    sam_score = float(candidate.get("sam_score", 0.0))
+                    candidate["grounding_verified"] = sam_score > 0.0
+                    candidate["fast_score"] = base_score
+                    candidate["score"] = 0.55 * base_score + 0.45 * sam_score
+                    candidate["rank_score"] = candidate["score"]
+
+        # Object/attribute queries belong to SAM. Do not let Qwen replace SAM
+        # when the worker is disabled, because a small VLM can reject a static
+        # object and make Accurate worse than the Fast baseline.
+        should_verify_with_qwen = profile == "accurate" and settings.ENABLE_VLM_STAGE2_VERIFY and candidates and route in {"action_relation", "mixed"}
+        if should_verify_with_qwen and accurate_deadline is not None and time.monotonic() >= accurate_deadline:
+            warnings.append("accurate_budget_exhausted")
+            should_verify_with_qwen = False
+        if should_verify_with_qwen:
+            verifier_started = time.monotonic()
             verify_limit = max(1, int(settings.VLM_VERIFY_TOP_K))
             # Carry the already-generated scene caption into verification as a
             # weak visual hint. It is also surfaced in the result card, but
@@ -314,8 +378,33 @@ class HybridMomentSearchEngine:
             # decode a fresh 2fps window around each candidate.  It is never
             # persisted into LanceDB and is ignored by Fast mode.
             verifier_frames = [{"_video_path": str(target.get("filepath", ""))}] + frames
-            candidates = vlm_verifier.verify(candidates[:verify_limit], verifier_frames, query) + candidates[verify_limit:]
+            remaining_budget = max(0.0, accurate_deadline - time.monotonic()) if accurate_deadline is not None else None
+            candidates = vlm_verifier.verify(
+                candidates[:verify_limit],
+                verifier_frames,
+                query,
+                budget_seconds=remaining_budget,
+            ) + candidates[verify_limit:]
             warnings.extend(vlm_verifier.last_warnings)
+            stage_latency_ms["qwen"] = round((time.monotonic() - verifier_started) * 1000, 2)
+            if settings.QWEN_VL_MODEL_ID not in models_used:
+                models_used.append(settings.QWEN_VL_MODEL_ID)
+            has_qwen_evidence = any("verifier_confidence" in candidate for candidate in candidates)
+            if has_qwen_evidence:
+                strategy_used = "sam_qwen" if strategy_used == "sam" else "qwen"
+            else:
+                candidates = baseline_candidates
+                strategy_used = "fast"
+                warnings.append("accurate_fallback_fast")
+
+        # SAM can be unavailable in the normal single-process development path.
+        # In that case preserve Fast candidates and make the fallback explicit.
+        if profile == "accurate" and route in {"object_grounding", "mixed"}:
+            has_sam_evidence = any(float(candidate.get("sam_score", 0.0)) > 0.0 for candidate in candidates)
+            if not has_sam_evidence and not any("verifier_confidence" in candidate for candidate in candidates):
+                candidates = baseline_candidates
+                if strategy_used == "fast":
+                    warnings.append("accurate_fallback_fast")
 
         scored: List[Tuple[float, Dict[str, Any]]] = []
         threshold: Optional[float] = None
@@ -337,7 +426,16 @@ class HybridMomentSearchEngine:
         occurrence_by_key: Dict[Tuple[float, float], int] = {}
         for occurrence_index, (_, candidate) in enumerate(sorted(scored, key=lambda pair: (float(pair[1].get("t_start", 0.0)), float(pair[1].get("t_end", 0.0)))), start=1):
             occurrence_by_key[(float(candidate.get("t_start", 0.0)), float(candidate.get("t_end", 0.0)))] = occurrence_index
-        scored.sort(key=lambda pair: (-pair[0], float(pair[1].get("t_start", 0.0))))
+        # For Accurate object searches, a positive SAM track is stronger
+        # evidence than an ungrounded SigLIP-only proposal. Promote verified
+        # moments so the UI opens on a frame where the mask is actually
+        # available instead of showing SAM=0 on the first card while hiding
+        # the useful evidence lower in the list.
+        scored.sort(key=lambda pair: (
+            0 if route in {"object_grounding", "mixed"} and pair[1].get("grounding_verified") else 1,
+            -pair[0],
+            float(pair[1].get("t_start", 0.0)),
+        ))
         moments: List[MomentItem] = []
         for probability, candidate in scored[:top_k]:
             start, end = float(candidate["t_start"]), float(candidate["t_end"])
@@ -347,7 +445,8 @@ class HybridMomentSearchEngine:
             caption = max((caption_by_timestamp.get(ts, 0.0) for ts in timestamps), default=0.0)
             verifier = float(candidate.get("verifier_confidence", 0.0))
             breakdown = {"visual": round(float(visual), 4), "caption": round(float(caption), 4),
-                         "temporal": round(float(candidate.get("score", 0.0)), 4), "verifier": round(verifier, 4)}
+                         "temporal": round(float(candidate.get("score", 0.0)), 4), "verifier": round(verifier, 4),
+                         "sam": round(float(candidate.get("sam_score", 0.0)), 4)}
             scene_caption = ""
             if nearest.get("scene_id") in scene_by_id:
                 scene_caption = str(scene_by_id[nearest["scene_id"]].get("caption", "") or "")
@@ -357,13 +456,23 @@ class HybridMomentSearchEngine:
                                       modality_breakdown=breakdown,
                                       occurrence_index=occurrence_by_key.get((start, end), 0),
                                       context_t_start=round(float(candidate.get("context_t_start", start)), 3),
-                                      context_t_end=round(float(candidate.get("context_t_end", end)), 3)))
+                                      context_t_end=round(float(candidate.get("context_t_end", end)), 3),
+                                      grounding_evidence=list(candidate.get("grounding_evidence", [])),
+                                      verifier_evidence=(
+                                          {"event_present": bool(candidate.get("action_present", False)),
+                                           "confidence": round(verifier, 4),
+                                           "reason": str(candidate.get("verifier_reason", "")),
+                                           "model_id": settings.QWEN_VL_MODEL_ID}
+                                          if "verifier_confidence" in candidate else None
+                                      )))
         # one heatmap value per second, derived only from display timeline
         heatmap = [round(float(display_timeline[min(len(display_timeline) - 1, int(sec * 2))]), 4) for sec in range(max(0, int(np.ceil(duration))))] if len(display_timeline) else []
         return SearchResponse(query=query, video_id=video_id, moments=moments, timeline_heatmap=heatmap,
                               total_duration=round(duration, 2), latency_ms=round((time.monotonic() - started) * 1000, 2),
                               top_k=top_k, profile=profile, calibrated=calibration_available,
-                              index_version=settings.VISUAL_INDEX_VERSION, warnings=warnings)
+                              index_version=settings.VISUAL_INDEX_VERSION, warnings=warnings,
+                              strategy_used=strategy_used, models_used=models_used,
+                              stage_latency_ms=stage_latency_ms, cache_hits=cache_hits)
 
 
 search_engine = HybridMomentSearchEngine()

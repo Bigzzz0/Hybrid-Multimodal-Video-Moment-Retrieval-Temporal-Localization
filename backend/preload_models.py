@@ -50,17 +50,17 @@ def preload_all_models():
     except Exception as e:
         logger.error(f"❌ Failed to load SigLIP 2: {e}")
 
-    # 2. Qwen2.5-VL-7B-Instruct (4-bit Quantized)
-    logger.info("2/2 [Dense Action Captioning] Preloading Qwen2.5-VL-7B (4-bit quantized)...")
+    # 2. Qwen3-VL-2B-Instruct (4-bit Quantized)
+    logger.info("2/2 [Dense Action Captioning] Preloading Qwen3-VL-2B (4-bit quantized)...")
     try:
         captioner = QwenVLDenseCaptioner()
         captioner._lazy_load()
         if captioner.model is not None:
-            logger.info("✅ Qwen2.5-VL-7B 4-bit loaded successfully.")
+            logger.info("✅ Qwen3-VL-2B 4-bit loaded successfully.")
         else:
-            logger.warning("⚠️ Qwen2.5-VL-7B unavailable; scene captions will be marked unavailable.")
+            logger.warning("⚠️ Qwen3-VL-2B unavailable; scene captions will be marked unavailable.")
     except Exception as e:
-        logger.error(f"❌ Failed to load Qwen2.5-VL-7B: {e}")
+        logger.error(f"❌ Failed to load Qwen3-VL-2B: {e}")
 
     if torch.cuda.is_available():
         allocated = torch.cuda.memory_allocated() / (1024**2)

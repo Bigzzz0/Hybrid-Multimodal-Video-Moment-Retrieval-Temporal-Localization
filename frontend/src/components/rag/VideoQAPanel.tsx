@@ -113,7 +113,7 @@ export const VideoQAPanel: React.FC<VideoQAPanelProps> = ({
         </div>
 
         <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-cyan-950 text-cyan-300 border border-cyan-800">
-          Qwen2.5-VL 7B Vision Grounded
+          Qwen3-VL-2B Vision Grounded
         </span>
       </div>
 

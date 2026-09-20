@@ -1,18 +1,19 @@
 "use client";
 
 import React from "react";
-import { Activity, Sparkles, User, Zap } from "lucide-react";
+import { Activity, Box, Sparkles, User, Zap } from "lucide-react";
 
 const EVIDENCE = [
   ["visual", "VIS", "Visual match", "text-cyan-300", "bg-cyan-400", User],
   ["caption", "CAP", "Scene caption match", "text-indigo-300", "bg-indigo-400", Sparkles],
   ["temporal", "TMP", "Temporal proposal quality", "text-amber-300", "bg-amber-400", Activity],
   ["verifier", "VLM", "Qwen visual verification", "text-emerald-300", "bg-emerald-400", Zap],
+  ["sam", "SAM", "SAM 3.1 grounding confidence", "text-fuchsia-300", "bg-fuchsia-400", Box],
 ] as const;
 
 export const MomentEvidenceBreakdown: React.FC<{ breakdown?: Record<string, number> | null; showVerifier?: boolean }> = ({ breakdown = {}, showVerifier = true }) => (
-  <div className="grid grid-cols-2 gap-1.5 pt-2 border-t border-surfaceBorder/60 text-[10px] font-mono sm:grid-cols-4">
-    {EVIDENCE.map(([key, label, title, textColor, barColor, Icon]) => {
+  <div className="grid grid-cols-2 gap-1.5 pt-2 border-t border-surfaceBorder/60 text-[10px] font-mono sm:grid-cols-5">
+    {EVIDENCE.filter(([key]) => key !== "sam" || showVerifier).map(([key, label, title, textColor, barColor, Icon]) => {
       const available = key !== "verifier" || showVerifier;
       const value = Number(breakdown?.[key] ?? 0);
       return (

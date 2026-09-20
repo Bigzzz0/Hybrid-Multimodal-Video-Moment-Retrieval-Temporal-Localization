@@ -38,6 +38,7 @@ def test_qwen_parser_accepts_markdown_and_optional_explanation():
         "start_frame_index": 0,
         "end_frame_index": 1,
         "confidence": 0.8,
+        "reason": "visible",
     }
 
 
@@ -77,7 +78,7 @@ def test_qwen_invalid_json_uses_fast_candidate(tmp_path):
     result = reranker.verify([candidate], frames, "person walking")
     assert result[0]["t_start"] == 1.0
     assert "verifier_invalid_json_fallback" in reranker.last_warnings
-    assert reranker._captioner.kwargs["max_new_tokens"] == 48
+    assert reranker._captioner.kwargs["max_new_tokens"] == 96
 
 
 def test_qwen_timeout_and_oom_fallbacks_do_not_raise(tmp_path):

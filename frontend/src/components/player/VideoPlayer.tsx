@@ -16,7 +16,8 @@ import {
   Tv,
 } from "lucide-react";
 import { TimelineHeatmap } from "./TimelineHeatmap";
-import { MomentItem, VideoKeyframeItem } from "@/lib/types";
+import { GroundingEvidence, MomentItem, VideoKeyframeItem } from "@/lib/types";
+import { apiClient } from "@/lib/api";
 
 interface VideoPlayerProps {
   streamUrl: string;
@@ -33,6 +34,7 @@ interface VideoPlayerProps {
   boundaryAdjusted?: boolean;
   contextExpanded?: boolean;
   onResetBoundary?: () => void;
+  groundingEvidence?: GroundingEvidence[];
 }
 
 export const VideoPlayer: React.FC<VideoPlayerProps> = ({
@@ -50,6 +52,7 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   boundaryAdjusted = false,
   contextExpanded = false,
   onResetBoundary,
+  groundingEvidence = [],
 }) => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -57,6 +60,76 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
   const [isMuted, setIsMuted] = useState(false);
   const [playbackSpeed, setPlaybackSpeed] = useState(1.0);
   const [isLoopActive, setIsLoopActive] = useState(false);
+  const [maskEnabled, setMaskEnabled] = useState(true);
+  const [groundingArtifact, setGroundingArtifact] = useState<any>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const lastTrackRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const evidence = groundingEvidence.find((item) => currentTime >= item.t_start - 0.25 && currentTime <= item.t_end + 0.25);
+    if (!evidence || !maskEnabled) {
+      setGroundingArtifact(null);
+      lastTrackRef.current = null;
+      return;
+    }
+    if (lastTrackRef.current === `${evidence.track_id}:${Math.floor(currentTime * 2)}`) return;
+    lastTrackRef.current = `${evidence.track_id}:${Math.floor(currentTime * 2)}`;
+    apiClient.getGroundingTrack(evidence.track_id, currentTime)
+      .then(setGroundingArtifact)
+      .catch(() => setGroundingArtifact(null));
+  }, [currentTime, groundingEvidence, maskEnabled]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const video = videoRef.current;
+    if (!canvas || !video) return;
+    const parent = canvas.parentElement;
+    if (!parent) return;
+    const width = parent.clientWidth;
+    const height = parent.clientHeight;
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    ctx.clearRect(0, 0, width, height);
+    if (!groundingArtifact || !maskEnabled) return;
+    const sourceWidth = Math.max(1, Number(groundingArtifact.frame_width || width));
+    const sourceHeight = Math.max(1, Number(groundingArtifact.frame_height || height));
+    const bbox = groundingArtifact.bbox_xyxy || [];
+    if (bbox.length >= 4) {
+      ctx.strokeStyle = "rgba(232,121,249,0.95)";
+      ctx.lineWidth = 2;
+      ctx.strokeRect((bbox[0] / sourceWidth) * width, (bbox[1] / sourceHeight) * height, ((bbox[2] - bbox[0]) / sourceWidth) * width, ((bbox[3] - bbox[1]) / sourceHeight) * height);
+    }
+    const rle = groundingArtifact.mask_rle || {};
+    const size = rle.size || [];
+    const counts = rle.counts || [];
+    if (size.length < 2 || counts.length === 0) return;
+    const maskWidth = Number(size[1]);
+    const maskHeight = Number(size[0]);
+    const image = ctx.createImageData(width, height);
+    let cursor = 0;
+    let filled = false;
+    counts.forEach((run: number) => {
+      const end = Math.min(maskWidth * maskHeight, cursor + Math.max(0, Number(run)));
+      if (filled) {
+        for (let index = cursor; index < end; index += 1) {
+          const x = index % maskWidth;
+          const y = Math.floor(index / maskWidth);
+          const dx = Math.min(width - 1, Math.floor((x / maskWidth) * width));
+          const dy = Math.min(height - 1, Math.floor((y / maskHeight) * height));
+          const offset = (dy * width + dx) * 4;
+          image.data[offset] = 217;
+          image.data[offset + 1] = 70;
+          image.data[offset + 2] = 239;
+          image.data[offset + 3] = 70;
+        }
+      }
+      cursor = end;
+      filled = !filled;
+    });
+    ctx.putImageData(image, 0, 0);
+  }, [groundingArtifact, maskEnabled]);
 
   // Handle external seek requests
   useEffect(() => {
@@ -139,6 +212,18 @@ export const VideoPlayer: React.FC<VideoPlayerProps> = ({
           onPause={() => setIsPlaying(false)}
           className="w-full h-full object-contain"
         />
+
+        <canvas ref={canvasRef} className="absolute inset-0 w-full h-full pointer-events-none" aria-hidden="true" />
+
+        {groundingEvidence.length > 0 && (
+          <button
+            type="button"
+            onClick={() => setMaskEnabled((value) => !value)}
+            className="absolute bottom-3 left-3 z-10 rounded-lg border border-fuchsia-400/50 bg-black/75 px-2.5 py-1 text-[10px] font-mono text-fuchsia-200"
+          >
+            {maskEnabled ? "ซ่อน SAM mask" : "แสดง SAM mask"}
+          </button>
+        )}
 
         {/* Video Overlay Play/Pause Action */}
         <div

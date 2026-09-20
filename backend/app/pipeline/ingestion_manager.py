@@ -1,6 +1,7 @@
 import os
 import uuid
 import datetime
+import json
 import numpy as np
 from pathlib import Path
 from PIL import Image
@@ -13,6 +14,7 @@ from app.pipeline.scene_detector import AdaptiveSceneDetector
 from app.pipeline.keyframe_filter import SSIMKeyframeFilter, compute_pixel_motion
 from app.pipeline.visual_encoder import SigLIP2VisualEncoder
 from app.pipeline.dense_captioner import QwenVLDenseCaptioner
+from app.retrieval.grounding import grounding_orchestrator
 
 class ProgressiveIngestionManager:
     """Orchestrates Progressive Two-Phase Video Ingestion and Visual-Centric Feature Extraction."""
@@ -163,7 +165,22 @@ class ProgressiveIngestionManager:
             if progress_callback:
                 progress_callback(video_id, macro_pct, msg, stg, details)
 
-        embeddings = self.visual_encoder.encode_images(all_sampled_images, batch_size=16, progress_callback=siglip_sub_progress)
+        if settings.INFERENCE_WORKER_ENABLED:
+            try:
+                from app.inference.client import inference_client
+                from app.inference.contracts import EmbedImagesRequest
+                embeddings_response = inference_client.embed_images(EmbedImagesRequest(
+                    frame_paths=[str(meta["frame_path"]) for meta in all_sampled_meta],
+                    batch_size=16,
+                ))
+                embeddings = embeddings_response.embeddings
+                if progress_callback:
+                    progress_callback(video_id, 94, f"SigLIP 2 worker embedded {len(embeddings)}/{len(all_sampled_meta)} frames", "siglip2_embedding", {"sub_percent": 100})
+            except Exception as exc:
+                logger.warning(f"SigLIP worker embedding fallback to local encoder: {exc}")
+                embeddings = self.visual_encoder.encode_images(all_sampled_images, batch_size=16, progress_callback=siglip_sub_progress)
+        else:
+            embeddings = self.visual_encoder.encode_images(all_sampled_images, batch_size=16, progress_callback=siglip_sub_progress)
         
         # 5. Inter-Frame Pixel Motion Energy.  v2 stores the raw encoder output;
         # temporal context is applied at retrieval time so re-indexing is not
@@ -250,11 +267,11 @@ class ProgressiveIngestionManager:
         progress_callback: Optional[Callable[[str, int, str, str, Dict[str, Any]], None]] = None
     ):
         """
-        Phase 2: Deep Context Ingestion (Background) - Generates Qwen2.5-VL-7B Spatiotemporal Action Captions.
+        Phase 2: Deep Context Ingestion (Background) - Generates Qwen3-VL-2B Spatiotemporal Action Captions.
         """
         logger.info(f"=== Starting Phase 2 Background Captioning for Video ID: {video_id} ===")
         if progress_callback:
-            progress_callback(video_id, 10, "Generating Qwen2.5-VL Dense Visual Captions (Background)...", "dense_visual_caption", {})
+            progress_callback(video_id, 10, "Generating Qwen3-VL Dense Visual Captions (Background)...", "dense_visual_caption", {})
 
         try:
             from collections import defaultdict
@@ -276,26 +293,65 @@ class ProgressiveIngestionManager:
 
             total_scene_groups = max(1, len(scenes_grouped))
             for s_idx, (scene_id, group) in enumerate(scenes_grouped.items()):
+                group = sorted(group, key=lambda row: float(row.get("timestamp", 0.0)))
                 frame_paths = [g.get("frame_path") for g in group if g.get("frame_path")]
-                images = [Image.open(fp) for fp in frame_paths if os.path.exists(fp)]
-                
-                if images:
-                    caption = self.dense_captioner.generate_scene_caption(images)
+                valid_paths = [str(fp) for fp in frame_paths if os.path.exists(str(fp))]
+                images = []
+                if settings.INFERENCE_WORKER_ENABLED:
+                    timestamps = [float(g.get("timestamp", 0.0)) for g in group if g.get("frame_path") and os.path.exists(str(g.get("frame_path")))]
+                    caption = self.dense_captioner.generate_scene_caption_from_paths(
+                        valid_paths,
+                        timestamps=timestamps,
+                        max_frames=settings.QWEN_MAX_FRAMES_PER_CANDIDATE,
+                    )
+                else:
+                    images = [Image.open(fp) for fp in valid_paths]
+                    caption = self.dense_captioner.generate_scene_caption(images) if images else ""
+                if valid_paths:
                     caption_status = "generated" if caption else getattr(self.dense_captioner, "last_status", "unavailable")
                     try:
                         db_manager.get_table("scenes_v2").update(
                             where=f"id = '{scene_id}'",
-                            values={"caption": caption, "caption_status": caption_status}
+                            values={
+                                "caption": caption,
+                                "caption_status": caption_status,
+                                "caption_model": settings.QWEN_VL_MODEL_ID if caption else "",
+                            }
                         )
                     except Exception as up_err:
                         logger.debug(f"Update scene caption error: {up_err}")
+                    try:
+                        analysis_table = db_manager.get_table("scene_analysis_v1")
+                        analysis_row = {
+                            "scene_id": str(scene_id),
+                            "video_id": str(video_id),
+                            "caption_text": str(caption or ""),
+                            "structured_json": json.dumps(getattr(self.dense_captioner, "last_structured", {}) or {}, ensure_ascii=False),
+                            "model_id": settings.QWEN_VL_MODEL_ID,
+                            "caption_version": settings.CAPTION_VERSION,
+                            "prompt_version": "classroom-caption-v1",
+                            "status": caption_status,
+                            "created_at": datetime.datetime.now().isoformat(),
+                        }
+                        existing = analysis_table.search().where(f"scene_id = '{scene_id}'").limit(1).to_list()
+                        if existing:
+                            analysis_table.update(where=f"scene_id = '{scene_id}'", values=analysis_row)
+                        else:
+                            analysis_table.add([analysis_row])
+                    except Exception as analysis_err:
+                        logger.debug(f"Persist scene analysis error: {analysis_err}")
+                for image in images:
+                    try:
+                        image.close()
+                    except Exception:
+                        pass
 
                 if progress_callback:
                     sub_pct = int(((s_idx + 1) / total_scene_groups) * 100)
                     progress_callback(
                         video_id,
                         sub_pct,
-                        f"Generating Qwen2.5-VL Action Captions: Scene {s_idx + 1}/{total_scene_groups} ({sub_pct}%)",
+                        f"Generating Qwen3-VL Action Captions: Scene {s_idx + 1}/{total_scene_groups} ({sub_pct}%)",
                         "dense_visual_caption",
                         {
                             "sub_percent": sub_pct,
@@ -323,5 +379,54 @@ class ProgressiveIngestionManager:
 
         except Exception as e:
             logger.error(f"Error in Phase 2 background captioning: {e}")
+
+    def process_video_phase3_background(
+        self,
+        video_id: str,
+        progress_callback: Optional[Callable[[str, int, str, str, Dict[str, Any]], None]] = None,
+    ):
+        """Phase 3: optional SAM 3.1 generic classroom grounding cache."""
+        if progress_callback:
+            progress_callback(video_id, 5, "Preparing SAM 3.1 grounding cache...", "sam_grounding", {})
+        if not settings.INFERENCE_WORKER_ENABLED:
+            if progress_callback:
+                progress_callback(video_id, 100, "SAM 3.1 worker disabled; on-demand grounding remains available after worker startup.", "sam_unavailable", {"skipped": True})
+            return
+        try:
+            tbl_frames = db_manager.get_table("video_frames_v2")
+            tbl_scenes = db_manager.get_table("scenes_v2")
+            try:
+                frames = tbl_frames.search().where(f"video_id = '{video_id}'").limit(200000).to_list()
+                scenes = tbl_scenes.search().where(f"video_id = '{video_id}'").limit(10000).to_list()
+            except Exception:
+                frames = [row for row in tbl_frames.to_arrow().to_pylist() if str(row.get("video_id")) == video_id]
+                scenes = [row for row in tbl_scenes.to_arrow().to_pylist() if str(row.get("video_id")) == video_id]
+            concepts = ["person", "backpack or school bag", "book", "laptop or computer", "mobile phone"]
+            total = max(1, len(scenes))
+            for index, scene in enumerate(sorted(scenes, key=lambda row: float(row.get("t_start", 0.0)))):
+                candidate = [{"t_start": float(scene.get("t_start", 0.0)), "t_end": float(scene.get("t_end", 0.0))}]
+                _, warnings, _ = grounding_orchestrator.ground_candidates(
+                    video_id,
+                    candidate,
+                    frames,
+                    concepts,
+                    limit=1,
+                    fps=settings.SAM_PRECOMPUTE_FPS,
+                )
+                if warnings:
+                    logger.warning("SAM grounding warnings for scene {}: {}", scene.get("id"), warnings)
+                if progress_callback:
+                    percent = int(((index + 1) / total) * 100)
+                    progress_callback(video_id, percent, f"SAM 3.1 Grounding: Scene {index + 1}/{total}", "sam_grounding", {"sub_percent": percent, "scene_idx": index + 1, "total_scenes": total})
+            try:
+                db_manager.get_table("videos").update(where=f"id = '{video_id}'", values={"ingestion_phase": "phase3_complete"})
+            except Exception:
+                pass
+            if progress_callback:
+                progress_callback(video_id, 100, "Phase 3 Complete: SAM 3.1 Grounding Cache Ready", "complete", {})
+        except Exception as exc:
+            logger.error(f"Error in Phase 3 SAM grounding: {exc}")
+            if progress_callback:
+                progress_callback(video_id, 100, f"SAM grounding unavailable: {exc}", "sam_unavailable", {})
 
 ingestion_manager = ProgressiveIngestionManager()

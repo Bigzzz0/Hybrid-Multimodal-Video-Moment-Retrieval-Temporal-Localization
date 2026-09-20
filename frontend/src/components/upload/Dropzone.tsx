@@ -30,7 +30,8 @@ const PIPELINE_STAGES: PipelineStage[] = [
   { id: "scene_detect", name: "2. Adaptive Scene Cuts", desc: "PySceneDetect boundary segmentation", icon: Layers },
   { id: "keyframe_ssim", name: "3. Keyframe Sampling", desc: "SSIM structural difference filtering", icon: Film },
   { id: "siglip2_embedding", name: "4. Temporal & Visual Embedding", desc: "SigLIP 2 NaFlex frame representations", icon: Cpu },
-  { id: "dense_visual_caption", name: "5. Dense Visual Scene Captions", desc: "Qwen2.5-VL-7B 4-bit visual actions", icon: Sparkles }
+  { id: "dense_visual_caption", name: "5. Dense Visual Scene Captions", desc: "Qwen3-VL-2B 4-bit visual actions", icon: Sparkles },
+  { id: "sam_grounding", name: "6. SAM 3.1 Grounding", desc: "Object masks, boxes and temporal tracks", icon: Sparkles }
 ];
 
 export const Dropzone: React.FC<DropzoneProps> = ({ onUploadSuccess }) => {

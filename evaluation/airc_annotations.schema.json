@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "AIRC-SMARTCLASS pure visual temporal annotations",
+  "type": "object",
+  "required": ["dataset_id", "videos"],
+  "properties": {
+    "dataset_id": {"type": "string"},
+    "videos": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["video_id", "split", "events"],
+        "properties": {
+          "video_id": {"type": "string"},
+          "split": {"enum": ["development", "validation", "test"]},
+          "events": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["event_id", "queries", "ground_truths"],
+              "properties": {
+                "event_id": {"type": "string"},
+                "category": {"type": "string"},
+                "queries": {"type": "array", "minItems": 2, "items": {"type": "string"}},
+                "ground_truths": {
+                  "type": "array",
+                  "items": {"type": "array", "minItems": 2, "maxItems": 2, "items": {"type": "number"}}
+                },
+                "vqa": {"type": "array", "items": {"type": "object"}},
+                "mask_annotations": {"type": "array", "items": {"type": "object"}}
+              },
+              "additionalProperties": false
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

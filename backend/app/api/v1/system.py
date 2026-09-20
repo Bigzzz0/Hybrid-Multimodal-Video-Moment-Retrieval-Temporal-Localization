@@ -7,6 +7,7 @@ from typing import Dict, Any, List
 from fastapi import APIRouter
 from app.core.config import settings
 from app.db.connection import db_manager
+from app.inference.client import inference_client
 
 router = APIRouter()
 
@@ -59,7 +60,16 @@ def get_system_telemetry():
     # 3. LanceDB Database Storage Stats
     tables_stats = {}
     total_records = 0
-    table_names = ["videos", "video_frames_v2", "scenes_v2", "search_logs"]
+    table_names = [
+        "videos",
+        "video_frames_v2",
+        "scenes_v2",
+        "search_logs",
+        "sam_tracks_v1",
+        "sam_observations_v1",
+        "scene_analysis_v1",
+        "model_artifact_cache",
+    ]
     for t_name in table_names:
         try:
             tbl = db_manager.get_table(t_name)
@@ -85,9 +95,15 @@ def get_system_telemetry():
             "acceleration": "CUDA FP16 / Tensor Cores" if torch.cuda.is_available() else "CPU"
         },
         "visual_temporal_reranker": {
-            "name": "Qwen2.5-VL-7B-Instruct (top-3)",
+            "name": "Qwen3-VL-2B-Instruct (top-3)",
             "model_id": settings.QWEN_VL_MODEL_ID,
             "quantization": "4-bit NormalFloat (NF4) BitsAndBytes"
+        },
+        "sam_grounder": {
+            "name": "SAM 3.1 text-grounded segmentation",
+            "model_id": settings.SAM_MODEL_ID,
+            "grounding_version": settings.GROUNDING_VERSION,
+            "compile": settings.SAM_COMPILE,
         },
         "temporal_localizer": {
             "name": "Multi-scale visual proposals + Soft-NMS",
@@ -119,5 +135,6 @@ def get_system_telemetry():
         },
         "visual_index": db_manager.validate_visual_index(),
         "models": models_info,
+        "inference_worker": inference_client.health(),
         "recent_logs": log_lines
     }

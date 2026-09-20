@@ -8,7 +8,7 @@ from app.core.logger import logger
 class QwenVLDenseCaptioner:
     """
     Dense Action, Video Understanding, and Physical State Transition Captioner
-    powered by 4-bit Quantized Qwen2.5-VL-7B-Instruct (Alibaba Cloud / Qwen Team).
+    powered by 4-bit Quantized Qwen3-VL-2B-Instruct (Alibaba Cloud / Qwen Team).
     Supports multi-frame sequence reasoning, temporal action descriptions, and physical state transitions.
     """
 
@@ -18,18 +18,85 @@ class QwenVLDenseCaptioner:
         self.model = None
         self.processor = None
         self.last_status = "unavailable"
+        self.last_structured = {}
+
+    def generate_scene_caption_from_paths(
+        self,
+        frame_paths: List[str],
+        timestamps: Optional[List[float]] = None,
+        prompt_override: Optional[str] = None,
+        max_frames: int = 4,
+        max_new_tokens: int = 128,
+    ) -> str:
+        """Caption local frame files, preferring the isolated GPU worker.
+
+        The worker contract deliberately accepts paths instead of image bytes so
+        the main API never serializes CCTV frames into request payloads.  Direct
+        PIL inference remains a development fallback when the worker is disabled.
+        """
+        paths = [str(path) for path in frame_paths if path and os.path.exists(str(path))]
+        if not paths:
+            self.last_status = "unavailable"
+            self.last_structured = {}
+            return ""
+        selected_indices = list(range(len(paths)))
+        if len(paths) > max(1, int(max_frames)):
+            if max_frames <= 1:
+                selected_indices = [len(paths) // 2]
+            else:
+                selected_indices = [round(i * (len(paths) - 1) / (max_frames - 1)) for i in range(max_frames)]
+            paths = [paths[index] for index in selected_indices]
+        if timestamps:
+            timestamps = [float(timestamps[index]) for index in selected_indices if index < len(timestamps)]
+        try:
+            from app.inference.client import inference_client
+            from app.inference.contracts import CaptionRequest
+            if inference_client.enabled:
+                response = inference_client.caption(CaptionRequest(
+                    scene_id="",
+                    frame_paths=paths,
+                    timestamps=timestamps or [],
+                    prompt=prompt_override or "",
+                    prompt_version=settings.CAPTION_VERSION,
+                    max_new_tokens=max_new_tokens,
+                ))
+                self.last_structured = response.model_dump()
+                self.last_status = response.status or "generated"
+                return (response.summary or response.text or "").strip()
+        except Exception as exc:
+            # The worker is an optimization and isolation boundary.  A transient
+            # worker failure must not make Phase 2 unusable when direct fallback
+            # inference is available.
+            logger.warning(f"Qwen3 worker caption fallback: {exc}")
+            self.last_status = "worker_fallback"
+
+        images = []
+        try:
+            images = [Image.open(path).convert("RGB") for path in paths]
+            return self.generate_scene_caption(
+                images,
+                prompt_override=prompt_override,
+                max_frames=len(images),
+                max_new_tokens=max_new_tokens,
+            )
+        finally:
+            for image in images:
+                try:
+                    image.close()
+                except Exception:
+                    pass
 
     def _lazy_load(self):
         if self.model is None:
             if self.device != "cuda":
-                logger.info("CUDA not available. Qwen2.5-VL captioner disabled on CPU; scene caption unavailable.")
+                logger.info("CUDA not available. Qwen3-VL captioner disabled on CPU; scene caption unavailable.")
                 self.last_status = "unavailable"
                 return
 
             try:
                 free_bytes, _ = torch.cuda.mem_get_info()
                 if free_bytes < int(settings.VLM_MIN_FREE_VRAM_MB) * 1024 * 1024:
-                    logger.warning("Insufficient free VRAM for Qwen2.5-VL; leaving captions unavailable to protect the 8GB budget.")
+                    logger.warning("Insufficient free VRAM for Qwen3-VL; leaving captions unavailable to protect the VRAM budget.")
                     self.last_status = "unavailable"
                     return
             except Exception:
@@ -37,9 +104,9 @@ class QwenVLDenseCaptioner:
                 # model load below decide and fall back on failure.
                 pass
 
-            from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor, BitsAndBytesConfig
+            from transformers import Qwen3VLForConditionalGeneration, AutoProcessor, BitsAndBytesConfig
             token = settings.HF_TOKEN or os.environ.get("HF_TOKEN")
-            logger.info(f"Loading 4-bit Quantized Qwen2.5-VL-7B ({self.model_id})...")
+            logger.info(f"Loading 4-bit Quantized Qwen3-VL-2B ({self.model_id})...")
 
             try:
                 bnb_config = BitsAndBytesConfig(
@@ -48,7 +115,7 @@ class QwenVLDenseCaptioner:
                     bnb_4bit_quant_type="nf4",
                     bnb_4bit_use_double_quant=True
                 )
-                self.model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
+                self.model = Qwen3VLForConditionalGeneration.from_pretrained(
                     self.model_id,
                     torch_dtype=torch.bfloat16,
                     quantization_config=bnb_config,
@@ -59,10 +126,10 @@ class QwenVLDenseCaptioner:
                     self.model_id,
                     token=token
                 )
-                logger.info("✅ Qwen2.5-VL-7B-Instruct (4-bit) successfully loaded into GPU VRAM.")
+                logger.info("✅ Qwen3-VL-2B-Instruct (4-bit) successfully loaded into GPU VRAM.")
             except Exception as e:
                 logger.warning(
-                    f"Failed to load Qwen2.5-VL-7B ({e}).\n"
+                    f"Failed to load Qwen3-VL-2B ({e}).\n"
                     f"Ensure model id '{self.model_id}' is accessible or check huggingface token in backend/.env."
                 )
                 self.model = None
@@ -91,7 +158,7 @@ class QwenVLDenseCaptioner:
     ) -> str:
         """
         Generate dense action, temporal interaction, and physical state transition caption
-        for a sequence of keyframes in a video scene using Qwen2.5-VL-7B.
+        for a sequence of keyframes in a video scene using Qwen3-VL-2B.
         """
         self._lazy_load()
         if not keyframes:
@@ -166,15 +233,21 @@ class QwenVLDenseCaptioner:
                 )[0].strip()
 
                 if self._is_refusal_response(caption_str):
-                    logger.warning(f"Qwen2.5-VL returned refusal response. Discarding: {caption_str[:60]}...")
+                    logger.warning(f"Qwen3-VL returned refusal response. Discarding: {caption_str[:60]}...")
                     self.last_status = "unavailable"
                     return ""
 
                 self.last_status = "generated" if caption_str else "unavailable"
+                self.last_structured = {
+                    "text": caption_str,
+                    "summary": caption_str,
+                    "model_id": self.model_id,
+                    "status": self.last_status,
+                }
                 return caption_str
 
         except Exception as ex:
-            logger.error(f"Qwen2.5-VL captioning error ({ex}); scene caption unavailable")
+            logger.error(f"Qwen3-VL captioning error ({ex}); scene caption unavailable")
             self.last_status = "error"
             return ""
 

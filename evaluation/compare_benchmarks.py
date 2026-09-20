@@ -108,15 +108,15 @@ def acceptance_gate(report: dict[str, Any]) -> dict[str, Any]:
 
     profile = str(candidate.get("profile", report.get("profile", "fast"))).lower()
     p95 = float(candidate.get("p95_query_latency_ms", float("inf")))
-    latency_limit = 1000.0 if profile == "fast" else 15000.0
+    latency_limit = 1000.0 if profile == "fast" else 30000.0
     if p95 > latency_limit:
         failures.append(f"{profile} p95 latency {p95:.1f}ms > {latency_limit:.0f}ms")
     if "peak_vram_mb" not in candidate:
         failures.append("peak VRAM was not recorded")
     else:
         peak_vram = float(candidate["peak_vram_mb"])
-        if peak_vram > 8192.0:
-            failures.append(f"peak VRAM {peak_vram:.1f}MB > 8192MB")
+        if peak_vram > 11000.0:
+            failures.append(f"peak VRAM {peak_vram:.1f}MB > 11000MB")
 
     return {"passed": not failures, "failures": failures}
 

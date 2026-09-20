@@ -1,6 +1,6 @@
 """
 Recaptioning Utility:
-Runs Qwen2.5-VL-7B across all keyframes in LanceDB to populate genuine, high-quality
+Runs Qwen3-VL-2B across all keyframes in LanceDB to populate genuine, high-quality
 dense action & scene captions for all videos in the database.
 """
 import os

@@ -64,6 +64,14 @@ class VisualQueryDecomposer:
             "นักเรียน": {"visual": ["student", "pupil", "uniform"]},
             "นักศึกษา": {"visual": ["student", "college student", "university student"]},
 
+            # Common standalone object queries. These must reach the English
+            # visual encoder instead of being left as Thai-only text.
+            "แมว": {"visual": ["cat", "kitten", "domestic cat"]},
+            "สุนัข": {"visual": ["dog", "puppy", "domestic dog"]},
+            "หมา": {"visual": ["dog", "puppy", "domestic dog"]},
+            "cat": {"visual": ["cat", "kitten", "domestic cat"]},
+            "dog": {"visual": ["dog", "puppy", "domestic dog"]},
+
             # Physical Actions & Dynamic Body Movements
             "ใส่": {"visual": ["wearing", "dressed in", "putting on clothing"]},
             "สวม": {"visual": ["wearing", "dressed in", "putting on"]},

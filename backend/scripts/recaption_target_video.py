@@ -1,6 +1,6 @@
 """
 Fast Target Video Recaptioning:
-Directly generates high-quality Qwen2.5-VL-7B captions for target video
+Directly generates high-quality Qwen3-VL-2B captions for target video
 (e.g., demo video with computer desks and orange/green polo shirts).
 """
 import os

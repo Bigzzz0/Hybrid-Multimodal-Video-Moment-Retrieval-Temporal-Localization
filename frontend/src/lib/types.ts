@@ -49,6 +49,24 @@ export interface MomentItem {
   occurrence_index?: number;
   context_t_start?: number | null;
   context_t_end?: number | null;
+  grounding_evidence?: GroundingEvidence[];
+  verifier_evidence?: VerifierEvidence | null;
+}
+
+export interface GroundingEvidence {
+  artifact_id?: string;
+  track_id: string;
+  concept: string;
+  t_start: number;
+  t_end: number;
+  confidence: number;
+}
+
+export interface VerifierEvidence {
+  event_present: boolean;
+  confidence: number;
+  reason?: string;
+  model_id?: string;
 }
 
 export interface DragHandleState {
@@ -82,6 +100,10 @@ export interface SearchResponse {
   calibrated: boolean;
   index_version: string;
   warnings: string[];
+  strategy_used?: string;
+  models_used?: string[];
+  stage_latency_ms?: Record<string, number>;
+  cache_hits?: Record<string, boolean>;
 }
 
 export interface GroundedMoment {
@@ -150,6 +172,7 @@ export interface SystemTelemetry {
     storage_path: string;
   };
   models: Record<string, any>;
+  inference_worker?: Record<string, any>;
   recent_logs: string[];
 }
 

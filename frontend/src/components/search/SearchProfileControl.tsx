@@ -21,7 +21,7 @@ export const SearchProfileControl: React.FC<SearchProfileControlProps> = ({ valu
           aria-pressed={selected}
           onClick={() => onChange(profile)}
           className={`min-h-9 px-3 py-1.5 rounded-lg text-[10px] font-mono font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 disabled:cursor-not-allowed disabled:opacity-50 ${selected ? "bg-cyan-500/20 text-cyan-300 border border-cyan-500/40" : "text-gray-500 hover:text-gray-300"}`}
-          title={profile === "accurate" ? "Fast + Qwen visual verification; ตรวจสูงสุด 3 ช่วง, budget ไม่เกิน 15 วินาที" : "ค้นหาเร็วจาก visual index; warm target ไม่เกิน 1 วินาที"}
+          title={profile === "accurate" ? "SigLIP2 retrieval + automatic SAM/Qwen verification; budget ไม่เกิน 30 วินาที" : "ค้นหาเร็วจาก visual index; warm target ไม่เกิน 1 วินาที"}
         >
           <span className="inline-flex items-center gap-1.5">
             {profile === "accurate" ? <ShieldCheck className="w-3 h-3" /> : <Zap className="w-3 h-3" />}

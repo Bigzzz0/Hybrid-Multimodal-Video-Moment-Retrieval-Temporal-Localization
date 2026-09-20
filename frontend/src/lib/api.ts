@@ -128,6 +128,20 @@ export const apiClient = {
     const res = await api.get<VideoKeyframeItem[]>(`/videos/${videoId}/keyframes`);
     return res.data;
   },
+
+  async getGroundingTrack(trackId: string, timestamp?: number): Promise<{
+    timestamp: number;
+    concept: string;
+    bbox_xyxy: number[];
+    score: number;
+    mask_rle: { size?: number[]; counts?: number[]; order?: string };
+    frame_width: number;
+    frame_height: number;
+  }> {
+    const query = timestamp == null ? "" : `?timestamp=${encodeURIComponent(timestamp)}`;
+    const res = await api.get(`/grounding/track/${encodeURIComponent(trackId)}${query}`);
+    return res.data;
+  },
 };
 
 

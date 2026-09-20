@@ -170,6 +170,18 @@ export default function DashboardPage() {
       const res = await apiClient.searchMoments(q, selectedVideo.id, 5, searchProfile, controller.signal);
       if (requestId !== searchRequestIdRef.current) return;
       setSearchResult(res);
+      // In Accurate mode, open the first moment that has actual SAM evidence
+      // so the user sees the bbox/mask immediately. If no track was found,
+      // keep the existing result list without forcing a jump.
+      if (searchProfile === "accurate") {
+        const grounded = res.moments.find((moment) => (moment.grounding_evidence?.length || 0) > 0);
+        if (grounded) {
+          setActiveMoment(grounded);
+          setActiveMomentKey(momentIdentity(grounded));
+          setSeekTime(grounded.t_start);
+          setHighlightInterval([grounded.t_start, grounded.t_end]);
+        }
+      }
       if (res.warnings?.includes("reindex_required")) {
         setNeedsReindex(true);
       }
@@ -427,6 +439,7 @@ export default function DashboardPage() {
                 boundaryAdjusted={isBoundaryAdjusted}
                 contextExpanded={isContextExpanded}
                 onResetBoundary={handleResetBoundary}
+                groundingEvidence={activeMoment?.grounding_evidence || []}
             />
           ) : (
             <div className="aspect-video glass-panel rounded-2xl flex items-center justify-center text-gray-500 border border-surfaceBorder">
@@ -482,7 +495,7 @@ export default function DashboardPage() {
           </div>
 
           {/* Latency & Telemetry Metric Pill */}
-          {searchResult && activeTab === "moments" && <SearchResultSummary query={searchResult.query} count={searchResult.moments.length} profile={searchResult.profile} latencyMs={searchResult.latency_ms} calibrated={searchResult.calibrated} indexVersion={searchResult.index_version} />}
+          {searchResult && activeTab === "moments" && <SearchResultSummary query={searchResult.query} count={searchResult.moments.length} profile={searchResult.profile} latencyMs={searchResult.latency_ms} calibrated={searchResult.calibrated} indexVersion={searchResult.index_version} strategyUsed={searchResult.strategy_used} modelsUsed={searchResult.models_used} />}
           {searchResult && activeTab === "moments" && <SearchWarningBanner warnings={uniqueWarnings(searchResult.warnings)} onReindex={() => setShowUploader(true)} />}
 
           {/* Tab Content */}
@@ -531,7 +544,7 @@ export default function DashboardPage() {
             </p>
 
             <p className="text-xs text-red-300/90 bg-red-950/40 p-3 rounded-xl border border-red-900/50 leading-relaxed">
-              ⚠️ การลบนี้จะลบเวกเตอร์ภาพ SigLIP 2 (768 มิติ), คำบรรยายการกระทำ Qwen2.5-VL, ตลอดจนไฟล์คีย์เฟรมและไฟล์วิดีโอต้นฉบับออกจากระบบอย่างถาวร
+              ⚠️ การลบนี้จะลบเวกเตอร์ภาพ SigLIP 2 (768 มิติ), คำบรรยาย Qwen3-VL, หลักฐาน SAM 3.1, ตลอดจนไฟล์คีย์เฟรมและไฟล์วิดีโอต้นฉบับออกจากระบบอย่างถาวร
             </p>
 
             {deleteError && (

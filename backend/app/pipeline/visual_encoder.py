@@ -23,9 +23,10 @@ def _extract_tensor(out: Any) -> torch.Tensor:
 class SigLIP2VisualEncoder:
     """Vision-Language Multimodal Feature Extractor using SigLIP 2 (Google DeepMind)."""
 
-    def __init__(self, model_id: str = settings.SIGLIP2_MODEL_ID, device: str = settings.DEVICE):
+    def __init__(self, model_id: str = settings.SIGLIP2_MODEL_ID, device: str = settings.DEVICE, use_worker: bool = False):
         self.model_id = model_id
         self.device = device
+        self.use_worker = use_worker
         self.model = None
         self.processor = None
 
@@ -46,9 +47,26 @@ class SigLIP2VisualEncoder:
         Encode list of PIL images into normalized raw SigLIP2 NaFlex vectors.
         Temporal context is intentionally not baked into the stored vector.
         """
-        self._lazy_load()
         if not images:
             return []
+
+        if not self.use_worker:
+            try:
+                from app.inference.client import inference_client
+                from app.inference.contracts import EmbedImagesRequest
+                if inference_client.enabled:
+                    # The worker API is path-based; PIL-only callers (tests and
+                    # legacy code) continue through the local implementation.
+                    paths = [getattr(image, "filename", "") for image in images]
+                    if all(paths):
+                        response = inference_client.embed_images(EmbedImagesRequest(frame_paths=paths, batch_size=batch_size))
+                        if progress_callback:
+                            progress_callback(94, f"Generating SigLIP 2 Embeddings: {len(images)}/{len(images)} frames (100%)", "siglip2_embedding", {"sub_percent": 100})
+                        return response.embeddings
+            except Exception as exc:
+                logger.warning(f"SigLIP worker fallback to local encoder: {exc}")
+
+        self._lazy_load()
 
         all_embeddings = []
         total_images = len(images)
@@ -93,6 +111,17 @@ class SigLIP2VisualEncoder:
         """
         Encode natural language query string into normalized 768-dim text vector.
         """
+        if not self.use_worker:
+            try:
+                from app.inference.client import inference_client
+                from app.inference.contracts import EmbedTextRequest
+                if inference_client.enabled:
+                    response = inference_client.embed_text(EmbedTextRequest(texts=[text_query]))
+                    if response.embeddings:
+                        return response.embeddings[0]
+            except Exception as exc:
+                logger.warning(f"SigLIP worker text fallback to local encoder: {exc}")
+
         self._lazy_load()
         inputs = self.processor(text=[text_query], padding="max_length", return_tensors="pt").to(self.model.device)
         

@@ -10,7 +10,11 @@ from app.db.schemas import (
     SCENE_V2_SCHEMA,
     VIDEO_FRAME_V2_SCHEMA,
     SEARCH_LOG_SCHEMA,
-    VISUAL_INDEX_METADATA_SCHEMA
+    VISUAL_INDEX_METADATA_SCHEMA,
+    SAM_TRACK_SCHEMA,
+    SAM_OBSERVATION_SCHEMA,
+    MODEL_ARTIFACT_CACHE_SCHEMA,
+    SCENE_ANALYSIS_SCHEMA,
 )
 
 class LanceDBManager:
@@ -31,55 +35,57 @@ class LanceDBManager:
 
     def _init_tables(self):
         existing_tables = self.db.table_names()
+
+        def ensure_table(name, schema):
+            if name in existing_tables:
+                return
+            try:
+                self.db.create_table(name, schema=schema)
+                logger.info(f"Created LanceDB table: {name}")
+            except Exception as exc:
+                # LanceDB can return a stale table_names snapshot while its
+                # background loop is completing another create_table call.
+                # Treat an already-existing table as success so API/worker
+                # processes can start concurrently.
+                if "already exists" not in str(exc).lower() and "exists" not in str(exc).lower():
+                    raise
+                logger.debug(f"LanceDB table already exists during startup: {name}")
         
         # 1. Table: videos
-        if "videos" not in existing_tables:
-            self.db.create_table("videos", schema=VIDEO_SCHEMA)
-            logger.info("Created LanceDB table: videos")
+        ensure_table("videos", VIDEO_SCHEMA)
             
         # Legacy tables are never overwritten. They remain available only for
         # migration/backup while all new ingestion goes to *_v2 tables.
-        if "scenes" not in existing_tables:
-            self.db.create_table("scenes", schema=SCENE_SCHEMA)
-            logger.info("Created LanceDB table: scenes")
+        ensure_table("scenes", SCENE_SCHEMA)
             
         # 3. Table: video_frames
-        if "video_frames" not in existing_tables:
-            self.db.create_table("video_frames", schema=VIDEO_FRAME_SCHEMA)
-            logger.info("Created LanceDB table: video_frames")
+        ensure_table("video_frames", VIDEO_FRAME_SCHEMA)
 
-        if "scenes_v2" not in existing_tables:
-            self.db.create_table("scenes_v2", schema=SCENE_V2_SCHEMA)
-            logger.info("Created LanceDB table: scenes_v2")
-        if "video_frames_v2" not in existing_tables:
-            self.db.create_table("video_frames_v2", schema=VIDEO_FRAME_V2_SCHEMA)
-            logger.info("Created LanceDB table: video_frames_v2")
+        ensure_table("scenes_v2", SCENE_V2_SCHEMA)
+        ensure_table("video_frames_v2", VIDEO_FRAME_V2_SCHEMA)
+
+        ensure_table("sam_tracks_v1", SAM_TRACK_SCHEMA)
+        ensure_table("sam_observations_v1", SAM_OBSERVATION_SCHEMA)
+        ensure_table("model_artifact_cache", MODEL_ARTIFACT_CACHE_SCHEMA)
+        ensure_table("scene_analysis_v1", SCENE_ANALYSIS_SCHEMA)
             
         # 4. Table: search_logs
-        if "search_logs" not in existing_tables:
-            self.db.create_table("search_logs", schema=SEARCH_LOG_SCHEMA)
-            logger.info("Created LanceDB table: search_logs")
+        ensure_table("search_logs", SEARCH_LOG_SCHEMA)
 
-        if "visual_index_metadata" not in existing_tables:
-            self.db.create_table("visual_index_metadata", schema=VISUAL_INDEX_METADATA_SCHEMA)
-            logger.info("Created LanceDB table: visual_index_metadata")
-        if "index_metadata" not in existing_tables:
-            self.db.create_table("index_metadata", schema=VISUAL_INDEX_METADATA_SCHEMA)
-            logger.info("Created LanceDB table: index_metadata")
-        else:
-            # A pre-v2 database may already have an incompatible table.  Never
-            # alter it in place during startup; isolate the new metadata table
-            # so an interrupted migration cannot corrupt the active index.
-            try:
-                existing_schema = set(self.db.open_table("index_metadata").schema.names)
-                required_schema = set(VISUAL_INDEX_METADATA_SCHEMA.names)
-                if not required_schema.issubset(existing_schema):
-                    self.index_metadata_table_name = "index_metadata_v2"
-            except Exception:
+        ensure_table("visual_index_metadata", VISUAL_INDEX_METADATA_SCHEMA)
+        ensure_table("index_metadata", VISUAL_INDEX_METADATA_SCHEMA)
+        # A pre-v2 database may already have an incompatible table.  Never
+        # alter it in place during startup; isolate the new metadata table so
+        # an interrupted migration cannot corrupt the active index.
+        try:
+            existing_schema = set(self.db.open_table("index_metadata").schema.names)
+            required_schema = set(VISUAL_INDEX_METADATA_SCHEMA.names)
+            if not required_schema.issubset(existing_schema):
                 self.index_metadata_table_name = "index_metadata_v2"
+        except Exception:
+            self.index_metadata_table_name = "index_metadata_v2"
         if self.index_metadata_table_name == "index_metadata_v2" and "index_metadata_v2" not in existing_tables:
-            self.db.create_table("index_metadata_v2", schema=VISUAL_INDEX_METADATA_SCHEMA)
-            logger.info("Created isolated LanceDB table: index_metadata_v2")
+            ensure_table("index_metadata_v2", VISUAL_INDEX_METADATA_SCHEMA)
 
     def get_table(self, table_name: str):
         return self.db.open_table(table_name)

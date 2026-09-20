@@ -41,6 +41,10 @@ def run_progressive_pipeline(video_id: str, file_path: str, filename: str):
             video_id=video_id,
             progress_callback=lambda vid, pct, msg, stg, det: sync_progress_adapter(vid, pct, msg, stg, "phase2", det)
         )
+        ingestion_manager.process_video_phase3_background(
+            video_id=video_id,
+            progress_callback=lambda vid, pct, msg, stg, det: sync_progress_adapter(vid, pct, msg, stg, "phase3", det)
+        )
     except Exception as e:
         logger.error(f"Error in progressive pipeline for {video_id}: {e}")
         sync_progress_adapter(video_id, 100, f"Error: {str(e)}", "error", "error")

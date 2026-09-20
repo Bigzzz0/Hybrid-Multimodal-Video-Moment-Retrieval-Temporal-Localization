@@ -1,7 +1,7 @@
 # Pure-Visual Video Moment Retrieval & Temporal Localization
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Python-3.11-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python" />
+  <img src="https://img.shields.io/badge/Python-3.12-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python" />
   <img src="https://img.shields.io/badge/Next.js_14-App_Router-000000?style=for-the-badge&logo=nextdotjs&logoColor=white" alt="Next.js" />
   <img src="https://img.shields.io/badge/PyTorch-2.4+-EE4C2C?style=for-the-badge&logo=pytorch&logoColor=white" alt="PyTorch" />
   <img src="https://img.shields.io/badge/CUDA-12.x-76B900?style=for-the-badge&logo=nvidia&logoColor=white" alt="CUDA" />
@@ -11,8 +11,8 @@
 
 <p align="center">
   <b>Natural Language Video Moment Retrieval & Temporal Boundary Localization System</b><br />
-  Powered by <b>SigLIP 2 (NaFlex)</b>, <b>Qwen2.5-VL-7B (4-bit)</b>, calibrated temporal proposals, and <b>LanceDB (IVF-PQ & FTS)</b>.<br />
-  <i>100% Local On-Premise Execution on Consumer GPUs (&le; 8GB VRAM) with Zero Cloud API Costs.</i>
+  Powered by <b>SigLIP 2 (NaFlex)</b>, <b>SAM 3.1</b>, <b>Qwen3-VL-2B (4-bit)</b>, calibrated temporal proposals, and <b>LanceDB (IVF-PQ & FTS)</b>.<br />
+  <i>100% Local On-Premise Execution on an RTX 5070 12GB with Zero Cloud API Costs.</i>
 </p>
 
 ---
@@ -20,7 +20,7 @@
 ## 🌟 จุดเด่นของระบบ (Key Highlights)
 
 * 🔒 **100% Local On-Premise & Complete Data Privacy:** ประมวลผลและจัดเก็บข้อมูลเวกเตอร์ภายในเครื่องทั้งหมด ข้อมูลวิดีโอไม่รั่วไหลสู่คลาวด์ภายนอก และไม่มีค่าใช้จ่าย API รายเดือน
-* ⚡ **Consumer GPU Optimized ($\le 8\text{ GB}$ VRAM):** ทำงานบน GPU ระดับผู้บริโภคด้วย SigLIP2 และ Qwen 4-bit โดยไม่ส่งวิดีโอออกนอกเครื่อง
+* ⚡ **Consumer GPU Optimized (RTX 5070 12GB):** ใช้ SigLIP2 เป็น retrieval หลัก และแยก Qwen3/SAM ไว้ใน local inference worker เพื่อควบคุม VRAM และป้องกัน OOM
 * 🚀 **Progressive Visual Ingestion:** สกัด scene, keyframe และ frame embeddings ก่อนค้นหา พร้อมสร้าง dense visual captions แบบ background
 * 📈 **Dynamic Relevance Density Heatmap:** แถบเรืองแสงแสดงระดับความเกี่ยวข้องของเนื้อหาตลอดทั้งวิดีโอแบบ 1-Hz Canvas Visualizer ช่วยให้ผู้ใช้เห็นภาพรวมของทั้งคลิปได้ในเสี้ยววินาที
 * ⏱️ **Calibrated Multi-scale Temporal Localization:** สกัดช่วงเวลาเริ่มต้น-สิ้นสุด $[t_{start}, t_{end}]$ ด้วย rolling proposals, boundary/transition refinement และ Gaussian Soft-NMS ก่อนจัดลำดับหลายเหตุการณ์
@@ -47,8 +47,8 @@
                    │
          ┌─────────┴──────────────────────┐
          ▼                                ▼
-  [ SigLIP 2 (NaFlex) ]         [ Qwen2.5-VL-7B (4-bit) ]
-   (768-dim Frame Embeddings)    (Dense Visual Scene Captions)
+  [ SigLIP 2 (NaFlex) ]       [ Qwen3-VL-2B ]       [ SAM 3.1 ]
+   (768-dim Retrieval)       (Caption / VQA)    (Grounding / Mask / Track)
          │                                │
          └────────────────┬───────────────┘
                           ▼
@@ -97,7 +97,8 @@
 | ส่วนประกอบ | เทคโนโลยีที่เลือกใช้ | บทบาทและจุดเด่น |
 | :--- | :--- | :--- |
 | **Visual-Text Backbone** | `google/siglip2-base-patch16-naflex` | สกัดเวกเตอร์ภาพ 768-dim โดยรักษา aspect ratio |
-| **Dense Visual Captioner**| `Qwen/Qwen2.5-VL-7B-Instruct` (4-bit) | วิเคราะห์เฉพาะวัตถุ การกระทำ และการเปลี่ยนสถานะจากภาพ |
+| **Dense Visual Captioner / VQA**| `Qwen/Qwen3-VL-2B-Instruct` (NF4 4-bit) | caption, action/relation verification และ Video VQA |
+| **Object Grounding** | `facebook/sam3.1` | text grounding, bounding box, mask และ temporal evidence |
 | **Video Decoding**        | `Decord` (NVDEC GPU Hardware Fallback) | ถอดรหัสเฟรมจริงพร้อมรักษา timestamp และ fallback บน CPU |
 | **Vector Storage**        | `LanceDB` (Apache Arrow Format) | Vector DB แบบ Serverless บน SSD พร้อมดัชนี IVF-PQ และ FTS |
 | **Temporal Algorithm**    | `1D Gaussian Convolution & RRF` | กรองสัญญาณรบกวนและสกัดช่วงเวลาต่อเนื่อง $[t_s, t_e]$ |
@@ -110,8 +111,8 @@
 
 ### 1. ข้อกำหนดขั้นต่ำของระบบ (System Requirements)
 * **OS:** Windows 10/11, Ubuntu 22.04+ หรือ macOS (Apple Silicon)
-* **GPU:** NVIDIA GPU พร้อม VRAM $\ge 6.5\text{ GB}$ (เช่น RTX 3060, 4060, 5070 ขึ้นไป)
-* **Software:** Python 3.11, Node.js 18+, FFmpeg
+* **GPU:** NVIDIA GPU พร้อม VRAM 12GB แนะนำ RTX 5070 หรือสูงกว่า
+* **Software:** Python 3.12 สำหรับ inference worker, Python 3.11+ สำหรับ API, Node.js 18+, FFmpeg
 
 ---
 
@@ -138,8 +139,28 @@ pip install -r requirements.txt
 HF_TOKEN=hf_your_token_here
 
 SIGLIP2_MODEL_ID=google/siglip2-base-patch16-naflex
-QWEN_VL_MODEL_ID=Qwen/Qwen2.5-VL-7B-Instruct
+QWEN_VL_MODEL_ID=Qwen/Qwen3-VL-2B-Instruct
+SAM_MODEL_ID=facebook/sam3.1
+INFERENCE_WORKER_ENABLED=true
+INFERENCE_WORKER_URL=http://127.0.0.1:8011
+INFERENCE_WORKER_TOKEN=change-this-local-secret
+MODEL_VRAM_BUDGET_MB=11000
+ACCURATE_MAX_SECONDS=30
+SAM_COMPILE=false
 ```
+
+โมเดลหนักจะทำงานใน process แยกที่ bind เฉพาะ `127.0.0.1` เพื่อให้ main API
+ไม่ต้องถือ SAM/Qwen พร้อมกันเอง:
+
+```bash
+# terminal แยก: ใช้ environment ที่ติดตั้ง requirements-inference.txt
+cd backend
+python -m inference_worker.main
+```
+
+ถ้ายังไม่ได้ติดตั้ง worker หรือยังไม่มีสิทธิ์ดาวน์โหลด SAM checkpoint ให้ตั้ง
+`INFERENCE_WORKER_ENABLED=false` ระบบยังค้น Fast ได้ และ Accurate จะ fallback ตาม
+warning ที่คืนใน API แทนการทำให้เซิร์ฟเวอร์ล้ม
 
 #### วอร์มโมเดล AI ล่วงหน้า (One-Click Preload):
 ```bash
@@ -187,11 +208,24 @@ npm run dev
 `profile` เป็น `fast` หรือ `accurate` ค่า tuning รุ่นเก่าที่ส่งมาเกินจะถูก ignore
 ชั่วคราวเพื่อให้ client เดิมไม่พัง แต่ server เป็นผู้กำหนดน้ำหนักและ threshold เอง
 
-`fast` ใช้ frame embeddings + scene-caption RRF; `accurate` ตรวจ top-3 ด้วย Qwen
-visual temporal reranker ภายใต้งบเวลา 15 วินาที ผลลัพธ์คืน `score` ที่ calibrated
+`fast` ใช้ frame embeddings + scene-caption RRF; `accurate` ใช้ query router เลือก
+SAM 3.1 สำหรับ object/attribute/spatial และ Qwen3-VL สำหรับ action/relation/VQA
+ภายใต้งบเวลา 30 วินาที ผลลัพธ์คืน `score` ที่ calibrated
 (เมื่อมี artifact), `modality_breakdown`, `occurrence_index`, `profile`,
-`calibrated`, `index_version` และ `warnings` โดยคืนได้หลาย occurrence หรือ `moments=[]`
-สำหรับ no-match
+`calibrated`, `index_version`, `strategy_used`, `models_used`, `stage_latency_ms`,
+`cache_hits` และ `warnings` โดยคืนได้หลาย occurrence หรือ `moments=[]` สำหรับ no-match.
+ผล Accurate ที่ใช้ SAM จะมี `grounding_evidence` และ frontend overlay จะแสดง bbox/mask
+ตาม timestamp ผ่าน `GET /api/v1/grounding/track/{track_id}`
+
+### Model / dataset attribution
+
+* [SAM 3 repository and checkpoint instructions](https://github.com/facebookresearch/sam3)
+* [Qwen3-VL-2B-Instruct](https://huggingface.co/Qwen/Qwen3-VL-2B-Instruct)
+* [SigLIP2 NaFlex](https://huggingface.co/google/siglip2-base-patch16-naflex)
+* [AIRC-SMARTCLASS Part 2](https://data.mendeley.com/datasets/fw5hs57z78/1)
+
+ตรวจ license และเงื่อนไขการเข้าถึง checkpoint ก่อนใช้งานจริง ระบบรอบนี้เก็บเฉพาะ
+full-body/object evidence และไม่ทำ face recognition, Identity หรือ Re-ID
 
 ---
 
@@ -237,8 +271,10 @@ Video Event Retrieval/
 │   │   │   └── router.py
 │   │   ├── core/                        # Config, Logger, Device Maps
 │   │   ├── db/                          # LanceDB Schemas & Tables Init
-│   │   ├── pipeline/                    # Decord, SceneDetect, visual sampling, SigLIP 2, Qwen2.5-VL
-│   │   ├── retrieval/                   # RRF, Gaussian Smoother, Boundary Extractor
+│   │   ├── pipeline/                    # Decord, SceneDetect, sampling, SigLIP 2, Qwen3
+│   │   ├── retrieval/                   # RRF, router, SAM cache, temporal localization
+│   │   ├── inference/                   # Main API client/contracts for local worker
+│   │   └── ../inference_worker/         # Qwen3/SAM GPU process on 127.0.0.1:8011
 │   │   └── utils/                       # HTTP 206 Byte-Range Video Streaming
 │   ├── tests/                           # Pytest Test Suite
 │   ├── preload_models.py                # Pre-warmer & Cache Script
@@ -257,6 +293,8 @@ Video Event Retrieval/
 │   └── tailwind.config.js
 │
 ├── evaluation/
+│   ├── build_airc_manifest.py         # deterministic 27/9/9 video split
+│   ├── airc_annotations.schema.json   # temporal/VQA/mask annotation contract
 │   ├── compute_metrics.py               # R@K@IoU, tF1, count/no-match metrics
 │   ├── validate_dataset.py              # Held-out split/language/query contract
 │   ├── calibrate.py                     # Platt calibration + no-match threshold
@@ -290,6 +328,9 @@ python evaluation/run_real_video_benchmark.py --acceptance --profile fast --data
 python evaluation/run_real_video_benchmark.py --acceptance --profile accurate --dataset evaluation/datasets/heldout.json --output accurate.json
 python evaluation/compare_benchmarks.py --baseline baseline.json --candidate accurate.json --acceptance --output comparison.json
 # เพิ่ม --ablation name=report.json ซ้ำได้เพื่อเทียบ NaFlex/RRF/proposal/calibration/Qwen
+
+# สร้าง manifest AIRC-SMARTCLASS แบบ video-disjoint 27/9/9
+python evaluation/build_airc_manifest.py --source-dir path/to/AIRC-SMARTCLASS --output evaluation/datasets/airc_manifest.json
 ```
 
 ไฟล์ `evaluation/datasets/real_video_benchmark.json` และค่าที่อยู่ใน

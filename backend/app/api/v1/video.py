@@ -170,6 +170,10 @@ async def delete_video(video_id: str):
         ("video_frames_v2", f"video_id = '{video_id}'"),
         ("scenes_v2", f"video_id = '{video_id}'"),
         ("search_logs", f"video_id = '{video_id}'"),
+        ("sam_tracks_v1", f"video_id = '{video_id}'"),
+        ("sam_observations_v1", f"video_id = '{video_id}'"),
+        ("model_artifact_cache", f"video_id = '{video_id}'"),
+        ("scene_analysis_v1", f"video_id = '{video_id}'"),
     ]
 
     for tbl_name, filter_expr in tables_to_clean:
@@ -208,6 +212,14 @@ async def delete_video(video_id: str):
             logger.info(f"Removed keyframes folder: {keyframe_dir}")
         except Exception as e:
             logger.warning(f"Could not remove keyframes {keyframe_dir}: {e}")
+
+    grounding_dir = settings.GROUNDING_ARTIFACTS_DIR / video_id
+    if grounding_dir.exists():
+        try:
+            shutil.rmtree(grounding_dir, ignore_errors=True)
+            logger.info(f"Removed SAM grounding artifacts folder: {grounding_dir}")
+        except Exception as e:
+            logger.warning(f"Could not remove grounding artifacts {grounding_dir}: {e}")
 
     # 4. Clean up any exported clips for this video
     clips_dir = settings.DATA_DIR / "clips"

@@ -90,6 +90,65 @@ VISUAL_INDEX_METADATA_SCHEMA = pa.schema([
     pa.field("created_at", pa.string()),
 ])
 
+# Additive grounding/caption artifacts.  These tables are intentionally
+# separate from the v2 visual index so changing Qwen/SAM versions never
+# invalidates or overwrites SigLIP2 vectors.
+SAM_TRACK_SCHEMA = pa.schema([
+    pa.field("id", pa.string()),
+    pa.field("video_id", pa.string()),
+    pa.field("video_fingerprint", pa.string()),
+    pa.field("concept", pa.string()),
+    pa.field("normalized_prompt", pa.string()),
+    pa.field("t_start", pa.float32()),
+    pa.field("t_end", pa.float32()),
+    pa.field("mean_score", pa.float32()),
+    pa.field("max_score", pa.float32()),
+    pa.field("source", pa.string()),
+    pa.field("model_id", pa.string()),
+    pa.field("grounding_version", pa.string()),
+    pa.field("created_at", pa.string()),
+])
+
+SAM_OBSERVATION_SCHEMA = pa.schema([
+    pa.field("id", pa.string()),
+    pa.field("track_id", pa.string()),
+    pa.field("video_id", pa.string()),
+    pa.field("concept", pa.string()),
+    pa.field("timestamp", pa.float32()),
+    pa.field("bbox_xyxy", pa.list_(pa.float32(), 4)),
+    pa.field("score", pa.float32()),
+    pa.field("mask_artifact_path", pa.string()),
+    pa.field("frame_width", pa.int32()),
+    pa.field("frame_height", pa.int32()),
+])
+
+MODEL_ARTIFACT_CACHE_SCHEMA = pa.schema([
+    pa.field("id", pa.string()),
+    pa.field("video_id", pa.string()),
+    pa.field("task_type", pa.string()),
+    pa.field("t_start", pa.float32()),
+    pa.field("t_end", pa.float32()),
+    pa.field("normalized_prompt", pa.string()),
+    pa.field("model_id", pa.string()),
+    pa.field("artifact_version", pa.string()),
+    pa.field("artifact_id", pa.string()),
+    pa.field("status", pa.string()),
+    pa.field("created_at", pa.string()),
+    pa.field("last_accessed_at", pa.string()),
+])
+
+SCENE_ANALYSIS_SCHEMA = pa.schema([
+    pa.field("scene_id", pa.string()),
+    pa.field("video_id", pa.string()),
+    pa.field("caption_text", pa.string()),
+    pa.field("structured_json", pa.string()),
+    pa.field("model_id", pa.string()),
+    pa.field("caption_version", pa.string()),
+    pa.field("prompt_version", pa.string()),
+    pa.field("status", pa.string()),
+    pa.field("created_at", pa.string()),
+])
+
 # ======================= Pydantic Models for REST API =======================
 
 class VideoMetadata(BaseModel):
@@ -128,6 +187,8 @@ class MomentItem(BaseModel):
     occurrence_index: int = 0
     context_t_start: Optional[float] = None
     context_t_end: Optional[float] = None
+    grounding_evidence: List[Dict[str, Any]] = Field(default_factory=list)
+    verifier_evidence: Optional[Dict[str, Any]] = None
 
 class SearchResponse(BaseModel):
     query: str
@@ -141,6 +202,10 @@ class SearchResponse(BaseModel):
     calibrated: bool = False
     index_version: str = "v2"
     warnings: List[str] = Field(default_factory=list)
+    strategy_used: str = "fast"
+    models_used: List[str] = Field(default_factory=list)
+    stage_latency_ms: Dict[str, float] = Field(default_factory=dict)
+    cache_hits: Dict[str, bool] = Field(default_factory=dict)
 
 class SearchQueryRequest(BaseModel):
     query: str
