@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 
 class EmbedTextRequest(BaseModel):
     texts: List[str] = Field(default_factory=list)
+    release_after: bool = False
 
 
 class EmbedImagesRequest(BaseModel):
@@ -47,6 +48,9 @@ class VerifyRequest(BaseModel):
     timestamps: List[float] = Field(default_factory=list)
     caption_hint: str = ""
     max_new_tokens: int = 96
+    grounding_evidence: List[Dict[str, Any]] = Field(default_factory=list)
+    semantic_requirements: List[str] = Field(default_factory=list)
+    release_after: bool = False
 
 
 class VerifyResponse(BaseModel):
@@ -83,6 +87,7 @@ class GroundRequest(BaseModel):
     fps: float = 4.0
     max_frames: int = 48
     request_source: str = "search"
+    release_after: bool = False
 
 
 class GroundObservation(BaseModel):

@@ -16,6 +16,12 @@ class ModelManager:
         self.services: Dict[str, Any] = {}
         self.states: Dict[str, str] = {"siglip": "unloaded", "qwen": "unloaded", "sam": "unloaded"}
         self.loaded_at: Dict[str, float] = {}
+        self.current_model = ""
+        self.current_task = ""
+        self.cascade_stage = "idle"
+        self.release_count = 0
+        self.peak_vram_mb = 0.0
+        self.timings: Dict[str, Dict[str, float]] = {}
 
     def _free_vram_mb(self) -> float:
         try:
@@ -64,11 +70,20 @@ class ModelManager:
         return 0.0
 
     def telemetry(self) -> Dict[str, Any]:
+        used = self._used_vram_mb()
+        self.peak_vram_mb = max(self.peak_vram_mb, used)
         return {
             "states": dict(self.states),
             "loaded_at": dict(self.loaded_at),
             "free_vram_mb": round(self._free_vram_mb(), 1),
+            "used_vram_mb": round(used, 1),
+            "peak_vram_mb": round(self.peak_vram_mb, 1),
             "budget_mb": int(settings.MODEL_VRAM_BUDGET_MB),
+            "current_model": self.current_model,
+            "current_task": self.current_task,
+            "cascade_stage": self.cascade_stage,
+            "release_count": self.release_count,
+            "timings_ms": dict(self.timings),
         }
 
     def get(self, name: str, factory):
@@ -91,6 +106,7 @@ class ModelManager:
         if self._free_vram_mb() and self._free_vram_mb() < float(settings.VLM_MIN_FREE_VRAM_MB):
             self.unload_inactive(except_name=name)
         self.states[name] = "loading"
+        load_started = time.perf_counter()
         try:
             service = factory()
             service.load()
@@ -108,12 +124,15 @@ class ModelManager:
                 self.unload(name)
                 raise RuntimeError(f"VRAM budget exceeded ({settings.MODEL_VRAM_BUDGET_MB} MB)")
             self.states[name] = "ready"
+            self.timings.setdefault(name, {})["load_ms"] = round((time.perf_counter() - load_started) * 1000, 1)
+            self.peak_vram_mb = max(self.peak_vram_mb, self._used_vram_mb())
             return service
         except Exception:
             self.states[name] = "error"
             raise
 
     def unload(self, name: str) -> None:
+        unload_started = time.perf_counter()
         service = self.services.pop(name, None)
         if service is not None:
             try:
@@ -129,6 +148,9 @@ class ModelManager:
                 torch.cuda.empty_cache()
         except Exception:
             pass
+        self.timings.setdefault(name, {})["unload_ms"] = round((time.perf_counter() - unload_started) * 1000, 1)
+        if service is not None:
+            self.release_count += 1
 
     def unload_inactive(self, except_name: str = "") -> None:
         for name in list(self.services):

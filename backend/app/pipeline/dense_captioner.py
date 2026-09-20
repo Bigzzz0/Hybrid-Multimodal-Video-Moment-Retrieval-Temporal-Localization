@@ -1,3 +1,4 @@
+import gc
 import os
 import torch
 from PIL import Image
@@ -135,6 +136,14 @@ class QwenVLDenseCaptioner:
                 self.model = None
                 self.processor = None
                 self.last_status = "error"
+
+    def unload(self) -> None:
+        """Release all local Qwen references; used by sequential Accurate mode."""
+        self.model = None
+        self.processor = None
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
 
     def _is_refusal_response(self, text: str) -> bool:
         """Checks if the LLM output is a canned refusal response instead of a scene description."""

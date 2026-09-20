@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import time
 from contextlib import asynccontextmanager
 from typing import Any, Callable, Dict
 
@@ -31,20 +32,40 @@ def _authorize(token: str | None = Header(default=None, alias="X-Inference-Token
 
 
 async def _run(name: str, factory: Callable[[], Any], method: str, request: Any, priority: str = "vqa"):
+    release_after = bool(getattr(request, "release_after", False))
     try:
         def operation():
-            service = model_manager.get(name, factory)
-            model_manager.states[name] = "busy"
+            model_manager.current_model = name
+            model_manager.current_task = method
+            model_manager.cascade_stage = name
             try:
-                return getattr(service, method)(request)
+                service = model_manager.get(name, factory)
+                model_manager.states[name] = "busy"
+                inference_started = time.perf_counter()
+                result = getattr(service, method)(request)
+                model_manager.timings.setdefault(name, {})["inference_ms"] = round(
+                    (time.perf_counter() - inference_started) * 1000, 1
+                )
+                return result
             finally:
-                if name in model_manager.services:
+                if release_after:
+                    model_manager.unload(name)
+                elif name in model_manager.services:
                     model_manager.states[name] = "ready"
+                elif model_manager.states.get(name) == "busy":
+                    model_manager.states[name] = "unloaded"
+                model_manager.current_model = ""
+                model_manager.current_task = ""
+                model_manager.cascade_stage = "idle"
         return await inference_scheduler.submit(priority, operation)
     except torch_oom_error() as exc:
         model_manager.unload(name)
         raise HTTPException(status_code=507, detail=f"{name} CUDA OOM: {exc}") from exc
     except Exception as exc:
+        if release_after:
+            model_manager.unload(name)
+        elif model_manager.states.get(name) == "busy":
+            model_manager.states[name] = "error"
         logger.exception("%s inference failed", name)
         raise HTTPException(status_code=503, detail=f"{name} inference unavailable: {exc}") from exc
 

@@ -1,3 +1,4 @@
+import gc
 import torch
 import torch.nn.functional as F
 from PIL import Image
@@ -107,26 +108,44 @@ class SigLIP2VisualEncoder:
 
         return all_embeddings
 
-    def encode_text(self, text_query: str) -> List[float]:
-        """
-        Encode natural language query string into normalized 768-dim text vector.
-        """
+    def encode_texts(self, text_queries: List[str], release_after: bool = False) -> List[List[float]]:
+        """Encode query variants in one worker batch and optionally release GPU residency."""
+        if not text_queries:
+            return []
         if not self.use_worker:
             try:
                 from app.inference.client import inference_client
                 from app.inference.contracts import EmbedTextRequest
                 if inference_client.enabled:
-                    response = inference_client.embed_text(EmbedTextRequest(texts=[text_query]))
+                    response = inference_client.embed_text(
+                        EmbedTextRequest(texts=text_queries, release_after=release_after)
+                    )
                     if response.embeddings:
-                        return response.embeddings[0]
+                        return response.embeddings
             except Exception as exc:
                 logger.warning(f"SigLIP worker text fallback to local encoder: {exc}")
 
         self._lazy_load()
-        inputs = self.processor(text=[text_query], padding="max_length", return_tensors="pt").to(self.model.device)
-        
-        with torch.no_grad():
-            features = self.model.get_text_features(**inputs)
-            tensor_features = _extract_tensor(features)
-            norm_features = F.normalize(tensor_features, p=2, dim=-1)
-            return norm_features[0].cpu().to(torch.float32).tolist()
+        inputs = self.processor(text=text_queries, padding="max_length", return_tensors="pt").to(self.model.device)
+        try:
+            with torch.no_grad():
+                features = self.model.get_text_features(**inputs)
+                tensor_features = _extract_tensor(features)
+                norm_features = F.normalize(tensor_features, p=2, dim=-1)
+                return norm_features.cpu().to(torch.float32).tolist()
+        finally:
+            if release_after:
+                self.unload()
+
+    def unload(self) -> None:
+        self.model = None
+        self.processor = None
+        gc.collect()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+
+    def encode_text(self, text_query: str, release_after: bool = False) -> List[float]:
+        """
+        Encode natural language query string into normalized 768-dim text vector.
+        """
+        return self.encode_texts([text_query], release_after=release_after)[0]

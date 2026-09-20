@@ -66,8 +66,8 @@ class Settings(BaseSettings):
     INFERENCE_WORKER_URL: str = os.environ.get("INFERENCE_WORKER_URL", "http://127.0.0.1:8011")
     INFERENCE_WORKER_TOKEN: Optional[str] = os.environ.get("INFERENCE_WORKER_TOKEN", None)
     INFERENCE_REQUEST_TIMEOUT_SEC: float = float(os.environ.get("INFERENCE_REQUEST_TIMEOUT_SEC", "35"))
-    INFERENCE_WARMUP_QWEN: bool = os.environ.get("INFERENCE_WARMUP_QWEN", "true").lower() in {"1", "true", "yes"}
-    MODEL_VRAM_BUDGET_MB: int = int(os.environ.get("MODEL_VRAM_BUDGET_MB", "11000"))
+    INFERENCE_WARMUP_QWEN: bool = os.environ.get("INFERENCE_WARMUP_QWEN", "false").lower() in {"1", "true", "yes"}
+    MODEL_VRAM_BUDGET_MB: int = int(os.environ.get("MODEL_VRAM_BUDGET_MB", "11800"))
     SAM_COMPILE: bool = os.environ.get("SAM_COMPILE", "false").lower() in {"1", "true", "yes"}
     SAM_PRECOMPUTE_FPS: float = float(os.environ.get("SAM_PRECOMPUTE_FPS", "1"))
     SAM_SEARCH_FPS: float = float(os.environ.get("SAM_SEARCH_FPS", "4"))
@@ -78,10 +78,13 @@ class Settings(BaseSettings):
     # own bounded budget and avoid spending it on several nearly identical
     # proposals during the first request.
     SAM_ACCURATE_MAX_SECONDS: float = float(os.environ.get("SAM_ACCURATE_MAX_SECONDS", "60"))
-    SAM_SEARCH_TOP_K: int = int(os.environ.get("SAM_SEARCH_TOP_K", "1"))
+    SAM_SEARCH_TOP_K: int = int(os.environ.get("SAM_SEARCH_TOP_K", "2"))
+    SAM_STRONG_SCORE_THRESHOLD: float = float(os.environ.get("SAM_STRONG_SCORE_THRESHOLD", "0.70"))
     QWEN_MAX_FRAMES_PER_CANDIDATE: int = int(os.environ.get("QWEN_MAX_FRAMES_PER_CANDIDATE", "4"))
     QWEN_VERIFY_MAX_NEW_TOKENS: int = int(os.environ.get("QWEN_VERIFY_MAX_NEW_TOKENS", "96"))
-    ACCURATE_MAX_SECONDS: float = float(os.environ.get("ACCURATE_MAX_SECONDS", "30"))
+    ACCURATE_MAX_SECONDS: float = float(os.environ.get("ACCURATE_MAX_SECONDS", "60"))
+    QWEN_FALLBACK_TOP_K: int = int(os.environ.get("QWEN_FALLBACK_TOP_K", "1"))
+    QWEN_MIN_REMAINING_SECONDS: float = float(os.environ.get("QWEN_MIN_REMAINING_SECONDS", "12"))
     GROUNDING_ARTIFACTS_DIR: Path = DATA_DIR / "grounding"
     
     # Ingestion & Sampling Parameters
@@ -97,7 +100,7 @@ class Settings(BaseSettings):
     TEMPORAL_GAUSSIAN_SIGMA: float = 1.5  # display smoothing only
     ENABLE_TTA_ENSEMBLE: bool = True
     DEFAULT_SEARCH_PROFILE: str = os.environ.get("SEARCH_PROFILE", "fast")
-    VLM_RERANK_MAX_SECONDS: float = float(os.environ.get("VLM_RERANK_MAX_SECONDS", os.environ.get("ACCURATE_MAX_SECONDS", "30")))
+    VLM_RERANK_MAX_SECONDS: float = float(os.environ.get("VLM_RERANK_MAX_SECONDS", os.environ.get("ACCURATE_MAX_SECONDS", "60")))
     VLM_MIN_FREE_VRAM_MB: int = 1024
     CALIBRATION_TEMPERATURE: float = 1.0
     CALIBRATION_ARTIFACT_PATH: Path = DATA_DIR / "calibration_v2.json"
