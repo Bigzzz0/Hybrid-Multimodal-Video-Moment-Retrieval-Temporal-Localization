@@ -144,8 +144,12 @@ SAM_MODEL_ID=facebook/sam3.1
 INFERENCE_WORKER_ENABLED=true
 INFERENCE_WORKER_URL=http://127.0.0.1:8011
 INFERENCE_WORKER_TOKEN=change-this-local-secret
-MODEL_VRAM_BUDGET_MB=11000
-ACCURATE_MAX_SECONDS=30
+MODEL_VRAM_BUDGET_MB=11800
+ACCURATE_MAX_SECONDS=60
+INFERENCE_WARMUP_QWEN=false
+SAM_SEARCH_TOP_K=2
+QWEN_FALLBACK_TOP_K=1
+QWEN_MIN_REMAINING_SECONDS=12
 SAM_COMPILE=false
 ```
 
@@ -208,12 +212,14 @@ npm run dev
 `profile` เป็น `fast` หรือ `accurate` ค่า tuning รุ่นเก่าที่ส่งมาเกินจะถูก ignore
 ชั่วคราวเพื่อให้ client เดิมไม่พัง แต่ server เป็นผู้กำหนดน้ำหนักและ threshold เอง
 
-`fast` ใช้ frame embeddings + scene-caption RRF; `accurate` ใช้ query router เลือก
-SAM 3.1 สำหรับ object/attribute/spatial และ Qwen3-VL สำหรับ action/relation/VQA
-ภายใต้งบเวลา 30 วินาที ผลลัพธ์คืน `score` ที่ calibrated
+`fast` ใช้ frame embeddings + scene-caption RRF; `accurate` ใช้ GPU cascade แบบลำดับ
+SigLIP2 → unload → SAM 3.1 → unload → Qwen3-VL เมื่อ SAM ยังตอบคำค้นไม่ครบ → unload
+ภายใต้งบเวลารวม 60 วินาที SAM และ Qwen จะไม่อยู่ใน VRAM พร้อมกัน หาก Qwen เหลือเวลา
+น้อยกว่า 12 วินาที ระบบจะคืน partial result จาก Fast/SAM ที่เสร็จแล้ว ผลลัพธ์คืน `score` ที่ calibrated
 (เมื่อมี artifact), `modality_breakdown`, `occurrence_index`, `profile`,
-`calibrated`, `index_version`, `strategy_used`, `models_used`, `stage_latency_ms`,
-`cache_hits` และ `warnings` โดยคืนได้หลาย occurrence หรือ `moments=[]` สำหรับ no-match.
+`calibrated`, `index_version`, `strategy_used`, `models_used`, `models_attempted`,
+`cascade_path`, `stage_status`, `planner_version`, `stage_latency_ms`, `cache_hits`
+และ `warnings` โดยคืนได้หลาย occurrence หรือ `moments=[]` สำหรับ no-match.
 ผล Accurate ที่ใช้ SAM จะมี `grounding_evidence` และ frontend overlay จะแสดง bbox/mask
 ตาม timestamp ผ่าน `GET /api/v1/grounding/track/{track_id}`
 
