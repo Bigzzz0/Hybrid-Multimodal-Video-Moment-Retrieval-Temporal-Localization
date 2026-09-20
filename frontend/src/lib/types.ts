@@ -104,6 +104,10 @@ export interface SearchResponse {
   models_used?: string[];
   stage_latency_ms?: Record<string, number>;
   cache_hits?: Record<string, boolean>;
+  cascade_path?: string[];
+  models_attempted?: string[];
+  stage_status?: Record<string, string>;
+  planner_version?: string;
 }
 
 export interface GroundedMoment {

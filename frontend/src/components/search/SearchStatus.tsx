@@ -13,7 +13,7 @@ export const SearchStatus: React.FC<{ profile: "fast" | "accurate" }> = ({ profi
   return (
     <div className="flex items-center gap-2 text-xs text-cyan-200" role="status" aria-live="polite">
       <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
-      <span>{profile === "accurate" ? "กำลังค้นหาและตรวจสอบภาพด้วย Qwen" : "กำลังค้นหาจาก visual index"}</span>
+      <span>{profile === "accurate" ? "กำลังค้นหา: SigLIP2 → SAM 3.1 → Qwen เมื่อจำเป็น" : "กำลังค้นหาจาก visual index"}</span>
       <span className="font-mono text-cyan-400">{elapsed.toFixed(1)}s</span>
     </div>
   );

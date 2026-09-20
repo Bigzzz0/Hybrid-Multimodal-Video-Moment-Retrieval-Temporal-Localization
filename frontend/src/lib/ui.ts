@@ -59,6 +59,30 @@ const WARNING_COPY: Record<string, Omit<UiWarning, "code">> = {
     message: "หมดเวลา Accurate budget แล้ว แสดงเฉพาะ candidate ที่ตรวจเสร็จ",
     severity: "warning",
   },
+  accurate_partial_budget: {
+    message: "เวลาที่เหลือไม่พอโหลด Qwen จึงแสดงผล SAM/Fast ที่ตรวจเสร็จแล้ว",
+    severity: "warning",
+  },
+  sam_no_detection_qwen_fallback: {
+    message: "SAM 3.1 ทำงานสำเร็จแต่ไม่พบ object ระบบจึงให้ Qwen ตรวจความหมายต่อ",
+    severity: "info",
+  },
+  sam_ambiguous_qwen_fallback: {
+    message: "คำค้นมีหลายความหมาย ระบบจึงให้ Qwen ช่วยยืนยันบริบท",
+    severity: "info",
+  },
+  qwen_fallback_verified: {
+    message: "Qwen ยืนยันว่าพบเหตุการณ์ตามความหมายของคำค้น",
+    severity: "info",
+  },
+  qwen_fallback_rejected: {
+    message: "Qwen ตรวจภาพแล้วไม่พบเหตุการณ์ตามคำค้น จึงลดอันดับ candidate นี้",
+    severity: "info",
+  },
+  sam_oom_fallback: {
+    message: "หน่วยความจำ GPU ไม่พอสำหรับ SAM 3.1 หลังลองลดจำนวนเฟรมแล้ว ระบบคืนผลที่มีอยู่",
+    severity: "warning",
+  },
   accurate_fallback_fast: {
     message: "โมเดลตรวจยืนยันยังไม่มีหลักฐาน จึงคงผล Fast เดิมไว้เพื่อไม่ให้ผลค้นหาแย่ลง",
     severity: "warning",
