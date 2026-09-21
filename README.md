@@ -335,9 +335,39 @@ python evaluation/run_real_video_benchmark.py --acceptance --profile accurate --
 python evaluation/compare_benchmarks.py --baseline baseline.json --candidate accurate.json --acceptance --output comparison.json
 # เพิ่ม --ablation name=report.json ซ้ำได้เพื่อเทียบ NaFlex/RRF/proposal/calibration/Qwen
 
+# PE-Core A/B experiment (does not modify the SigLIP2 index)
+# Terminal 1: start the isolated worker on 127.0.0.1:8012
+python -m pe_inference_worker.main
+# Terminal 2: enable PE_WORKER_ENABLED=true, then build an additive index
+python -m scripts.backfill_pe_core --model PE-Core-B16-224 --all-videos --resume
+python -m scripts.backfill_pe_core --model PE-Core-L14-336 --all-videos --resume
+# Use --retrieval-backend for a strict, non-mixed benchmark run
+python evaluation/run_real_video_benchmark.py --profile fast --retrieval-backend siglip2 --output evaluation/pe_siglip2.json
+python evaluation/run_real_video_benchmark.py --profile fast --retrieval-backend pe_core_b16 --output evaluation/pe_b16.json
+python evaluation/run_real_video_benchmark.py --profile fast --retrieval-backend pe_core_l14 --output evaluation/pe_l14.json
+
 # สร้าง manifest AIRC-SMARTCLASS แบบ video-disjoint 27/9/9
 python evaluation/build_airc_manifest.py --source-dir path/to/AIRC-SMARTCLASS --output evaluation/datasets/airc_manifest.json
 ```
+
+PE-Core setup is isolated from the SAM/Qwen worker because the official PE
+repository has its own dependency pins. Install the pinned source with
+`--no-deps` after installing `backend/requirements-pe-core.txt`:
+
+```powershell
+cd backend
+py -3.12 -m venv ..\.venv-pe-core
+..\.venv-pe-core\Scripts\python -m pip install -r requirements-pe-core.txt
+# requirements.txt installs a portable Torch wheel first; replace it with the
+# CUDA 12.8 build for RTX 5070 (do not let pip replace NumPy with 2.x).
+..\.venv-pe-core\Scripts\python -m pip install --force-reinstall --no-deps torch==2.10.0 torchvision==0.25.0 --index-url https://download.pytorch.org/whl/cu128
+..\.venv-pe-core\Scripts\python -m pip install --no-deps "git+https://github.com/facebookresearch/perception_models.git@3e352cca660658d4b5c90f42a7808b11469e4c66"
+```
+
+The PE-Core checkpoints are downloaded by the worker on first use. Do not
+commit model files, LanceDB data, video frames, or local secrets. SigLIP2
+remains the default backend; PE-Core is selected from the Developer Panel
+only after its per-video additive index is ready.
 
 ไฟล์ `evaluation/datasets/real_video_benchmark.json` และค่าที่อยู่ใน
 `evaluation/baseline_manifest.json` เป็น smoke/regression fixture เท่านั้น ไม่ใช่
