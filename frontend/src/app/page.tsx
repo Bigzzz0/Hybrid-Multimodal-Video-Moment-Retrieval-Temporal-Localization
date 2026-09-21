@@ -18,7 +18,7 @@ import {
   HelpCircle,
   Tv,
 } from "lucide-react";
-import { VideoMetadata, MomentItem, SearchResponse, VideoKeyframeItem } from "@/lib/types";
+import { VideoMetadata, MomentItem, SearchResponse, VideoKeyframeItem, RetrievalBackend } from "@/lib/types";
 import { apiClient } from "@/lib/api";
 import { VideoLibraryReel } from "@/components/library/VideoLibraryReel";
 import { VideoPlayer } from "@/components/player/VideoPlayer";
@@ -40,6 +40,7 @@ export default function DashboardPage() {
   const [keyframeRecords, setKeyframeRecords] = useState<VideoKeyframeItem[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchProfile, setSearchProfile] = useState<"fast" | "accurate">("fast");
+  const [retrievalBackend, setRetrievalBackend] = useState<RetrievalBackend>("siglip2");
   const [isSearching, setIsSearching] = useState(false);
   const [searchResult, setSearchResult] = useState<SearchResponse | null>(null);
   const [searchError, setSearchError] = useState<string | null>(null);
@@ -167,7 +168,7 @@ export default function DashboardPage() {
     setActiveTab("moments");
 
     try {
-      const res = await apiClient.searchMoments(q, selectedVideo.id, 5, searchProfile, controller.signal);
+      const res = await apiClient.searchMoments(q, selectedVideo.id, 5, searchProfile, retrievalBackend, controller.signal);
       if (requestId !== searchRequestIdRef.current) return;
       setSearchResult(res);
       // In Accurate mode, open the first moment that has actual SAM evidence
@@ -495,7 +496,7 @@ export default function DashboardPage() {
           </div>
 
           {/* Latency & Telemetry Metric Pill */}
-          {searchResult && activeTab === "moments" && <SearchResultSummary query={searchResult.query} count={searchResult.moments.length} profile={searchResult.profile} latencyMs={searchResult.latency_ms} calibrated={searchResult.calibrated} indexVersion={searchResult.index_version} strategyUsed={searchResult.strategy_used} modelsUsed={searchResult.models_used} modelsAttempted={searchResult.models_attempted} cascadePath={searchResult.cascade_path} />}
+          {searchResult && activeTab === "moments" && <SearchResultSummary query={searchResult.query} count={searchResult.moments.length} profile={searchResult.profile} latencyMs={searchResult.latency_ms} calibrated={searchResult.calibrated} indexVersion={searchResult.index_version} strategyUsed={searchResult.strategy_used} modelsUsed={searchResult.models_used} modelsAttempted={searchResult.models_attempted} cascadePath={searchResult.cascade_path} retrievalBackend={searchResult.retrieval_backend_used} retrievalModelId={searchResult.retrieval_model_id} />}
           {searchResult && activeTab === "moments" && <SearchWarningBanner warnings={uniqueWarnings(searchResult.warnings)} onReindex={() => setShowUploader(true)} />}
 
           {/* Tab Content */}
@@ -586,7 +587,21 @@ export default function DashboardPage() {
       )}
 
       {/* Developer & System Telemetry Panel Modal */}
-      <DevPanel isOpen={showDevPanel} onClose={() => setShowDevPanel(false)} />
+      <DevPanel
+        isOpen={showDevPanel}
+        onClose={() => setShowDevPanel(false)}
+        videoId={selectedVideo?.id}
+        retrievalBackend={retrievalBackend}
+        onRetrievalBackendChange={(backend) => {
+          searchAbortRef.current?.abort();
+          setRetrievalBackend(backend);
+          setSearchResult(null);
+          setActiveMoment(null);
+          setActiveMomentKey(null);
+          setHighlightInterval(null);
+          setSeekTime(null);
+        }}
+      />
 
       {/* Pro Studio Keyboard Shortcuts Modal */}
       <ShortcutModal isOpen={showShortcutModal} onClose={() => setShowShortcutModal(false)} />

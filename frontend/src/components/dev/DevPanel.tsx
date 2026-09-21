@@ -19,16 +19,20 @@ import {
   ShieldCheck,
   Gauge
 } from "lucide-react";
-import { SystemTelemetry } from "@/lib/types";
+import { RetrievalBackend, RetrievalBackendInfo, SystemTelemetry } from "@/lib/types";
 import { apiClient } from "@/lib/api";
 
 interface DevPanelProps {
   isOpen: boolean;
   onClose: () => void;
+  videoId?: string;
+  retrievalBackend: RetrievalBackend;
+  onRetrievalBackendChange: (backend: RetrievalBackend) => void;
 }
 
-export const DevPanel: React.FC<DevPanelProps> = ({ isOpen, onClose }) => {
+export const DevPanel: React.FC<DevPanelProps> = ({ isOpen, onClose, videoId, retrievalBackend, onRetrievalBackendChange }) => {
   const [telemetry, setTelemetry] = useState<SystemTelemetry | null>(null);
+  const [retrievalBackends, setRetrievalBackends] = useState<RetrievalBackendInfo[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<"hardware" | "storage" | "models" | "logs">("hardware");
   const [autoRefresh, setAutoRefresh] = useState(true);
@@ -48,16 +52,26 @@ export const DevPanel: React.FC<DevPanelProps> = ({ isOpen, onClose }) => {
     }
   };
 
+  const fetchRetrievalBackends = async () => {
+    try {
+      setRetrievalBackends(await apiClient.getRetrievalBackends(videoId));
+    } catch (err) {
+      console.debug("Failed to fetch retrieval backend status:", err);
+    }
+  };
+
   useEffect(() => {
     if (isOpen) {
       fetchTelemetry();
+      fetchRetrievalBackends();
     }
-  }, [isOpen]);
+  }, [isOpen, videoId]);
 
   useEffect(() => {
     if (!isOpen || !autoRefresh) return;
     const timer = setInterval(() => {
       fetchTelemetry();
+      fetchRetrievalBackends();
     }, 3000);
     return () => clearInterval(timer);
   }, [isOpen, autoRefresh]);
@@ -177,6 +191,39 @@ export const DevPanel: React.FC<DevPanelProps> = ({ isOpen, onClose }) => {
 
         {/* Tab Contents */}
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
+          <section className="p-4 rounded-xl bg-cyan-950/20 border border-cyan-800/60 space-y-3">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <h3 className="text-sm font-bold text-white">Experimental retrieval encoder</h3>
+                <p className="text-xs text-gray-400">A/B test only; SigLIP2 remains the default.</p>
+              </div>
+              <select
+                aria-label="Retrieval encoder"
+                value={retrievalBackend}
+                onChange={(event) => onRetrievalBackendChange(event.target.value as RetrievalBackend)}
+                className="bg-background border border-surfaceBorder rounded-lg px-3 py-2 text-xs text-white font-mono"
+              >
+                {retrievalBackends.length > 0 ? retrievalBackends.map((backend) => (
+                  <option key={backend.id} value={backend.id} disabled={backend.experimental && !backend.ready}>
+                    {backend.label}{backend.experimental && !backend.ready ? " — index not ready" : ""}
+                  </option>
+                )) : <option value="siglip2">SigLIP2 NaFlex</option>}
+              </select>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-[11px] font-mono">
+              {retrievalBackends.map((backend) => (
+                <div key={backend.id} className="rounded-lg bg-background/70 border border-surfaceBorder px-3 py-2">
+                  <p className="text-gray-300">{backend.label}</p>
+                  <p className={backend.ready ? "text-emerald-300" : "text-amber-300"}>
+                    {backend.ready ? "ready" : "not ready"}
+                  </p>
+                  {backend.indexed_frame_count !== undefined && (
+                    <p className="text-gray-500">{backend.indexed_frame_count}/{backend.source_frame_count} frames</p>
+                  )}
+                </div>
+              ))}
+            </div>
+          </section>
           
           {/* TAB 1: Hardware & GPU */}
           {activeTab === "hardware" && (
@@ -358,6 +405,24 @@ export const DevPanel: React.FC<DevPanelProps> = ({ isOpen, onClose }) => {
                   <p className="text-gray-300">Model ID: <span className="text-cyan-300">google/siglip2-base-patch16-naflex</span></p>
                   <p className="text-gray-300">Vector Dimension: <span className="text-emerald-300">768-dim</span></p>
                   <p className="text-gray-300">Distance Metric: <span className="text-white">Cosine Similarity</span></p>
+                </div>
+              </div>
+
+              {/* PE-Core experiment */}
+              <div className="p-5 rounded-xl bg-surface border border-cyan-800/60 space-y-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-cyan-500/20 text-cyan-400 flex items-center justify-center">
+                    <Gauge className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-bold text-white">Experimental: PE-Core</h4>
+                    <p className="text-xs text-gray-400">Separate 1024-dim image/text retrieval index</p>
+                  </div>
+                </div>
+                <div className="p-3 rounded-lg bg-background/80 border border-surfaceBorder space-y-1 text-xs font-mono">
+                  <p className="text-gray-300">Models: <span className="text-cyan-300">PE-Core-B16-224 / PE-Core-L14-336</span></p>
+                  <p className="text-gray-300">Worker: <span className="text-emerald-300">{telemetry?.pe_worker?.status || "separate port 8012"}</span></p>
+                  <p className="text-gray-300">Embedding: <span className="text-emerald-300">1024-dim cosine</span></p>
                 </div>
               </div>
 

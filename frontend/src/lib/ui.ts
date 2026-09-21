@@ -95,6 +95,34 @@ const WARNING_COPY: Record<string, Omit<UiWarning, "code">> = {
     message: "Qwen3-VL worker ไม่พร้อมใช้งาน จึงใช้หลักฐาน retrieval ที่มีอยู่",
     severity: "warning",
   },
+  pe_worker_unavailable: {
+    message: "PE-Core worker ไม่พร้อมใช้งาน จึงใช้ SigLIP2 แทน",
+    severity: "warning",
+  },
+  pe_index_missing: {
+    message: "ยังไม่มี PE-Core index ของวิดีโอนี้ กรุณาสร้าง index ก่อนทดลอง",
+    severity: "warning",
+  },
+  pe_index_stale: {
+    message: "PE-Core index รุ่นเก่าไม่ตรงกับ checkpoint ปัจจุบัน",
+    severity: "warning",
+  },
+  pe_timeout_fallback: {
+    message: "PE-Core ใช้เวลาเกินกำหนด จึงใช้ SigLIP2 แทน",
+    severity: "warning",
+  },
+  pe_oom_fallback: {
+    message: "หน่วยความจำ GPU ไม่พอสำหรับ PE-Core จึงใช้ SigLIP2 แทน",
+    severity: "warning",
+  },
+  pe_unload_failed: {
+    message: "ไม่สามารถคืนหน่วยความจำของ PE-Core ได้อย่างปลอดภัย",
+    severity: "warning",
+  },
+  pe_fallback_siglip: {
+    message: "PE-Core ใช้งานไม่ได้ในคำค้นนี้ ระบบจึงใช้ SigLIP2 แทน",
+    severity: "info",
+  },
   qwen_vqa_fallback: {
     message: "ตอบ Video VQA จากหลักฐาน retrieval แทน เพราะ Qwen3-VL ใช้งานไม่ได้",
     severity: "warning",

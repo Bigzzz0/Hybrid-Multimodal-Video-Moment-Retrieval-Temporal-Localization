@@ -108,6 +108,25 @@ export interface SearchResponse {
   models_attempted?: string[];
   stage_status?: Record<string, string>;
   planner_version?: string;
+  retrieval_backend_requested?: RetrievalBackend;
+  retrieval_backend_used?: RetrievalBackend;
+  retrieval_model_id?: string;
+  retrieval_embedding_version?: string;
+}
+
+export type RetrievalBackend = "siglip2" | "pe_core_b16" | "pe_core_l14";
+
+export interface RetrievalBackendInfo {
+  id: RetrievalBackend;
+  label: string;
+  model_id: string;
+  embedding_version: string;
+  model_revision?: string;
+  ready: boolean;
+  indexed_frame_count?: number;
+  source_frame_count?: number;
+  experimental: boolean;
+  worker?: Record<string, any>;
 }
 
 export interface GroundedMoment {
@@ -177,6 +196,7 @@ export interface SystemTelemetry {
   };
   models: Record<string, any>;
   inference_worker?: Record<string, any>;
+  pe_worker?: Record<string, any>;
   recent_logs: string[];
 }
 
