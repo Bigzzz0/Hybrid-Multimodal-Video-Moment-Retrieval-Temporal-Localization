@@ -12,7 +12,7 @@ import numpy as np
 from app.core.config import settings
 from app.db.connection import db_manager
 from app.db.schemas import MomentItem, SearchResponse
-from app.inference.client import pe_worker_client
+from app.inference.client import inference_client, pe_worker_client
 from app.inference.contracts import PEEmbedTextRequest
 from app.inference.errors import InferenceWorkerError, InferenceWorkerOOM, InferenceWorkerTimeout, InferenceWorkerUnavailable
 from app.pipeline.visual_encoder import SigLIP2VisualEncoder
