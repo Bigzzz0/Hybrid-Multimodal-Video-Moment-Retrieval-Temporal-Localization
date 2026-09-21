@@ -307,13 +307,23 @@ class HybridMomentSearchEngine:
             # explicit to the UI and benchmark runner.
             warnings.append("vlm_artifact_not_ready")
         caption_by_scene: Dict[str, float] = {}
+        caption_intervals: List[Tuple[float, float, float]] = []
         for row in caption_rows:
             scene_id = str(row.get("id"))
             score = float(row.get("_score", row.get("score", 0.0)) or 0.0)
             if score <= 0.0:
                 score = _lexical_score(str(row.get("caption", "")), query)
-            caption_by_scene[scene_id] = max(caption_by_scene.get(scene_id, 0.0), score)
-        caption_relevance = np.asarray([caption_by_scene.get(str(frame.get("scene_id")), 0.0) for frame in frames], dtype=np.float32)
+            if str(row.get("source_kind", "scene")) == "video_chunk":
+                caption_intervals.append((float(row.get("t_start", 0.0)), float(row.get("t_end", 0.0)), score))
+            else:
+                caption_by_scene[scene_id] = max(caption_by_scene.get(scene_id, 0.0), score)
+        caption_relevance = np.asarray([
+            max(
+                [caption_by_scene.get(str(frame.get("scene_id")), 0.0)]
+                + [score for start, end, score in caption_intervals if start <= float(frame.get("timestamp", 0.0)) <= end]
+            )
+            for frame in frames
+        ], dtype=np.float32)
 
         visual_rank = [{"id": str(frame.get("id")), "timestamp": float(frame.get("timestamp", 0.0)), "score": float(score), "frame": frame}
                        for frame, score in zip(frames, visual_relevance)]
@@ -338,6 +348,8 @@ class HybridMomentSearchEngine:
             ts = float(frame.get("timestamp", 0.0))
             visual_by_timestamp[ts] = float(visual)
             caption_by_timestamp[ts] = float(caption_by_scene.get(str(frame.get("scene_id")), 0.0))
+            if caption_intervals:
+                caption_by_timestamp[ts] = max(caption_by_timestamp[ts], max((score for start, end, score in caption_intervals if start <= ts <= end), default=0.0))
             transition_by_timestamp[ts] = float(frame.get("transition_energy", 0.0) or 0.0)
             frame_by_timestamp[ts] = frame
         for result in fused.values():
