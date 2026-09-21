@@ -1,0 +1,13 @@
+# Optional research/ablation environment. Do not install over .venv-inference.
+--extra-index-url https://download.pytorch.org/whl/cu128
+torch==2.10.0+cu128
+transformers==5.17.0
+accelerate
+bitsandbytes==0.50.2
+qwen-vl-utils==0.0.14
+peft==0.18.1
+httpx
+Pillow
+
+# CapRL Q4/Q6 uses the separately built llama.cpp v0.4.1 / b29c606
+# Windows CUDA binary and the GGUF/mmproj files are intentionally external.

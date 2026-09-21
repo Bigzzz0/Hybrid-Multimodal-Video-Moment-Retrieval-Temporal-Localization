@@ -367,6 +367,9 @@ cd backend
 ..\.venv-inference\Scripts\python.exe -m scripts.backfill_vlm_ablation --all-videos --all-backends --resume
 ```
 
+สำหรับการทดลอง B–E ให้สร้าง environment แยกจาก worker เดิมด้วย
+`backend/requirements-vlm-lab.txt`; ไม่ควรติดตั้งทับ `.venv-inference`.
+
 การค้นหา Accurate ใช้ `SigLIP2 → selected VLM`; Fast ใช้ SigLIP2 และ caption
 ที่มีอยู่ทันที หาก artifact รุ่นที่เลือกยังไม่พร้อม UI จะแสดงสถานะและไม่หลอกว่า
 ใช้รุ่นนั้นจริง. GGUF Q4/Q6 ต้องติดตั้ง llama.cpp v0.4.1 commit `b29c606`,
