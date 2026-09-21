@@ -24,6 +24,7 @@ class SigLIPService:
         return EmbeddingResponse(
             embeddings=[self.encoder.encode_text(text) for text in request.texts],
             model_id=settings.SIGLIP2_MODEL_ID,
+            embedding_dim=settings.SIGLIP2_EMBEDDING_DIM,
             status="generated",
         )
 
@@ -37,5 +38,6 @@ class SigLIPService:
         return EmbeddingResponse(
             embeddings=embeddings,
             model_id=settings.SIGLIP2_MODEL_ID,
+            embedding_dim=settings.SIGLIP2_EMBEDDING_DIM,
             status="generated",
         )

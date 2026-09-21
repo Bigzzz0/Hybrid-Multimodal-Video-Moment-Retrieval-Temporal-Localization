@@ -16,6 +16,8 @@ from app.db.schemas import (
     MODEL_ARTIFACT_CACHE_SCHEMA,
     SCENE_ANALYSIS_SCHEMA,
     QWEN_VERIFICATION_SCHEMA,
+    PE_CORE_FRAME_SCHEMA,
+    PE_CORE_METADATA_SCHEMA,
 )
 
 class LanceDBManager:
@@ -70,6 +72,8 @@ class LanceDBManager:
         ensure_table("model_artifact_cache", MODEL_ARTIFACT_CACHE_SCHEMA)
         ensure_table("scene_analysis_v1", SCENE_ANALYSIS_SCHEMA)
         ensure_table("qwen_verifications_v1", QWEN_VERIFICATION_SCHEMA)
+        ensure_table("video_frames_pe_core_v1", PE_CORE_FRAME_SCHEMA)
+        ensure_table("pe_core_index_metadata_v1", PE_CORE_METADATA_SCHEMA)
             
         # 4. Table: search_logs
         ensure_table("search_logs", SEARCH_LOG_SCHEMA)

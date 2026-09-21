@@ -69,6 +69,35 @@ VIDEO_FRAME_V2_SCHEMA = pa.schema([
     pa.field("transition_energy", pa.float32()),
 ])
 
+PE_CORE_FRAME_SCHEMA = pa.schema([
+    pa.field("id", pa.string()),
+    pa.field("source_frame_id", pa.string()),
+    pa.field("video_id", pa.string()),
+    pa.field("scene_id", pa.string()),
+    pa.field("timestamp", pa.float32()),
+    pa.field("frame_path", pa.string()),
+    pa.field("pe_core_vector", pa.list_(pa.float32(), 1024)),
+    pa.field("model_id", pa.string()),
+    pa.field("model_revision", pa.string()),
+    pa.field("embedding_version", pa.string()),
+    pa.field("created_at", pa.string()),
+])
+
+PE_CORE_METADATA_SCHEMA = pa.schema([
+    pa.field("id", pa.string()),
+    pa.field("video_id", pa.string()),
+    pa.field("model_id", pa.string()),
+    pa.field("model_revision", pa.string()),
+    pa.field("embedding_dim", pa.int32()),
+    pa.field("embedding_version", pa.string()),
+    pa.field("source_index_version", pa.string()),
+    pa.field("source_frame_count", pa.int32()),
+    pa.field("indexed_frame_count", pa.int32()),
+    pa.field("status", pa.string()),
+    pa.field("indexed_at", pa.string()),
+    pa.field("error_message", pa.string()),
+])
+
 # Table: search_logs
 SEARCH_LOG_SCHEMA = pa.schema([
     pa.field("id", pa.string()),
@@ -228,12 +257,17 @@ class SearchResponse(BaseModel):
     models_attempted: List[str] = Field(default_factory=list)
     stage_status: Dict[str, str] = Field(default_factory=dict)
     planner_version: str = ""
+    retrieval_backend_requested: str = "siglip2"
+    retrieval_backend_used: str = "siglip2"
+    retrieval_model_id: str = ""
+    retrieval_embedding_version: str = ""
 
 class SearchQueryRequest(BaseModel):
     query: str
     video_id: str
     top_k: int = Field(default=5, ge=1, le=20)
     profile: Literal["fast", "accurate"] = "fast"
+    retrieval_backend: Literal["siglip2", "pe_core_b16", "pe_core_l14"] = "siglip2"
 
     class Config:
         extra = "ignore"

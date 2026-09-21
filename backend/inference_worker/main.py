@@ -136,6 +136,14 @@ async def ground_video(request: GroundRequest, _: None = Depends(_authorize)):
     return await _run("sam", SAM31Grounder, "ground", request, priority=priority)
 
 
+@app.post("/v1/models/{name}/unload")
+async def unload_model(name: str, _: None = Depends(_authorize)):
+    if name not in {"siglip", "sam", "qwen"}:
+        raise HTTPException(status_code=404, detail="unknown model")
+    await inference_scheduler.submit("interactive_search", lambda: model_manager.unload(name))
+    return {"status": "unloaded", "model": name}
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("inference_worker.main:app", host="127.0.0.1", port=8011, reload=False)

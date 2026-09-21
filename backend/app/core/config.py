@@ -67,6 +67,25 @@ class Settings(BaseSettings):
     INFERENCE_WORKER_TOKEN: Optional[str] = os.environ.get("INFERENCE_WORKER_TOKEN", None)
     INFERENCE_REQUEST_TIMEOUT_SEC: float = float(os.environ.get("INFERENCE_REQUEST_TIMEOUT_SEC", "35"))
     INFERENCE_WARMUP_QWEN: bool = os.environ.get("INFERENCE_WARMUP_QWEN", "false").lower() in {"1", "true", "yes"}
+    PE_WORKER_ENABLED: bool = os.environ.get("PE_WORKER_ENABLED", "false").lower() in {"1", "true", "yes"}
+    PE_WORKER_URL: str = os.environ.get("PE_WORKER_URL", "http://127.0.0.1:8012")
+    PE_WORKER_TOKEN: Optional[str] = os.environ.get("PE_WORKER_TOKEN", None)
+    PE_WORKER_TIMEOUT_SEC: float = float(os.environ.get("PE_WORKER_TIMEOUT_SEC", "35"))
+    PE_CORE_DEFAULT_MODEL: str = os.environ.get("PE_CORE_DEFAULT_MODEL", "PE-Core-B16-224")
+    PE_CORE_BATCH_B16: int = int(os.environ.get("PE_CORE_BATCH_B16", "32"))
+    PE_CORE_BATCH_L14: int = int(os.environ.get("PE_CORE_BATCH_L14", "8"))
+    PE_CORE_EMBEDDING_DIM: int = int(os.environ.get("PE_CORE_EMBEDDING_DIM", "1024"))
+    PE_CORE_SOURCE_REVISION: str = os.environ.get(
+        "PE_CORE_SOURCE_REVISION", "3e352cca660658d4b5c90f42a7808b11469e4c66"
+    )
+    PE_CORE_B16_REVISION: str = os.environ.get(
+        "PE_CORE_B16_REVISION", "a16450b46fef32363459920c2685a1b4ef13dcd9"
+    )
+    PE_CORE_L14_REVISION: str = os.environ.get(
+        "PE_CORE_L14_REVISION", "bafb0f76541d399057e980a25947f67acec76575"
+    )
+    PE_CORE_VRAM_BUDGET_MB: int = int(os.environ.get("PE_CORE_VRAM_BUDGET_MB", "11800"))
+    PE_CORE_INDEX_VERSION: str = os.environ.get("PE_CORE_INDEX_VERSION", "pe-core-v1")
     MODEL_VRAM_BUDGET_MB: int = int(os.environ.get("MODEL_VRAM_BUDGET_MB", "11800"))
     SAM_COMPILE: bool = os.environ.get("SAM_COMPILE", "false").lower() in {"1", "true", "yes"}
     SAM_PRECOMPUTE_FPS: float = float(os.environ.get("SAM_PRECOMPUTE_FPS", "1"))

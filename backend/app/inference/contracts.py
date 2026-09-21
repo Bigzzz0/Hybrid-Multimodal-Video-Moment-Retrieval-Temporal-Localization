@@ -13,11 +13,26 @@ class EmbedTextRequest(BaseModel):
 class EmbedImagesRequest(BaseModel):
     frame_paths: List[str] = Field(default_factory=list)
     batch_size: int = 16
+    release_after: bool = False
+
+
+class PEEmbedTextRequest(BaseModel):
+    model_id: str
+    texts: List[str] = Field(default_factory=list)
+    release_after: bool = False
+
+
+class PEEmbedImagesRequest(BaseModel):
+    model_id: str
+    frame_paths: List[str] = Field(default_factory=list)
+    batch_size: int = 8
+    release_after: bool = False
 
 
 class EmbeddingResponse(BaseModel):
     embeddings: List[List[float]] = Field(default_factory=list)
     model_id: str = ""
+    embedding_dim: int = 0
     status: str = "unavailable"
 
 
