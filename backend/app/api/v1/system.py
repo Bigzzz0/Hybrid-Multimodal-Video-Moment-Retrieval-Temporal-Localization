@@ -7,7 +7,7 @@ from typing import Dict, Any, List
 from fastapi import APIRouter
 from app.core.config import settings
 from app.db.connection import db_manager
-from app.inference.client import inference_client
+from app.inference.client import inference_client, pe_worker_client
 
 router = APIRouter()
 
@@ -69,6 +69,8 @@ def get_system_telemetry():
         "sam_observations_v1",
         "scene_analysis_v1",
         "model_artifact_cache",
+        "video_frames_pe_core_v1",
+        "pe_core_index_metadata_v1",
     ]
     for t_name in table_names:
         try:
@@ -136,5 +138,49 @@ def get_system_telemetry():
         "visual_index": db_manager.validate_visual_index(),
         "models": models_info,
         "inference_worker": inference_client.health(),
+        "pe_worker": pe_worker_client.health(),
         "recent_logs": log_lines
     }
+
+
+@router.get("/retrieval-backends", response_model=List[Dict[str, Any]])
+def get_retrieval_backends(video_id: str | None = None):
+    """Return readiness for the experimental PE-Core indexes without touching old data."""
+    backends = [
+        {
+            "id": "siglip2",
+            "label": "SigLIP2 NaFlex",
+            "model_id": settings.SIGLIP2_MODEL_ID,
+            "embedding_version": settings.SIGLIP2_EMBEDDING_VERSION,
+            "ready": bool(db_manager.visual_index_compatibility(video_id).get("compatible", False)),
+            "experimental": False,
+        }
+    ]
+    for backend_id, model_id, revision in (
+        ("pe_core_b16", "PE-Core-B16-224", settings.PE_CORE_B16_REVISION),
+        ("pe_core_l14", "PE-Core-L14-336", settings.PE_CORE_L14_REVISION),
+    ):
+        version = f"{settings.PE_CORE_INDEX_VERSION}:{model_id}:{revision[:12]}"
+        metadata_rows = []
+        try:
+            table = db_manager.get_table("pe_core_index_metadata_v1")
+            query = table.search().where(f"model_id = '{model_id}' AND embedding_version = '{version}'")
+            if video_id:
+                query = query.where(f"video_id = '{video_id}'")
+            metadata_rows = query.limit(200000).to_list()
+        except Exception:
+            metadata_rows = []
+        ready_rows = [row for row in metadata_rows if row.get("status") == "ready"]
+        backends.append({
+            "id": backend_id,
+            "label": model_id,
+            "model_id": model_id,
+            "embedding_version": version,
+            "model_revision": revision,
+            "ready": bool(ready_rows) if video_id else bool(ready_rows),
+            "indexed_frame_count": sum(int(row.get("indexed_frame_count", 0)) for row in ready_rows),
+            "source_frame_count": sum(int(row.get("source_frame_count", 0)) for row in ready_rows),
+            "experimental": True,
+            "worker": pe_worker_client.health(),
+        })
+    return backends

@@ -1,6 +1,8 @@
 """Hybrid pure-visual retrieval engine (frame embeddings + scene captions)."""
 
 import json
+import re
+import threading
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -10,6 +12,9 @@ import numpy as np
 from app.core.config import settings
 from app.db.connection import db_manager
 from app.db.schemas import MomentItem, SearchResponse
+from app.inference.client import pe_worker_client
+from app.inference.contracts import PEEmbedTextRequest
+from app.inference.errors import InferenceWorkerError, InferenceWorkerOOM, InferenceWorkerTimeout, InferenceWorkerUnavailable
 from app.pipeline.visual_encoder import SigLIP2VisualEncoder
 from app.retrieval.boundary_extractor import TemporalBoundaryExtractor
 from app.retrieval.query_expander import query_expander
@@ -28,6 +33,17 @@ def _lexical_score(text: str, query: str) -> float:
     return sum(1 for token in tokens if token in haystack) / len(tokens)
 
 
+_GPU_SEARCH_LOCK = threading.RLock()
+
+
+def _serialize_gpu_search(func):
+    """Keep the two local workers from loading heavy models concurrently."""
+    def wrapped(*args, **kwargs):
+        with _GPU_SEARCH_LOCK:
+            return func(*args, **kwargs)
+    return wrapped
+
+
 class HybridMomentSearchEngine:
     """Search every frame of one video and produce calibrated proposals."""
 
@@ -36,8 +52,90 @@ class HybridMomentSearchEngine:
         self.rrf = ReciprocalRankFusion(k=settings.DEFAULT_RRF_K)
         self.smoother = TemporalSmoother(default_sigma=settings.TEMPORAL_GAUSSIAN_SIGMA)
         self.boundary_extractor = TemporalBoundaryExtractor()
-        self._calibration_cache: Optional[Dict[str, Any]] = None
+        self._calibration_cache: Dict[str, Optional[Dict[str, Any]]] = {}
         self._fusion_cache: Optional[Dict[str, float]] = None
+        self._active_retrieval_backend = "siglip2"
+        self._active_retrieval_model_id = settings.SIGLIP2_MODEL_ID
+        self._active_retrieval_embedding_version = settings.SIGLIP2_EMBEDDING_VERSION
+
+    @staticmethod
+    def _retrieval_spec(backend: str) -> Dict[str, str]:
+        if backend == "pe_core_b16":
+            return {
+                "backend": backend,
+                "alias": "pe_core_b16",
+                "model_id": "PE-Core-B16-224",
+                "revision": settings.PE_CORE_B16_REVISION,
+                "vector_key": "pe_core_vector",
+                "embedding_version": f"{settings.PE_CORE_INDEX_VERSION}:PE-Core-B16-224:{settings.PE_CORE_B16_REVISION[:12]}",
+            }
+        if backend == "pe_core_l14":
+            return {
+                "backend": backend,
+                "alias": "pe_core_l14",
+                "model_id": "PE-Core-L14-336",
+                "revision": settings.PE_CORE_L14_REVISION,
+                "vector_key": "pe_core_vector",
+                "embedding_version": f"{settings.PE_CORE_INDEX_VERSION}:PE-Core-L14-336:{settings.PE_CORE_L14_REVISION[:12]}",
+            }
+        return {
+            "backend": "siglip2",
+            "alias": "siglip",
+            "model_id": settings.SIGLIP2_MODEL_ID,
+            "revision": "",
+            "vector_key": "siglip2_vector",
+            "embedding_version": settings.SIGLIP2_EMBEDDING_VERSION,
+        }
+
+    def _pe_index_ready(self, video_id: str, spec: Dict[str, str]) -> bool:
+        try:
+            rows = self._rows(
+                db_manager.get_table("pe_core_index_metadata_v1"),
+                f"video_id = '{video_id}' AND model_id = '{spec['model_id']}' AND embedding_version = '{spec['embedding_version']}'",
+                10,
+            )
+            return bool(rows and rows[0].get("status") == "ready" and
+                        int(rows[0].get("embedding_dim", 0)) == int(settings.PE_CORE_EMBEDDING_DIM) and
+                        int(rows[0].get("indexed_frame_count", 0)) == int(rows[0].get("source_frame_count", -1)))
+        except Exception:
+            return False
+
+    def _retrieval_frames(self, video_id: str, spec: Dict[str, str]) -> List[Dict[str, Any]]:
+        if spec["backend"] == "siglip2":
+            rows = self._rows(db_manager.get_table("video_frames_v2"), f"video_id = '{video_id}'", 200000)
+            dim = int(settings.SIGLIP2_EMBEDDING_DIM)
+            return [row for row in rows if row.get(spec["vector_key"]) is not None and len(row.get(spec["vector_key"])) == dim]
+
+        rows = self._rows(
+            db_manager.get_table("video_frames_pe_core_v1"),
+            f"video_id = '{video_id}' AND model_id = '{spec['model_id']}' AND embedding_version = '{spec['embedding_version']}'",
+            200000,
+        )
+        source_rows = self._rows(db_manager.get_table("video_frames_v2"), f"video_id = '{video_id}'", 200000)
+        transition_by_id = {str(row.get("id")): float(row.get("transition_energy", 0.0) or 0.0) for row in source_rows}
+        dim = int(settings.PE_CORE_EMBEDDING_DIM)
+        for row in rows:
+            row["transition_energy"] = transition_by_id.get(str(row.get("source_frame_id")), 0.0)
+        return [row for row in rows if row.get(spec["vector_key"]) is not None and len(row.get(spec["vector_key"])) == dim]
+
+    def _encode_retrieval_text(self, variants: List[Tuple[str, float]], spec: Dict[str, str], release_after: bool) -> List[List[float]]:
+        if spec["backend"] == "siglip2":
+            if hasattr(self.text_encoder, "encode_texts"):
+                return self.text_encoder.encode_texts([text for text, _ in variants], release_after=release_after)
+            encoded = [self.text_encoder.encode_text(text) for text, _ in variants]
+            if release_after and callable(getattr(self.text_encoder, "unload", None)):
+                self.text_encoder.unload()
+            return encoded
+        response = pe_worker_client.embed_text(
+            PEEmbedTextRequest(
+                model_id=spec["model_id"],
+                texts=[text for text, _ in variants],
+                release_after=release_after,
+            )
+        )
+        if response.embedding_dim != int(settings.PE_CORE_EMBEDDING_DIM):
+            raise ValueError(f"PE-Core returned unexpected embedding dimension {response.embedding_dim}")
+        return response.embeddings
 
     @staticmethod
     def _fuse_accurate_score(base: float, sam_score: float = 0.0, qwen_confidence: Optional[float] = None, qwen_present: bool = True) -> float:
@@ -63,9 +161,10 @@ class HybridMomentSearchEngine:
                 rows = table.to_arrow().to_pylist()
             except Exception:
                 return []
-            if where and " = '" in where:
-                key, value = where.split(" = '", 1)
-                rows = [row for row in rows if str(row.get(key)) == value.rstrip("'")]
+            if where:
+                predicates = re.findall(r"([A-Za-z_][A-Za-z0-9_]*)\s*=\s*'([^']*)'", where)
+                for key, value in predicates:
+                    rows = [row for row in rows if str(row.get(key)) == value]
             return rows[:limit]
 
     def _caption_rows(self, query: str, video_id: str) -> List[Dict[str, Any]]:
@@ -85,21 +184,29 @@ class HybridMomentSearchEngine:
         return rows
 
     def _load_calibration(self) -> Optional[Dict[str, Any]]:
-        if self._calibration_cache is not None:
-            return self._calibration_cache
+        cache_key = f"{self._active_retrieval_model_id}:{self._active_retrieval_embedding_version}"
+        if cache_key in self._calibration_cache:
+            return self._calibration_cache[cache_key]
         path = Path(settings.CALIBRATION_ARTIFACT_PATH)
         if not path.exists():
-            self._calibration_cache = None
+            self._calibration_cache[cache_key] = None
             return None
         try:
             data = json.loads(path.read_text(encoding="utf-8"))
             if data.get("index_version") != settings.VISUAL_INDEX_VERSION:
+                self._calibration_cache[cache_key] = None
                 return None
-            if data.get("model_id") != settings.SIGLIP2_MODEL_ID:
+            if self._active_retrieval_model_id != settings.SIGLIP2_MODEL_ID or data.get("model_id") != self._active_retrieval_model_id:
+                self._calibration_cache[cache_key] = None
                 return None
-            self._calibration_cache = data
+            artifact_version = str(data.get("embedding_version") or settings.SIGLIP2_EMBEDDING_VERSION)
+            if artifact_version != self._active_retrieval_embedding_version:
+                self._calibration_cache[cache_key] = None
+                return None
+            self._calibration_cache[cache_key] = data
             return data
         except Exception:
+            self._calibration_cache[cache_key] = None
             return None
 
     def _fusion_weights(self) -> Tuple[float, float]:
@@ -116,6 +223,8 @@ class HybridMomentSearchEngine:
                 self._fusion_cache = {"visual": visual / total, "caption": caption / total}
             except Exception:
                 self._fusion_cache = {"visual": settings.DEFAULT_WEIGHT_VISUAL, "caption": settings.DEFAULT_WEIGHT_CAPTION}
+        if self._active_retrieval_backend != "siglip2":
+            return settings.DEFAULT_WEIGHT_VISUAL, settings.DEFAULT_WEIGHT_CAPTION
         return self._fusion_cache["visual"], self._fusion_cache["caption"]
     def _probability(self, raw_score: float, display_score: float) -> Tuple[float, bool, Optional[float]]:
         artifact = self._load_calibration()
@@ -195,34 +304,73 @@ class HybridMomentSearchEngine:
             return np.zeros_like(signal, dtype=np.float32)
         return np.clip((signal - lo) / (hi - lo), 0.0, 1.0).astype(np.float32)
 
-    def search_moments(self, query: str, video_id: str, top_k: int = 5, profile: str = "fast") -> SearchResponse:
+    @_serialize_gpu_search
+    def search_moments(
+        self,
+        query: str,
+        video_id: str,
+        top_k: int = 5,
+        profile: str = "fast",
+        retrieval_backend: str = "siglip2",
+    ) -> SearchResponse:
         started = time.monotonic()
         profile = profile if profile in {"fast", "accurate"} else "fast"
         top_k = max(1, min(int(top_k), 20))
         warnings: List[str] = []
+        if retrieval_backend not in {"siglip2", "pe_core_b16", "pe_core_l14"}:
+            warnings.append("retrieval_backend_invalid")
+            retrieval_backend = "siglip2"
+        requested_spec = self._retrieval_spec(retrieval_backend)
+        active_spec = dict(requested_spec)
+        retrieval_backend_requested = requested_spec["backend"]
+        retrieval_backend_used = active_spec["backend"]
+        retrieval_model_id = active_spec["model_id"]
+        retrieval_embedding_version = active_spec["embedding_version"]
+        self._active_retrieval_backend = retrieval_backend_used
+        self._active_retrieval_model_id = retrieval_model_id
+        self._active_retrieval_embedding_version = retrieval_embedding_version
         stage_latency_ms: Dict[str, float] = {}
-        models_used: List[str] = [settings.SIGLIP2_MODEL_ID]
-        models_attempted: List[str] = [settings.SIGLIP2_MODEL_ID]
+        models_used: List[str] = []
+        models_attempted: List[str] = []
         strategy_used = "fast"
         cache_hits: Dict[str, bool] = {}
         cascade_path: List[str] = []
         stage_status: Dict[str, str] = {}
         planner_version = ""
         accurate_deadline = started + float(settings.ACCURATE_MAX_SECONDS) if profile == "accurate" else None
+
+        def empty_response(total_duration: float) -> SearchResponse:
+            return SearchResponse(
+                query=query,
+                video_id=video_id,
+                moments=[],
+                timeline_heatmap=[],
+                total_duration=round(total_duration, 2),
+                latency_ms=round((time.monotonic() - started) * 1000, 2),
+                top_k=top_k,
+                profile=profile,
+                calibrated=False,
+                index_version=settings.VISUAL_INDEX_VERSION,
+                warnings=warnings,
+                models_attempted=models_attempted,
+                stage_status=stage_status,
+                cascade_path=cascade_path,
+                retrieval_backend_requested=retrieval_backend_requested,
+                retrieval_backend_used=retrieval_backend_used,
+                retrieval_model_id=retrieval_model_id,
+                retrieval_embedding_version=retrieval_embedding_version,
+            )
+
         videos = self._rows(db_manager.get_table("videos"), f"id = '{video_id}'", 1)
         if not videos:
             warnings.append("video_not_found")
-            return SearchResponse(query=query, video_id=video_id, moments=[], timeline_heatmap=[], total_duration=0.0,
-                                  latency_ms=round((time.monotonic() - started) * 1000, 2), top_k=top_k,
-                                  profile=profile, calibrated=False, index_version=settings.VISUAL_INDEX_VERSION, warnings=warnings)
+            return empty_response(0.0)
         target = videos[0]
         duration = max(0.0, float(target.get("duration_sec", 0.0)))
         target_index_version = str(target.get("visual_index_version") or "")
         if target_index_version and target_index_version != settings.VISUAL_INDEX_VERSION:
             warnings.append("reindex_required")
-            return SearchResponse(query=query, video_id=video_id, moments=[], timeline_heatmap=[], total_duration=round(duration, 2),
-                                  latency_ms=round((time.monotonic() - started) * 1000, 2), top_k=top_k,
-                                  profile=profile, calibrated=False, index_version=settings.VISUAL_INDEX_VERSION, warnings=warnings)
+            return empty_response(duration)
         # Older ``videos`` tables may not have the v2 metadata columns.  A
         # newly ingested video is still valid when its v2 metadata/frames are
         # present; a legacy-only video must explicitly reindex.
@@ -230,37 +378,66 @@ class HybridMomentSearchEngine:
             legacy_rows = self._rows(db_manager.get_table("video_frames"), f"video_id = '{video_id}'", 1)
             if legacy_rows:
                 warnings.append("reindex_required")
-                return SearchResponse(query=query, video_id=video_id, moments=[], timeline_heatmap=[], total_duration=round(duration, 2),
-                                      latency_ms=round((time.monotonic() - started) * 1000, 2), top_k=top_k,
-                                      profile=profile, calibrated=False, index_version=settings.VISUAL_INDEX_VERSION, warnings=warnings)
+                return empty_response(duration)
         compatibility = db_manager.visual_index_compatibility(video_id)
         if not compatibility.get("compatible", False):
             warnings.append("reindex_required")
-            return SearchResponse(query=query, video_id=video_id, moments=[], timeline_heatmap=[], total_duration=round(duration, 2),
-                                  latency_ms=round((time.monotonic() - started) * 1000, 2), top_k=top_k,
-                                  profile=profile, calibrated=False, index_version=settings.VISUAL_INDEX_VERSION, warnings=warnings)
-        frames = self._rows(db_manager.get_table("video_frames_v2"), f"video_id = '{video_id}'", 200000)
-        dim = int(settings.SIGLIP2_EMBEDDING_DIM)
-        frames = [frame for frame in frames if frame.get("siglip2_vector") is not None and len(frame.get("siglip2_vector")) == dim]
+            return empty_response(duration)
+        if active_spec["backend"] != "siglip2" and not self._pe_index_ready(video_id, active_spec):
+            warnings.append("pe_index_missing")
+            active_spec = self._retrieval_spec("siglip2")
+            retrieval_backend_used = active_spec["backend"]
+            retrieval_model_id = active_spec["model_id"]
+            retrieval_embedding_version = active_spec["embedding_version"]
+            self._active_retrieval_backend = retrieval_backend_used
+            self._active_retrieval_model_id = retrieval_model_id
+            self._active_retrieval_embedding_version = retrieval_embedding_version
+            warnings.append("pe_fallback_siglip")
+        frames = self._retrieval_frames(video_id, active_spec)
         if not frames:
             warnings.append("index_empty")
-            return SearchResponse(query=query, video_id=video_id, moments=[], timeline_heatmap=[], total_duration=round(duration, 2),
-                                  latency_ms=round((time.monotonic() - started) * 1000, 2), top_k=top_k,
-                                  profile=profile, calibrated=False, index_version=settings.VISUAL_INDEX_VERSION, warnings=warnings)
+            return empty_response(duration)
 
         variants = query_expander.get_query_variants(query)
-        siglip_started = time.monotonic()
+        retrieval_started = time.monotonic()
         vectors: List[np.ndarray] = []
         weights: List[float] = []
-        if hasattr(self.text_encoder, "encode_texts"):
-            encoded_variants = self.text_encoder.encode_texts(
-                [text for text, _ in variants],
-                release_after=profile == "accurate",
+        models_attempted.append(active_spec["model_id"])
+        try:
+            if active_spec["backend"] != "siglip2" and inference_client.enabled:
+                # The legacy worker owns SigLIP/SAM/Qwen. Evict SigLIP before
+                # the isolated PE process allocates its own checkpoint.
+                inference_client.unload("siglip")
+            elif active_spec["backend"] == "siglip2" and pe_worker_client.enabled:
+                # Switching back from the experiment must release PE first.
+                pe_worker_client.unload()
+            encoded_variants = self._encode_retrieval_text(
+                variants, active_spec, release_after=profile == "accurate"
             )
-        else:
-            encoded_variants = [self.text_encoder.encode_text(text) for text, _ in variants]
-            if profile == "accurate" and callable(getattr(self.text_encoder, "unload", None)):
-                self.text_encoder.unload()
+        except (InferenceWorkerError, RuntimeError, ValueError) as exc:
+            if active_spec["backend"] == "siglip2":
+                raise
+            try:
+                pe_worker_client.unload()
+            except Exception:
+                pass
+            warnings.append("pe_oom_fallback" if isinstance(exc, InferenceWorkerOOM) else
+                            "pe_timeout_fallback" if isinstance(exc, InferenceWorkerTimeout) else
+                            "pe_worker_unavailable")
+            warnings.append("pe_fallback_siglip")
+            active_spec = self._retrieval_spec("siglip2")
+            retrieval_backend_used = active_spec["backend"]
+            retrieval_model_id = active_spec["model_id"]
+            retrieval_embedding_version = active_spec["embedding_version"]
+            self._active_retrieval_backend = retrieval_backend_used
+            self._active_retrieval_model_id = retrieval_model_id
+            self._active_retrieval_embedding_version = retrieval_embedding_version
+            frames = self._retrieval_frames(video_id, active_spec)
+            models_attempted.append(active_spec["model_id"])
+            encoded_variants = self._encode_retrieval_text(
+                variants, active_spec, release_after=profile == "accurate"
+            )
+        models_used.append(active_spec["model_id"])
         for (_, weight), encoded in zip(variants, encoded_variants):
             vector = np.asarray(encoded, dtype=np.float32)
             vector /= max(1e-8, float(np.linalg.norm(vector)))
@@ -268,14 +445,17 @@ class HybridMomentSearchEngine:
             weights.append(float(weight))
         qvec = np.average(np.stack(vectors), axis=0, weights=np.asarray(weights))
         qvec /= max(1e-8, float(np.linalg.norm(qvec)))
-        matrix = np.asarray([frame["siglip2_vector"] for frame in frames], dtype=np.float32)
+        matrix = np.asarray([frame[active_spec["vector_key"]] for frame in frames], dtype=np.float32)
         matrix /= np.maximum(np.linalg.norm(matrix, axis=1, keepdims=True), 1e-8)
         cosine = matrix @ qvec
         visual_relevance = np.clip((cosine + 1.0) / 2.0, 0.0, 1.0)
-        stage_latency_ms["siglip"] = round((time.monotonic() - siglip_started) * 1000, 2)
-        stage_status["siglip"] = "success"
+        retrieval_stage = active_spec["alias"]
+        stage_latency_ms[retrieval_stage] = round((time.monotonic() - retrieval_started) * 1000, 2)
+        stage_latency_ms["retrieval"] = stage_latency_ms[retrieval_stage]
+        stage_status[retrieval_stage] = "success"
+        stage_status["retrieval"] = "success"
         if profile == "accurate":
-            cascade_path.extend(["siglip:success", "siglip:unloaded"])
+            cascade_path.extend([f"{retrieval_stage}:success", f"{retrieval_stage}:unloaded"])
 
         # Caption BM25/FTS results are distributed only to their own scene.
         scenes = self._rows(db_manager.get_table("scenes_v2"), f"video_id = '{video_id}'", 10000)
@@ -533,7 +713,11 @@ class HybridMomentSearchEngine:
                               strategy_used=strategy_used, models_used=models_used,
                               stage_latency_ms=stage_latency_ms, cache_hits=cache_hits,
                               cascade_path=cascade_path, models_attempted=models_attempted,
-                              stage_status=stage_status, planner_version=planner_version)
+                              stage_status=stage_status, planner_version=planner_version,
+                              retrieval_backend_requested=retrieval_backend_requested,
+                              retrieval_backend_used=retrieval_backend_used,
+                              retrieval_model_id=retrieval_model_id,
+                              retrieval_embedding_version=retrieval_embedding_version)
 
 
 search_engine = HybridMomentSearchEngine()

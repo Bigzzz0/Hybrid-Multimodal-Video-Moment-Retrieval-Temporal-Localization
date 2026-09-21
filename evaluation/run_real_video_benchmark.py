@@ -35,6 +35,7 @@ def run_real_video_benchmark(
     output_results_path: str = "evaluation/benchmark_real_results.json",
     profile: str = "fast",
     acceptance: bool = False,
+    retrieval_backend: str = "siglip2",
 ):
     """
     Executes automated benchmark evaluation on real-world video dataset downloaded from internet.
@@ -94,7 +95,13 @@ def run_real_video_benchmark(
                     video_id=video_id,
                     top_k=5,
                     profile=profile,
+                    retrieval_backend=retrieval_backend,
                 )
+                if retrieval_backend != "siglip2" and resp.retrieval_backend_used != retrieval_backend:
+                    raise RuntimeError(
+                        f"benchmark requested {retrieval_backend} but runtime used "
+                        f"{resp.retrieval_backend_used}; refusing mixed A/B results"
+                    )
                 if acceptance and not resp.calibrated:
                     raise RuntimeError(
                         "acceptance benchmark requires a matching calibration artifact; "
@@ -212,6 +219,12 @@ def run_real_video_benchmark(
             "hardware": platform.platform(),
             "device": settings.DEVICE,
             "embedding_model": settings.SIGLIP2_MODEL_ID,
+            "retrieval_backend": retrieval_backend,
+            "retrieval_model_id": (
+                "PE-Core-B16-224" if retrieval_backend == "pe_core_b16" else
+                "PE-Core-L14-336" if retrieval_backend == "pe_core_l14" else
+                settings.SIGLIP2_MODEL_ID
+            ),
             "caption_model": settings.QWEN_VL_MODEL_ID,
             "index_version": settings.VISUAL_INDEX_VERSION,
             "sampling_hz": 2,
@@ -231,6 +244,7 @@ if __name__ == "__main__":
     parser.add_argument("--dataset", default="evaluation/datasets/real_video_benchmark.json")
     parser.add_argument("--output", default="evaluation/benchmark_real_results.json")
     parser.add_argument("--profile", choices=("fast", "accurate"), default="fast")
+    parser.add_argument("--retrieval-backend", choices=("siglip2", "pe_core_b16", "pe_core_l14"), default="siglip2")
     parser.add_argument("--acceptance", action="store_true", help="Fail unless held-out dataset contract is satisfied")
     args = parser.parse_args()
-    run_real_video_benchmark(args.dataset, args.output, args.profile, args.acceptance)
+    run_real_video_benchmark(args.dataset, args.output, args.profile, args.acceptance, args.retrieval_backend)
