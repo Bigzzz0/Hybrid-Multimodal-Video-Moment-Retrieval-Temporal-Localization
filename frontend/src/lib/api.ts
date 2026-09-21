@@ -8,9 +8,11 @@ import {
   ProgressStatus,
   ClipExportResponse,
   SystemTelemetry,
+  VlmBackend,
+  VlmBackendStatus,
 } from "./types";
 
-export type { VideoMetadata, VideoKeyframeItem, VideoQAResult, UploadResponse, ProgressStatus, ClipExportResponse, SystemTelemetry };
+export type { VideoMetadata, VideoKeyframeItem, VideoQAResult, UploadResponse, ProgressStatus, ClipExportResponse, SystemTelemetry, VlmBackendStatus };
 
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -53,6 +55,7 @@ export const apiClient = {
     videoId: string,
     topK: number = 5,
     profile: "fast" | "accurate" = "fast",
+    vlmBackend: VlmBackend = "qwen3_vl_2b",
     signal?: AbortSignal
   ): Promise<SearchResponse> {
     const res = await api.post<SearchResponse>("/search/moment", {
@@ -60,6 +63,7 @@ export const apiClient = {
       video_id: videoId,
       top_k: topK,
       profile,
+      vlm_backend: vlmBackend,
     }, { signal });
     return res.data;
   },
@@ -120,6 +124,11 @@ export const apiClient = {
   // 10. Developer Panel System Telemetry
   async getSystemTelemetry(): Promise<SystemTelemetry> {
     const res = await api.get<SystemTelemetry>("/system/telemetry");
+    return res.data;
+  },
+
+  async getVlmBackends(videoId?: string): Promise<VlmBackendStatus[]> {
+    const res = await api.get<VlmBackendStatus[]>("/system/vlm-backends", { params: videoId ? { video_id: videoId } : undefined });
     return res.data;
   },
 

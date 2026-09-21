@@ -345,6 +345,53 @@ python evaluation/build_airc_manifest.py --source-dir path/to/AIRC-SMARTCLASS --
 
 ---
 
+### VLM A–E ablation branch
+
+Branch `codex/vlm-model-ablation` เป็นงานวิจัย/เดโมแบบ local-only สำหรับเปรียบเทียบ
+Qwen3-VL-2B, VISE, CapRL-Qwen3VL-2B, CapRL GGUF Q4/Q6 และ CapRL-Video-4B
+โดยคง SigLIP2 vectors เดิมและปิด SAM ใน search flow ด้วย
+`VLM_LAB_DISABLE_SAM=true` (โค้ดและตาราง SAM ยังเก็บไว้ ไม่ได้ลบ)
+
+ติดตั้ง worker ใน environment แยก แล้วเปิดตามลำดับ:
+
+```powershell
+# terminal 1: API
+cd backend
+..\.venv-inference\Scripts\python.exe main.py
+
+# terminal 2: local inference worker
+cd backend
+..\.venv-inference\Scripts\python.exe -m inference_worker.main
+
+# สร้าง caption artifacts ต่อจากจุดที่ทำเสร็จแล้ว
+..\.venv-inference\Scripts\python.exe -m scripts.backfill_vlm_ablation --all-videos --all-backends --resume
+```
+
+การค้นหา Accurate ใช้ `SigLIP2 → selected VLM`; Fast ใช้ SigLIP2 และ caption
+ที่มีอยู่ทันที หาก artifact รุ่นที่เลือกยังไม่พร้อม UI จะแสดงสถานะและไม่หลอกว่า
+ใช้รุ่นนั้นจริง. GGUF Q4/Q6 ต้องติดตั้ง llama.cpp v0.4.1 commit `b29c606`,
+ตั้ง `LLAMA_CPP_PATH` และ `VLM_GGUF_DIR` ให้ชี้ไปยังไฟล์นอก Git.
+
+คำสั่ง benchmark แบบ smoke (fixture ปัจจุบันไม่ใช่ held-out):
+
+```powershell
+python evaluation/run_vlm_ablation.py --backend qwen3_vl_2b
+python evaluation/run_vlm_ablation.py --backend qwen3_vl_2b_vise
+python evaluation/run_vlm_ablation.py --backend caprl_qwen3vl_2b
+python evaluation/run_vlm_ablation.py --backend caprl_qwen3vl_4b_q4
+python evaluation/run_vlm_ablation.py --backend caprl_qwen3vl_4b_q6
+python evaluation/run_vlm_ablation.py --backend caprl_video_4b
+```
+
+แหล่งอ้างอิง runtime: [VISE](https://github.com/mbzuai-oryx/VISE),
+[CapRL](https://github.com/InternLM/CapRL), [CapRL models](https://huggingface.co/internlm),
+และ [llama.cpp multimodal](https://github.com/ggml-org/llama.cpp/blob/master/docs/multimodal.md).
+CapRL variants ให้ใช้ในขอบเขต research/demo ตามเงื่อนไขของโครงการเท่านั้น และ
+ห้ามเปลี่ยน default จาก A หรือ merge branch จนกว่าจะมี AIRC video-disjoint
+held-out benchmark กับ paired bootstrap ครบ.
+
+---
+
 ## 🧠 AI Agent Context Layer (NanoNets Graft)
 
 โปรเจกต์นี้ได้รับการผสานเข้ากับ **[NanoNets Graft](https://github.com/nanonets/graft)** ซึ่งเป็นระบบ Context Layer & Code Graph สำหรับ AI Coding Agents (Gemini, Antigravity, Claude Code, Cursor, Copilot, Codex, Windsurf) ช่วยให้โมเดลเข้าใจแผนผังซอร์สโค้ด ฟังก์ชัน และ Call Graph ของทั้งโปรเจกต์ได้อย่างแม่นยำโดยไม่ต้องอ่านไฟล์ทั้งหมด

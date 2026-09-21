@@ -379,6 +379,25 @@ export const DevPanel: React.FC<DevPanelProps> = ({ isOpen, onClose }) => {
                 </div>
               </div>
 
+              {/* VLM A–E ablation */}
+              <div className="p-5 rounded-xl bg-surface border border-fuchsia-900/50 space-y-3 sm:col-span-2">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-lg bg-fuchsia-500/20 text-fuchsia-300 flex items-center justify-center">
+                    <Code2 className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-bold text-white">VLM A–E Ablation</h4>
+                    <p className="text-xs text-gray-400">Sequential local experiment · research/demo only</p>
+                  </div>
+                </div>
+                <div className="p-3 rounded-lg bg-background/80 border border-surfaceBorder space-y-1 text-xs font-mono">
+                  <p className="text-gray-300">Default: <span className="text-fuchsia-300">{telemetry?.models?.vlm_ablation?.default_backend || "qwen3_vl_2b"}</span></p>
+                  <p className="text-gray-300">SAM search: <span className="text-amber-300">{telemetry?.models?.vlm_ablation?.sam_disabled_in_search ? "paused" : "enabled"}</span></p>
+                  <p className="text-gray-300 break-all">Variants: <span className="text-white">{(telemetry?.models?.vlm_ablation?.variants || []).map((item: any) => item.backend).join(" · ") || "—"}</span></p>
+                  <p className="text-gray-500">Artifacts are per backend/revision and never mix with SigLIP2 vectors.</p>
+                </div>
+              </div>
+
               {/* SAM 3.1 */}
               <div className="p-5 rounded-xl bg-surface border border-surfaceBorder space-y-3">
                 <div className="flex items-center gap-2.5">

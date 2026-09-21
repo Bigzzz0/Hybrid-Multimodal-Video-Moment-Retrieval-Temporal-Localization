@@ -32,6 +32,7 @@ interface MomentCardsProps {
   emptyState?: "initial" | "no_match" | "reindex";
   onReindex?: () => void;
   activeMoment?: MomentItem | null;
+  showSam?: boolean;
 }
 
 export const MomentCards: React.FC<MomentCardsProps> = ({
@@ -45,6 +46,7 @@ export const MomentCards: React.FC<MomentCardsProps> = ({
   emptyState = "initial",
   onReindex,
   activeMoment,
+  showSam = false,
 }) => {
   const [layoutMode, setLayoutMode] = useState<"list" | "grid">("list");
   const [selectedMoments, setSelectedMoments] = useState<Set<number>>(new Set());
@@ -335,7 +337,7 @@ export const MomentCards: React.FC<MomentCardsProps> = ({
                   </div>
                 </div>
 
-                <MomentEvidenceBreakdown breakdown={breakdown} showVerifier={profile === "accurate"} />
+                <MomentEvidenceBreakdown breakdown={breakdown} showVerifier={profile === "accurate"} showSam={showSam} />
 
                 {/* Bottom Row Actions Toolbar */}
                 <div className="flex items-center justify-between pt-1 border-t border-surfaceBorder/40 text-xs">

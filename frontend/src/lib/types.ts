@@ -108,6 +108,38 @@ export interface SearchResponse {
   models_attempted?: string[];
   stage_status?: Record<string, string>;
   planner_version?: string;
+  vlm_backend_requested?: string;
+  vlm_backend_used?: string | null;
+  vlm_model_id?: string | null;
+  vlm_model_revision?: string | null;
+  vlm_quantization?: string | null;
+  vlm_input_mode?: string | null;
+  vlm_artifact_version?: string | null;
+  vlm_fallback?: boolean;
+}
+
+export type VlmBackend =
+  | "qwen3_vl_2b"
+  | "qwen3_vl_2b_vise"
+  | "caprl_qwen3vl_2b"
+  | "caprl_qwen3vl_4b_q4"
+  | "caprl_qwen3vl_4b_q6"
+  | "caprl_video_4b";
+
+export interface VlmBackendStatus {
+  backend: VlmBackend;
+  label: string;
+  model_id: string;
+  revision: string;
+  runtime: string;
+  input_mode: string;
+  quantization: string;
+  research_only: boolean;
+  ready: boolean;
+  status: string;
+  expected_count: number;
+  completed_count: number;
+  worker_available: boolean;
 }
 
 export interface GroundedMoment {

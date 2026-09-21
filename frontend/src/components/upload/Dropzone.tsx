@@ -30,8 +30,13 @@ const PIPELINE_STAGES: PipelineStage[] = [
   { id: "scene_detect", name: "2. Adaptive Scene Cuts", desc: "PySceneDetect boundary segmentation", icon: Layers },
   { id: "keyframe_ssim", name: "3. Keyframe Sampling", desc: "SSIM structural difference filtering", icon: Film },
   { id: "siglip2_embedding", name: "4. Temporal & Visual Embedding", desc: "SigLIP 2 NaFlex frame representations", icon: Cpu },
-  { id: "dense_visual_caption", name: "5. Dense Visual Scene Captions", desc: "Qwen3-VL-2B 4-bit visual actions", icon: Sparkles },
-  { id: "sam_grounding", name: "6. SAM 3.1 Grounding", desc: "Object masks, boxes and temporal tracks", icon: Sparkles }
+  { id: "dense_visual_caption", name: "5. Baseline Scene Captions", desc: "Existing caption artifact for Fast search", icon: Sparkles },
+  { id: "vlm_ablation_qwen3_vl_2b", name: "A. Qwen3-VL-2B", desc: "VLM ablation caption artifact", icon: Sparkles },
+  { id: "vlm_ablation_qwen3_vl_2b_vise", name: "B. Qwen3-VL-2B + VISE", desc: "Research adapter artifact", icon: Sparkles },
+  { id: "vlm_ablation_caprl_qwen3vl_2b", name: "C. CapRL-Qwen3VL-2B", desc: "Research/demo artifact", icon: Sparkles },
+  { id: "vlm_ablation_caprl_qwen3vl_4b_q4", name: "D. CapRL-Qwen3VL-4B Q4", desc: "GGUF Q4 artifact", icon: Sparkles },
+  { id: "vlm_ablation_caprl_qwen3vl_4b_q6", name: "D. CapRL-Qwen3VL-4B Q6", desc: "GGUF Q6 artifact", icon: Sparkles },
+  { id: "vlm_ablation_caprl_video_4b", name: "E. CapRL-Video-4B", desc: "Video chunk artifact", icon: Sparkles }
 ];
 
 export const Dropzone: React.FC<DropzoneProps> = ({ onUploadSuccess }) => {
@@ -78,7 +83,7 @@ export const Dropzone: React.FC<DropzoneProps> = ({ onUploadSuccess }) => {
     if (data.stage) {
       const normalizedStage = data.stage;
       setCurrentStage(normalizedStage);
-      const stageOrder = ["decoding", "scene_detect", "keyframe_ssim", "siglip2_embedding", "lancedb_commit", "dense_visual_caption", "complete"];
+      const stageOrder = ["decoding", "scene_detect", "keyframe_ssim", "siglip2_embedding", "lancedb_commit", "dense_visual_caption", ...PIPELINE_STAGES.filter((stage) => stage.id.startsWith("vlm_ablation_")).map((stage) => stage.id), "complete"];
       const currentIdx = stageOrder.indexOf(normalizedStage);
       if (currentIdx > 0) {
         const done = stageOrder.slice(0, currentIdx);

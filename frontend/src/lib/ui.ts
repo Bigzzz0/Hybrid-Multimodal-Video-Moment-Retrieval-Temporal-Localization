@@ -111,6 +111,34 @@ const WARNING_COPY: Record<string, Omit<UiWarning, "code">> = {
     message: "กำลังสร้าง caption รุ่นใหม่ จึงอาจใช้ caption เดิมบางฉากชั่วคราว",
     severity: "info",
   },
+  vlm_artifact_not_ready: {
+    message: "VLM รุ่นที่เลือกยังสร้าง artifact ไม่ครบ จึงใช้ caption เดิมของระบบค้นหา",
+    severity: "info",
+  },
+  vlm_worker_unavailable: {
+    message: "VLM worker ไม่พร้อมใช้งาน จึงคงผล Fast เดิมไว้",
+    severity: "warning",
+  },
+  vlm_timeout_fallback: {
+    message: "VLM ใช้เวลาเกินกำหนด จึงคงผล Fast เดิมไว้",
+    severity: "warning",
+  },
+  vlm_verified: {
+    message: "VLM ยืนยันเหตุการณ์จากภาพแล้ว",
+    severity: "info",
+  },
+  vlm_rejected: {
+    message: "VLM ไม่พบเหตุการณ์ตามคำค้น จึงลดอันดับ candidate",
+    severity: "info",
+  },
+  vlm_fallback_fast: {
+    message: "VLM ตรวจยืนยันไม่สำเร็จ จึงใช้ผล Fast เดิม",
+    severity: "warning",
+  },
+  vlm_backend_invalid_fallback: {
+    message: "VLM backend ไม่ถูกต้อง จึงกลับไปใช้ A: Qwen3-VL-2B",
+    severity: "warning",
+  },
 };
 
 export function mapWarning(code: string): UiWarning {

@@ -18,7 +18,7 @@ import {
   HelpCircle,
   Tv,
 } from "lucide-react";
-import { VideoMetadata, MomentItem, SearchResponse, VideoKeyframeItem } from "@/lib/types";
+import { VideoMetadata, MomentItem, SearchResponse, VideoKeyframeItem, VlmBackend, VlmBackendStatus } from "@/lib/types";
 import { apiClient } from "@/lib/api";
 import { VideoLibraryReel } from "@/components/library/VideoLibraryReel";
 import { VideoPlayer } from "@/components/player/VideoPlayer";
@@ -32,6 +32,7 @@ import { SearchProfileControl } from "@/components/search/SearchProfileControl";
 import { SearchStatus } from "@/components/search/SearchStatus";
 import { SearchWarningBanner } from "@/components/search/SearchWarningBanner";
 import { SearchResultSummary } from "@/components/search/SearchResultSummary";
+import { VlmBackendSelector } from "@/components/search/VlmBackendSelector";
 import { uniqueWarnings, momentIdentity } from "@/lib/ui";
 
 export default function DashboardPage() {
@@ -40,6 +41,8 @@ export default function DashboardPage() {
   const [keyframeRecords, setKeyframeRecords] = useState<VideoKeyframeItem[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchProfile, setSearchProfile] = useState<"fast" | "accurate">("fast");
+  const [vlmBackend, setVlmBackend] = useState<VlmBackend>("qwen3_vl_2b");
+  const [vlmStatuses, setVlmStatuses] = useState<VlmBackendStatus[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [searchResult, setSearchResult] = useState<SearchResponse | null>(null);
   const [searchError, setSearchError] = useState<string | null>(null);
@@ -80,6 +83,11 @@ export default function DashboardPage() {
   useEffect(() => {
     fetchVideos();
   }, []);
+
+  useEffect(() => {
+    if (!selectedVideo?.id) return;
+    apiClient.getVlmBackends(selectedVideo.id).then(setVlmStatuses).catch(() => setVlmStatuses([]));
+  }, [selectedVideo]);
 
   // Fetch keyframes cache whenever selected video changes
   useEffect(() => {
@@ -167,12 +175,11 @@ export default function DashboardPage() {
     setActiveTab("moments");
 
     try {
-      const res = await apiClient.searchMoments(q, selectedVideo.id, 5, searchProfile, controller.signal);
+      const res = await apiClient.searchMoments(q, selectedVideo.id, 5, searchProfile, vlmBackend, controller.signal);
       if (requestId !== searchRequestIdRef.current) return;
       setSearchResult(res);
-      // In Accurate mode, open the first moment that has actual SAM evidence
-      // so the user sees the bbox/mask immediately. If no track was found,
-      // keep the existing result list without forcing a jump.
+      // In Accurate mode, open the first moment with grounding evidence when
+      // SAM is enabled. VLM-only results keep the normal ranked selection.
       if (searchProfile === "accurate") {
         const grounded = res.moments.find((moment) => (moment.grounding_evidence?.length || 0) > 0);
         if (grounded) {
@@ -379,6 +386,13 @@ export default function DashboardPage() {
           </button>
 
           <SearchProfileControl value={searchProfile} disabled={isSearching} onChange={setSearchProfile} />
+          <VlmBackendSelector value={vlmBackend} statuses={vlmStatuses} disabled={isSearching} onChange={(backend) => {
+            setVlmBackend(backend);
+            setSearchResult(null);
+            setActiveMoment(null);
+            setActiveMomentKey(null);
+            setHighlightInterval(null);
+          }} />
 
         </form>
 
@@ -495,7 +509,7 @@ export default function DashboardPage() {
           </div>
 
           {/* Latency & Telemetry Metric Pill */}
-          {searchResult && activeTab === "moments" && <SearchResultSummary query={searchResult.query} count={searchResult.moments.length} profile={searchResult.profile} latencyMs={searchResult.latency_ms} calibrated={searchResult.calibrated} indexVersion={searchResult.index_version} strategyUsed={searchResult.strategy_used} modelsUsed={searchResult.models_used} modelsAttempted={searchResult.models_attempted} cascadePath={searchResult.cascade_path} />}
+          {searchResult && activeTab === "moments" && <SearchResultSummary query={searchResult.query} count={searchResult.moments.length} profile={searchResult.profile} latencyMs={searchResult.latency_ms} calibrated={searchResult.calibrated} indexVersion={searchResult.index_version} strategyUsed={searchResult.strategy_used} modelsUsed={searchResult.models_used} modelsAttempted={searchResult.models_attempted} cascadePath={searchResult.cascade_path} vlmBackend={searchResult.vlm_backend_used || searchResult.vlm_backend_requested} vlmFallback={searchResult.vlm_fallback} />}
           {searchResult && activeTab === "moments" && <SearchWarningBanner warnings={uniqueWarnings(searchResult.warnings)} onReindex={() => setShowUploader(true)} />}
 
           {/* Tab Content */}
@@ -506,6 +520,7 @@ export default function DashboardPage() {
               calibrated={searchResult?.calibrated || false}
               warnings={searchResult?.warnings || []}
               profile={searchResult?.profile || "fast"}
+              showSam={Boolean(searchResult?.cascade_path?.some((stage) => stage.startsWith("sam:")))}
               emptyState={needsReindex || searchResult?.warnings?.includes("reindex_required") ? "reindex" : !searchResult ? "initial" : "no_match"}
               onReindex={() => setShowUploader(true)}
               onSelectMoment={handleSelectMoment}

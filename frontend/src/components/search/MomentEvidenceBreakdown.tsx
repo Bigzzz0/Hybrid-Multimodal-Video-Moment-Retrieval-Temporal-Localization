@@ -11,9 +11,9 @@ const EVIDENCE = [
   ["sam", "SAM", "SAM 3.1 grounding confidence", "text-fuchsia-300", "bg-fuchsia-400", Box],
 ] as const;
 
-export const MomentEvidenceBreakdown: React.FC<{ breakdown?: Record<string, number> | null; showVerifier?: boolean }> = ({ breakdown = {}, showVerifier = true }) => (
+export const MomentEvidenceBreakdown: React.FC<{ breakdown?: Record<string, number> | null; showVerifier?: boolean; showSam?: boolean }> = ({ breakdown = {}, showVerifier = true, showSam = false }) => (
   <div className="grid grid-cols-2 gap-1.5 pt-2 border-t border-surfaceBorder/60 text-[10px] font-mono sm:grid-cols-5">
-    {EVIDENCE.filter(([key]) => key !== "sam" || showVerifier).map(([key, label, title, textColor, barColor, Icon]) => {
+    {EVIDENCE.filter(([key]) => key !== "sam" || showSam).map(([key, label, title, textColor, barColor, Icon]) => {
       const available = key !== "verifier" || showVerifier;
       const value = Number(breakdown?.[key] ?? 0);
       return (
