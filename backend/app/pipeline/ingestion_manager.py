@@ -512,12 +512,12 @@ class ProgressiveIngestionManager:
                     prompt_version = settings.VLM_VIDEO_PROMPT_VERSION if variant.input_mode == "video_chunk" else settings.VLM_CAPTION_PROMPT_VERSION
                     request = CaptionRequest(
                         scene_id=source_id, frame_paths=paths, timestamps=timestamps,
-                        prompt_version=prompt_version, max_new_tokens=128,
+                        prompt_version=prompt_version, max_new_tokens=settings.VLM_CAPTION_MAX_NEW_TOKENS,
                         vlm_backend=variant.backend, release_after=False,
                         video_path=source_video_path if variant.input_mode == "video_chunk" else "", t_start=t_start, t_end=t_end,
                         sample_fps=settings.VLM_VIDEO_SAMPLE_FPS if variant.input_mode == "video_chunk" else 1.0,
                         max_frames=cap,
-                        prompt=("Analyze only visible visual content. Return JSON with summary, objects, attributes, actions, relations, temporal_events, uncertainty. Do not use OCR, subtitles, audio or identity.")
+                        prompt=("Analyze only visible visual content in these chronological frames. Return exactly one compact JSON object with keys summary, objects, attributes, actions, relations, temporal_events, uncertainty. Keep summary under 40 words, each array under 6 items, and do not use markdown, OCR, subtitles, audio, names or identity.")
                     )
                     try:
                         response = inference_client.vlm_caption(request)

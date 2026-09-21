@@ -64,9 +64,19 @@ class Settings(BaseSettings):
     VLM_VIDEO_SAMPLE_FPS: float = float(os.environ.get("VLM_VIDEO_SAMPLE_FPS", "2"))
     VLM_VIDEO_MAX_FRAMES: int = int(os.environ.get("VLM_VIDEO_MAX_FRAMES", "16"))
     VLM_FRAME_MAX_FRAMES: int = int(os.environ.get("VLM_FRAME_MAX_FRAMES", "4"))
+    VLM_CAPTION_MAX_NEW_TOKENS: int = int(os.environ.get("VLM_CAPTION_MAX_NEW_TOKENS", "256"))
+    VLM_JSON_REPAIR_MAX_NEW_TOKENS: int = int(os.environ.get("VLM_JSON_REPAIR_MAX_NEW_TOKENS", "192"))
+    # On Windows, sampled frame paths are more predictable than asking qwen-vl-utils
+    # to seek a long container for every short video chunk.
+    VLM_VIDEO_USE_CONTAINER: bool = os.environ.get("VLM_VIDEO_USE_CONTAINER", "false").lower() in {"1", "true", "yes"}
     VLM_VERIFY_ARTIFACT_VERSION: str = os.environ.get("VLM_VERIFY_ARTIFACT_VERSION", "vlm-verify-ablation-v2")
     VLM_LAB_ENV_NAME: str = os.environ.get("VLM_LAB_ENV_NAME", ".venv-vlm-lab")
-    LLAMA_CPP_PATH: str = os.environ.get("LLAMA_CPP_PATH", "")
+    LLAMA_CPP_PATH: str = os.environ.get("LLAMA_CPP_PATH") or str(
+        BASE_DIR.parent / "models" / "llama-b10964" / "llama-server.exe"
+    )
+    VLM_GGUF_DIR: str = os.environ.get("VLM_GGUF_DIR") or str(
+        BASE_DIR.parent / "models" / "caprl-qwen3vl-4b-gguf"
+    )
     LLAMA_CPP_VERSION: str = os.environ.get("LLAMA_CPP_VERSION", "0.4.1-b29c606")
     SAM_MODEL_ID: str = os.environ.get("SAM_MODEL_ID", "facebook/sam3.1")
     ENABLE_SAM_GROUNDING: bool = os.environ.get("ENABLE_SAM_GROUNDING", "false").lower() in {"1", "true", "yes"}

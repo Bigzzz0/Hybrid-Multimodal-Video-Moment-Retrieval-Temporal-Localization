@@ -5,6 +5,7 @@ torchvision
 transformers>=4.57.0
 accelerate>=0.27.0
 bitsandbytes>=0.43.0
+peft==0.18.1
 qwen-vl-utils>=0.0.8
 fastapi>=0.110.0
 uvicorn[standard]>=0.28.0

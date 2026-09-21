@@ -27,7 +27,7 @@ class CaptionRequest(BaseModel):
     timestamps: List[float] = Field(default_factory=list)
     prompt: str = ""
     prompt_version: str = "classroom-caption-v1"
-    max_new_tokens: int = 128
+    max_new_tokens: int = 256
     vlm_backend: str = "qwen3_vl_2b"
     release_after: bool = False
     video_path: str = ""
@@ -56,6 +56,8 @@ class CaptionResponse(BaseModel):
     artifact_version: str = ""
     load_ms: float = 0.0
     inference_ms: float = 0.0
+    json_valid: bool = False
+    json_repaired: bool = False
 
 
 class VerifyRequest(BaseModel):

@@ -2,6 +2,7 @@ from app.db.schemas import SearchQueryRequest
 from app.inference.contracts import CaptionRequest, VerifyRequest
 from app.inference.vlm_registry import all_variants, get_variant
 from app.retrieval.vlm_verifier import QwenVisualReranker
+from inference_worker.vlm_service import VariantVLMService
 
 
 def test_registry_has_pinned_a_to_e_variants():
@@ -30,3 +31,14 @@ def test_verification_cache_key_isolated_by_backend():
     first = QwenVisualReranker._cache_key("video", candidate, "cat", [1.0, 1.5], "qwen3_vl_2b")
     second = QwenVisualReranker._cache_key("video", candidate, "cat", [1.0, 1.5], "caprl_qwen3vl_2b")
     assert first != second
+
+
+def test_caption_parser_handles_fenced_and_truncated_json():
+    fence = chr(96) * 3
+    fenced = fence + 'json\n{"summary":"a cat","objects":["cat"]}\n' + fence
+    assert VariantVLMService._extract_json(fenced)["objects"] == ["cat"]
+
+    truncated = '{"summary":"a cat","objects":["cat","statue"'
+    recovered = VariantVLMService._extract_partial_caption(truncated)
+    assert recovered["summary"] == "a cat"
+    assert recovered["objects"] == ["cat", "statue"]

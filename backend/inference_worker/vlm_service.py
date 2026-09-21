@@ -100,7 +100,7 @@ class VariantVLMService:
 
     def _load_llama_server(self) -> None:
         executable = settings.LLAMA_CPP_PATH
-        model_dir = os.environ.get("VLM_GGUF_DIR", "")
+        model_dir = settings.VLM_GGUF_DIR
         if not executable or not model_dir:
             raise VLMBackendError(
                 "llama.cpp backend is configured but LLAMA_CPP_PATH and VLM_GGUF_DIR are not set"
@@ -115,6 +115,32 @@ class VariantVLMService:
             executable, "--model", model_path, "--mmproj", mmproj_path,
             "--host", "127.0.0.1", "--port", str(port), "--n-gpu-layers", "99",
         ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        # GGUF weights are memory-mapped and uploaded to the 5070 before the
+        # health endpoint changes from 503 to 200.  Thirty seconds is too short
+        # on a cold Windows start, especially for the Q6 file.
+        deadline = time.perf_counter() + 180.0
+        last_error = ""
+        try:
+            import httpx
+            while time.perf_counter() < deadline:
+                if self.server_process.poll() is not None:
+                    raise VLMBackendError("llama.cpp server exited during startup")
+                try:
+                    response = httpx.get(f"http://127.0.0.1:{port}/health", timeout=2.0)
+                    if response.status_code == 200:
+                        return
+                    last_error = f"HTTP {response.status_code}"
+                except Exception as exc:
+                    last_error = str(exc)
+                time.sleep(0.25)
+        except VLMBackendError:
+            self.unload()
+            raise
+        except Exception as exc:
+            self.unload()
+            raise VLMBackendError(f"llama.cpp server did not become ready: {last_error or exc}") from exc
+        self.unload()
+        raise VLMBackendError(f"llama.cpp server did not become ready: {last_error or 'timeout'}")
 
     def unload(self) -> None:
         process = self.server_process
@@ -144,14 +170,48 @@ class VariantVLMService:
     @staticmethod
     def _extract_json(text: str) -> Dict[str, Any]:
         decoder = json.JSONDecoder()
-        for match in re.finditer(r"\{", text or ""):
-            try:
-                value, _ = decoder.raw_decode(text[match.start():])
-                if isinstance(value, dict):
-                    return value
-            except json.JSONDecodeError:
-                continue
+        source = (text or "").strip()
+        candidates = [source]
+        candidates.extend(match.group(1).strip() for match in re.finditer(r"```(?:json)?\s*([\s\S]*?)```", source, flags=re.IGNORECASE))
+        for candidate in candidates:
+            for match in re.finditer(r"\{", candidate):
+                try:
+                    value, _ = decoder.raw_decode(candidate[match.start():])
+                    if isinstance(value, dict):
+                        return value
+                except json.JSONDecodeError:
+                    continue
         return {}
+
+    @staticmethod
+    def _extract_partial_caption(text: str) -> Dict[str, Any]:
+        """Recover useful fields when a model stops inside a JSON object.
+
+        Small local VLMs occasionally emit a fenced or token-truncated object.
+        We keep this conservative: only explicitly named schema fields are
+        recovered, and the result is marked invalid by the caller.
+        """
+        source = re.sub(r"```(?:json)?|```", "", text or "", flags=re.IGNORECASE)
+        data: Dict[str, Any] = {}
+        summary = re.search(r'"summary"\s*:\s*"((?:\\.|[^"\\])*)', source, flags=re.IGNORECASE | re.DOTALL)
+        if summary:
+            try:
+                data["summary"] = json.loads('"' + summary.group(1) + '"')
+            except json.JSONDecodeError:
+                data["summary"] = summary.group(1).strip()
+        for key in ("objects", "attributes", "actions", "relations", "temporal_events", "uncertainty"):
+            match = re.search(rf'"{key}"\s*:\s*\[([\s\S]*?)(?:\]|$)', source, flags=re.IGNORECASE)
+            if not match:
+                continue
+            values: List[str] = []
+            for item in re.finditer(r'"((?:\\.|[^"\\])*)"', match.group(1)):
+                try:
+                    values.append(str(json.loads('"' + item.group(1) + '"')))
+                except json.JSONDecodeError:
+                    values.append(item.group(1).strip())
+            if values:
+                data[key] = values
+        return data
 
     @staticmethod
     def _extract_partial_verify(text: str) -> Dict[str, Any]:
@@ -237,7 +297,8 @@ class VariantVLMService:
         # E keeps its video_chunk identity in the contract and can additionally
         # receive video_path; frame paths remain the deterministic fallback for
         # Windows builds where qwen-vl-utils cannot decode a container.
-        if self.variant.input_mode == "video_chunk" and getattr(request, "video_path", "") and os.path.exists(request.video_path):
+        if (settings.VLM_VIDEO_USE_CONTAINER and self.variant.input_mode == "video_chunk"
+                and getattr(request, "video_path", "") and os.path.exists(request.video_path)):
             try:
                 return self._generate_video(request.video_path, prompt, max_new_tokens, float(getattr(request, "sample_fps", 2.0) or 2.0))
             except Exception:
@@ -272,21 +333,25 @@ class VariantVLMService:
     def caption(self, request: CaptionRequest) -> CaptionResponse:
         prompt = request.prompt or (
             "Analyze only visible visual content in these chronological frames. "
-            "Return JSON only with keys summary, objects, attributes, actions, relations, temporal_events, uncertainty. "
-            "Do not use OCR, subtitles, audio, names, identities or face recognition."
+            "Return exactly one compact JSON object with keys summary, objects, attributes, actions, relations, temporal_events, uncertainty. "
+            "Keep summary under 40 words and each array under 6 items. Do not use markdown, OCR, subtitles, audio, names, identities or face recognition."
         )
         started = time.perf_counter()
-        raw = self._generate(request, prompt, request.max_new_tokens)
+        raw = self._generate(request, prompt, max(int(request.max_new_tokens), settings.VLM_CAPTION_MAX_NEW_TOKENS))
         data = self._extract_json(raw)
+        json_repaired = False
         if not data:
-            repaired = self._generate(
+            repair_raw = self._generate(
                 request,
-                "Repair this visual analysis as one valid JSON object only with keys summary, objects, attributes, actions, relations, temporal_events, uncertainty.",
-                min(128, request.max_new_tokens),
+                "Return one compact valid JSON object only. Keys: summary, objects, attributes, actions, relations, temporal_events, uncertainty. No markdown.",
+                min(settings.VLM_JSON_REPAIR_MAX_NEW_TOKENS, max(64, int(request.max_new_tokens))),
             )
-            data = self._extract_json(repaired)
+            data = self._extract_json(repair_raw)
             if data:
-                raw = repaired
+                raw = repair_raw
+                json_repaired = True
+            else:
+                data = self._extract_partial_caption(repair_raw) or self._extract_partial_caption(raw)
         meta = self.metadata()
         return CaptionResponse(
             text=raw,
@@ -300,6 +365,8 @@ class VariantVLMService:
             people_count=data.get("people_count") if isinstance(data.get("people_count"), int) else None,
             model_id=meta["model_id"], status="generated", **{k: meta[k] for k in ("vlm_backend", "model_revision", "quantization", "input_mode", "artifact_version")},
             inference_ms=round((time.perf_counter() - started) * 1000, 1),
+            json_valid=bool(self._extract_json(raw)),
+            json_repaired=json_repaired,
         )
 
     def verify(self, request: VerifyRequest) -> VerifyResponse:

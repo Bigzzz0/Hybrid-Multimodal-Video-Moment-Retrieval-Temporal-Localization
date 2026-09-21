@@ -369,11 +369,21 @@ cd backend
 
 สำหรับการทดลอง B–E ให้สร้าง environment แยกจาก worker เดิมด้วย
 `backend/requirements-vlm-lab.txt`; ไม่ควรติดตั้งทับ `.venv-inference`.
+ถ้าใช้ worker `.venv-inference` ที่สั่งตามตัวอย่างด้านบน ต้องติดตั้ง `peft==0.18.1`
+เพิ่มใน environment นั้นด้วยเพื่อให้ B (VISE) โหลด adapter ได้.
 
 การค้นหา Accurate ใช้ `SigLIP2 → selected VLM`; Fast ใช้ SigLIP2 และ caption
 ที่มีอยู่ทันที หาก artifact รุ่นที่เลือกยังไม่พร้อม UI จะแสดงสถานะและไม่หลอกว่า
-ใช้รุ่นนั้นจริง. GGUF Q4/Q6 ต้องติดตั้ง llama.cpp v0.4.1 commit `b29c606`,
-ตั้ง `LLAMA_CPP_PATH` และ `VLM_GGUF_DIR` ให้ชี้ไปยังไฟล์นอก Git.
+ใช้รุ่นนั้นจริง. บน Windows E จะใช้ frame paths ที่สุ่มจาก chunk เป็นค่าเริ่มต้น
+เพื่อไม่ให้ decoder อ่านวิดีโอทั้งไฟล์ซ้ำทุก request; เปิด container input เฉพาะเมื่อ
+ตั้ง `VLM_VIDEO_USE_CONTAINER=true`.
+
+GGUF Q4/Q6 ต้องใช้ llama.cpp v0.4.1 commit `b29c606` พร้อม CUDA runtime และ
+ไฟล์ `mmproj`. ค่าเริ่มต้นที่ worker หาให้อัตโนมัติคือ
+`models/llama-b10964/llama-server.exe` และ `models/caprl-qwen3vl-4b-gguf/`;
+จะตั้ง `LLAMA_CPP_PATH` หรือ `VLM_GGUF_DIR` เองก็ได้ แต่ไฟล์เหล่านี้ต้องอยู่นอก Git.
+การโหลดครั้งแรกของ D ใช้เวลานานกว่ารุ่น Transformers เพราะต้องเริ่ม `llama-server`;
+หลังจบ request server จะถูกหยุดและคืน VRAM.
 
 คำสั่ง benchmark แบบ smoke (fixture ปัจจุบันไม่ใช่ held-out):
 
