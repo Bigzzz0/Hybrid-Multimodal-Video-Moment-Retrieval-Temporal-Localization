@@ -59,6 +59,7 @@ class PEModelManager:
         self.unload()
         self.state = "loading"
         started = time.perf_counter()
+        service: PECoreService | None = None
         try:
             service = PECoreService(model_id)
             service.load()
@@ -73,6 +74,13 @@ class PEModelManager:
             self.state = "ready"
             return service
         except Exception:
+            if service is not None:
+                try:
+                    service.unload()
+                except Exception as exc:
+                    logger.debug("PE-Core cleanup after load failure failed: {}", exc)
+            self.service = None
+            self.model_id = ""
             self.state = "error"
             raise
 

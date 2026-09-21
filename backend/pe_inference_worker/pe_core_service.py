@@ -7,12 +7,17 @@ from typing import Any, Iterable, List
 import torch
 import torch.nn.functional as F
 from PIL import Image
+from huggingface_hub import hf_hub_download
 
 from app.core.config import settings
 from app.inference.contracts import EmbeddingResponse, PEEmbedImagesRequest, PEEmbedTextRequest
 
 
 ALLOWED_MODELS = {"PE-Core-B16-224", "PE-Core-L14-336"}
+MODEL_REVISIONS = {
+    "PE-Core-B16-224": settings.PE_CORE_B16_REVISION,
+    "PE-Core-L14-336": settings.PE_CORE_L14_REVISION,
+}
 
 
 def _extract_embedding(output: Any, preferred_keys: Iterable[str]) -> torch.Tensor:
@@ -51,7 +56,17 @@ class PECoreService:
         import core.vision_encoder.pe as pe
         import core.vision_encoder.transforms as transforms
 
-        self.model = pe.CLIP.from_config(self.model_id, pretrained=True)
+        revision = MODEL_REVISIONS[self.model_id]
+        checkpoint_path = hf_hub_download(
+            repo_id=f"facebook/{self.model_id}",
+            filename=f"{self.model_id}.pt",
+            revision=revision,
+        )
+        self.model = pe.CLIP.from_config(
+            self.model_id,
+            pretrained=True,
+            checkpoint_path=checkpoint_path,
+        )
         self.model = self.model.to(self.device).eval()
         self.preprocess = transforms.get_image_transform(self.model.image_size)
         self.tokenizer = transforms.get_text_tokenizer(self.model.context_length)

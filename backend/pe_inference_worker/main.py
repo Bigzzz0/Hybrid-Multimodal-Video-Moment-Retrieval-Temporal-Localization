@@ -35,7 +35,20 @@ async def _run(model_id: str, method: str, request: Any):
             service = await asyncio.to_thread(model_manager.get, model_id)
             model_manager.state = "busy"
             started = time.perf_counter()
-            result = await asyncio.to_thread(getattr(service, method), request)
+            result = None
+            attempts = 2 if method == "embed_images" else 1
+            current_request = request
+            for attempt in range(attempts):
+                try:
+                    result = await asyncio.to_thread(getattr(service, method), current_request)
+                    break
+                except torch_oom_error():
+                    model_manager.unload()
+                    if attempt + 1 >= attempts:
+                        raise
+                    batch_size = max(1, int(getattr(current_request, "batch_size", 1)) // 2)
+                    current_request = current_request.model_copy(update={"batch_size": batch_size})
+                    service = await asyncio.to_thread(model_manager.get, model_id)
             model_manager.timings["inference_ms"] = round((time.perf_counter() - started) * 1000, 1)
             return result
         except torch_oom_error() as exc:
