@@ -15,6 +15,7 @@ from app.inference.contracts import (
     EmbeddingResponse,
     GroundRequest,
     GroundResponse,
+    VLMUnloadRequest,
     VerifyRequest,
     VerifyResponse,
 )
@@ -80,6 +81,10 @@ class InferenceWorkerClient:
     def caption(self, request: CaptionRequest) -> CaptionResponse:
         return self._post("/v1/qwen/caption", request.model_dump(), CaptionResponse)
 
+    def vlm_caption(self, request: CaptionRequest) -> CaptionResponse:
+        """Call the variant-aware VLM endpoint used by the ablation branch."""
+        return self._post("/v1/vlm/caption", request.model_dump(), CaptionResponse)
+
     def embed_text(self, request: EmbedTextRequest) -> EmbeddingResponse:
         return self._post("/v1/siglip/embed-text", request.model_dump(), EmbeddingResponse)
 
@@ -89,8 +94,36 @@ class InferenceWorkerClient:
     def verify(self, request: VerifyRequest) -> VerifyResponse:
         return self._post("/v1/qwen/verify", request.model_dump(), VerifyResponse)
 
+    def vlm_verify(self, request: VerifyRequest) -> VerifyResponse:
+        return self._post("/v1/vlm/verify", request.model_dump(), VerifyResponse)
+
     def answer(self, request: AnswerRequest) -> AnswerResponse:
         return self._post("/v1/qwen/answer", request.model_dump(), AnswerResponse)
+
+    def vlm_answer(self, request: AnswerRequest) -> AnswerResponse:
+        return self._post("/v1/vlm/answer", request.model_dump(), AnswerResponse)
+
+    def vlm_unload(self, backend: str) -> Dict[str, Any]:
+        if not self.enabled:
+            raise InferenceWorkerUnavailable("inference worker is disabled")
+        headers = {}
+        if settings.INFERENCE_WORKER_TOKEN:
+            headers["X-Inference-Token"] = settings.INFERENCE_WORKER_TOKEN
+        try:
+            with httpx.Client(timeout=5.0) as client:
+                response = client.post(
+                    f"{self.base_url}/v1/vlm/unload",
+                    json=VLMUnloadRequest(vlm_backend=backend).model_dump(),
+                    headers=headers,
+                )
+            response.raise_for_status()
+            return response.json()
+        except httpx.ConnectError as exc:
+            raise InferenceWorkerUnavailable(str(exc)) from exc
+        except httpx.TimeoutException as exc:
+            raise InferenceWorkerTimeout(str(exc)) from exc
+        except httpx.HTTPError as exc:
+            raise InferenceWorkerError(str(exc)) from exc
 
     def ground(self, request: GroundRequest, timeout_sec: Optional[float] = None) -> GroundResponse:
         return self._post("/v1/sam/ground-video", request.model_dump(), GroundResponse, timeout_sec=timeout_sec)

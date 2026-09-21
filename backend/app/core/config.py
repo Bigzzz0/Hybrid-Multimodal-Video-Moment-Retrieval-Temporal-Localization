@@ -54,8 +54,25 @@ class Settings(BaseSettings):
     SIGLIP2_EMBEDDING_DIM: int = 768
     SIGLIP2_EMBEDDING_VERSION: str = "siglip2-naflex-v2"
     QWEN_VL_MODEL_ID: str = os.environ.get("QWEN_VL_MODEL_ID", "Qwen/Qwen3-VL-2B-Instruct")
+    VLM_DEFAULT_BACKEND: str = os.environ.get("VLM_DEFAULT_BACKEND", "qwen3_vl_2b")
+    VLM_LAB_ENABLED: bool = os.environ.get("VLM_LAB_ENABLED", "true").lower() in {"1", "true", "yes"}
+    VLM_ARTIFACT_VERSION: str = os.environ.get("VLM_ARTIFACT_VERSION", "vlm-ablation-v1")
+    VLM_CAPTION_PROMPT_VERSION: str = os.environ.get("VLM_CAPTION_PROMPT_VERSION", "scene-caption-vlm-ablation-v1")
+    VLM_VIDEO_PROMPT_VERSION: str = os.environ.get("VLM_VIDEO_PROMPT_VERSION", "video-caption-vlm-ablation-v1")
+    VLM_VIDEO_CHUNK_SEC: float = float(os.environ.get("VLM_VIDEO_CHUNK_SEC", "8"))
+    VLM_VIDEO_CHUNK_STRIDE_SEC: float = float(os.environ.get("VLM_VIDEO_CHUNK_STRIDE_SEC", "4"))
+    VLM_VIDEO_SAMPLE_FPS: float = float(os.environ.get("VLM_VIDEO_SAMPLE_FPS", "2"))
+    VLM_VIDEO_MAX_FRAMES: int = int(os.environ.get("VLM_VIDEO_MAX_FRAMES", "16"))
+    VLM_FRAME_MAX_FRAMES: int = int(os.environ.get("VLM_FRAME_MAX_FRAMES", "4"))
+    VLM_VERIFY_ARTIFACT_VERSION: str = os.environ.get("VLM_VERIFY_ARTIFACT_VERSION", "vlm-verify-ablation-v2")
+    VLM_LAB_ENV_NAME: str = os.environ.get("VLM_LAB_ENV_NAME", ".venv-vlm-lab")
+    LLAMA_CPP_PATH: str = os.environ.get("LLAMA_CPP_PATH", "")
+    LLAMA_CPP_VERSION: str = os.environ.get("LLAMA_CPP_VERSION", "0.4.1-b29c606")
     SAM_MODEL_ID: str = os.environ.get("SAM_MODEL_ID", "facebook/sam3.1")
     ENABLE_SAM_GROUNDING: bool = os.environ.get("ENABLE_SAM_GROUNDING", "false").lower() in {"1", "true", "yes"}
+    # The VLM ablation branch keeps SAM code/artifacts intact but excludes it
+    # from search so A--E measurements are comparable.
+    VLM_LAB_DISABLE_SAM: bool = os.environ.get("VLM_LAB_DISABLE_SAM", "true").lower() in {"1", "true", "yes"}
     CAPTION_VERSION: str = os.environ.get("CAPTION_VERSION", "qwen3vl2b-v1")
     GROUNDING_VERSION: str = os.environ.get("GROUNDING_VERSION", "sam31-v1")
 

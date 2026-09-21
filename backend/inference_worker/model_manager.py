@@ -22,6 +22,7 @@ class ModelManager:
         self.release_count = 0
         self.peak_vram_mb = 0.0
         self.timings: Dict[str, Dict[str, float]] = {}
+        self.errors: Dict[str, str] = {}
 
     def _free_vram_mb(self) -> float:
         try:
@@ -72,6 +73,13 @@ class ModelManager:
     def telemetry(self) -> Dict[str, Any]:
         used = self._used_vram_mb()
         self.peak_vram_mb = max(self.peak_vram_mb, used)
+        model_metadata = {}
+        for name, service in self.services.items():
+            try:
+                metadata = service.metadata() if callable(getattr(service, "metadata", None)) else {}
+            except Exception:
+                metadata = {}
+            model_metadata[name] = metadata
         return {
             "states": dict(self.states),
             "loaded_at": dict(self.loaded_at),
@@ -84,22 +92,35 @@ class ModelManager:
             "cascade_stage": self.cascade_stage,
             "release_count": self.release_count,
             "timings_ms": dict(self.timings),
+            "model_metadata": model_metadata,
+            "errors": dict(self.errors),
         }
 
     def get(self, name: str, factory):
         if name in self.services:
             self.states[name] = "ready"
             return self.services[name]
-        # Qwen and SAM are both large multimodal models. On a 12 GB card,
+        # Qwen, the ablation VLMs and SAM are large multimodal models. On a 12 GB card,
         # loading them together can leave no activation headroom even when
         # their weights individually fit. Keep those two heavy models
         # mutually exclusive, but keep SigLIP resident alongside Qwen: its
         # text encoder is small enough to fit and reloading it for every
         # action query makes Accurate needlessly slow.
-        if name == "qwen":
+        if name == "qwen" or name.startswith("vlm:"):
             self.unload("sam")
+            self.unload("qwen")
+            for resident in list(self.services):
+                if resident.startswith("vlm:") and resident != name:
+                    self.unload(resident)
+            # A VLM stage follows SigLIP retrieval in Accurate mode. Evicting
+            # it here is also safe for direct VLM caption requests and avoids
+            # accidental shared-memory growth on 12 GB cards.
+            self.unload("siglip")
         elif name == "sam":
             self.unload("qwen")
+            for resident in list(self.services):
+                if resident.startswith("vlm:"):
+                    self.unload(resident)
             # SAM 3.1 is the model that nearly fills this 12 GB card. Evict
             # SigLIP before its allocation so the checkpoint can load safely.
             self.unload("siglip")
@@ -129,6 +150,7 @@ class ModelManager:
             return service
         except Exception:
             self.states[name] = "error"
+            self.errors[name] = "model load failed"
             raise
 
     def unload(self, name: str) -> None:

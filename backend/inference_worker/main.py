@@ -17,9 +17,11 @@ from app.inference.contracts import (
     EmbedTextRequest,
     GroundRequest,
     VerifyRequest,
+    VLMUnloadRequest,
 )
 from inference_worker.model_manager import model_manager
 from inference_worker.qwen_service import Qwen3VLService
+from inference_worker.vlm_service import VariantVLMService
 from inference_worker.sam_service import SAM31Grounder
 from inference_worker.scheduler import inference_scheduler
 from inference_worker.siglip_service import SigLIPService
@@ -128,6 +130,47 @@ async def verify(request: VerifyRequest, _: None = Depends(_authorize)):
 @app.post("/v1/qwen/answer")
 async def answer(request: AnswerRequest, _: None = Depends(_authorize)):
     return await _run("qwen", Qwen3VLService, "answer", request, priority="vqa")
+
+
+def _vlm_factory(backend: str):
+    return lambda: VariantVLMService(backend)
+
+
+@app.post("/v1/vlm/caption")
+async def vlm_caption(request: CaptionRequest, _: None = Depends(_authorize)):
+    from app.inference.vlm_registry import get_variant
+    try:
+        get_variant(request.vlm_backend)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return await _run(f"vlm:{request.vlm_backend}", _vlm_factory(request.vlm_backend), "caption", request, priority="ingestion")
+
+
+@app.post("/v1/vlm/verify")
+async def vlm_verify(request: VerifyRequest, _: None = Depends(_authorize)):
+    from app.inference.vlm_registry import get_variant
+    try:
+        get_variant(request.vlm_backend)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return await _run(f"vlm:{request.vlm_backend}", _vlm_factory(request.vlm_backend), "verify", request, priority="interactive_search")
+
+
+@app.post("/v1/vlm/answer")
+async def vlm_answer(request: AnswerRequest, _: None = Depends(_authorize)):
+    from app.inference.vlm_registry import get_variant
+    try:
+        get_variant(request.vlm_backend)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return await _run(f"vlm:{request.vlm_backend}", _vlm_factory(request.vlm_backend), "answer", request, priority="vqa")
+
+
+@app.post("/v1/vlm/unload")
+async def vlm_unload(request: VLMUnloadRequest, _: None = Depends(_authorize)):
+    key = f"vlm:{request.vlm_backend}"
+    model_manager.unload(key)
+    return {"status": "unloaded", "vlm_backend": request.vlm_backend}
 
 
 @app.post("/v1/sam/ground-video")
