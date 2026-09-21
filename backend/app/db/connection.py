@@ -16,6 +16,9 @@ from app.db.schemas import (
     MODEL_ARTIFACT_CACHE_SCHEMA,
     SCENE_ANALYSIS_SCHEMA,
     QWEN_VERIFICATION_SCHEMA,
+    VLM_CAPTION_ARTIFACT_SCHEMA,
+    VLM_ARTIFACT_METADATA_SCHEMA,
+    VLM_VERIFICATION_SCHEMA,
 )
 
 class LanceDBManager:
@@ -70,6 +73,9 @@ class LanceDBManager:
         ensure_table("model_artifact_cache", MODEL_ARTIFACT_CACHE_SCHEMA)
         ensure_table("scene_analysis_v1", SCENE_ANALYSIS_SCHEMA)
         ensure_table("qwen_verifications_v1", QWEN_VERIFICATION_SCHEMA)
+        ensure_table("vlm_caption_artifacts_v1", VLM_CAPTION_ARTIFACT_SCHEMA)
+        ensure_table("vlm_artifact_metadata_v1", VLM_ARTIFACT_METADATA_SCHEMA)
+        ensure_table("vlm_verifications_v2", VLM_VERIFICATION_SCHEMA)
             
         # 4. Table: search_logs
         ensure_table("search_logs", SEARCH_LOG_SCHEMA)

@@ -15,6 +15,8 @@ from app.pipeline.keyframe_filter import SSIMKeyframeFilter, compute_pixel_motio
 from app.pipeline.visual_encoder import SigLIP2VisualEncoder
 from app.pipeline.dense_captioner import QwenVLDenseCaptioner
 from app.retrieval.grounding import grounding_orchestrator
+from app.inference.vlm_registry import all_variants
+from app.retrieval.vlm_artifacts import vlm_artifact_store
 
 class ProgressiveIngestionManager:
     """Orchestrates Progressive Two-Phase Video Ingestion and Visual-Centric Feature Extraction."""
@@ -388,7 +390,7 @@ class ProgressiveIngestionManager:
         """Phase 3: optional SAM 3.1 generic classroom grounding cache."""
         if progress_callback:
             progress_callback(video_id, 5, "Preparing SAM 3.1 grounding cache...", "sam_grounding", {})
-        if not settings.INFERENCE_WORKER_ENABLED:
+        if not settings.INFERENCE_WORKER_ENABLED or settings.VLM_LAB_DISABLE_SAM:
             if progress_callback:
                 progress_callback(video_id, 100, "SAM 3.1 worker disabled; on-demand grounding remains available after worker startup.", "sam_unavailable", {"skipped": True})
             return
@@ -428,5 +430,116 @@ class ProgressiveIngestionManager:
             logger.error(f"Error in Phase 3 SAM grounding: {exc}")
             if progress_callback:
                 progress_callback(video_id, 100, f"SAM grounding unavailable: {exc}", "sam_unavailable", {})
+
+    def process_video_vlm_ablation_background(
+        self,
+        video_id: str,
+        progress_callback: Optional[Callable[[str, int, str, str, Dict[str, Any]], None]] = None,
+        backend_filter: Optional[str] = None,
+    ):
+        """Build A--E caption artifacts after Fast indexing is available.
+
+        This job is intentionally sequential by backend. The inference worker
+        owns the GPU and keeps one selected VLM resident while it processes a
+        backend's scenes; a worker restart or a failed variant records an
+        error and allows the following variant to continue.
+        """
+        if not settings.VLM_LAB_ENABLED:
+            return
+        from app.inference.client import inference_client
+        from app.inference.contracts import CaptionRequest
+        import datetime as _datetime
+        from collections import defaultdict
+
+        try:
+            frames_table = db_manager.get_table("video_frames_v2")
+            scenes_table = db_manager.get_table("scenes_v2")
+            try:
+                frames = frames_table.search().where(f"video_id = '{video_id}'").limit(200000).to_list()
+                scenes = scenes_table.search().where(f"video_id = '{video_id}'").limit(10000).to_list()
+            except Exception:
+                frames = [row for row in frames_table.to_arrow().to_pylist() if str(row.get("video_id")) == video_id]
+                scenes = [row for row in scenes_table.to_arrow().to_pylist() if str(row.get("video_id")) == video_id]
+            if not frames or not scenes:
+                logger.warning("VLM ablation skipped for {}: no v2 scenes/frames", video_id)
+                return
+            try:
+                video_rows = db_manager.get_table("videos").search().where(f"id = '{video_id}'").limit(1).to_list()
+                source_video_path = str(video_rows[0].get("filepath", "")) if video_rows else ""
+            except Exception:
+                source_video_path = ""
+            by_scene = defaultdict(list)
+            for frame in frames:
+                by_scene[str(frame.get("scene_id"))].append(frame)
+            ordered_scenes = sorted(scenes, key=lambda row: float(row.get("t_start", 0.0)))
+
+            variants = [variant for variant in all_variants() if not backend_filter or variant.backend == backend_filter]
+            for variant_index, variant in enumerate(variants):
+                sources = []
+                if variant.input_mode == "video_chunk":
+                    duration = max(float(row.get("t_end", 0.0)) for row in ordered_scenes)
+                    cursor = 0.0
+                    while cursor < duration:
+                        end = min(duration, cursor + settings.VLM_VIDEO_CHUNK_SEC)
+                        sources.append(("video_chunk", f"chunk_{cursor:.3f}", cursor, end, [f for f in frames if cursor <= float(f.get("timestamp", 0.0)) <= end]))
+                        cursor += settings.VLM_VIDEO_CHUNK_STRIDE_SEC
+                else:
+                    sources = [
+                        ("scene", str(scene.get("id")), float(scene.get("t_start", 0.0)), float(scene.get("t_end", 0.0)), by_scene.get(str(scene.get("id")), []))
+                        for scene in ordered_scenes
+                    ]
+                expected = len(sources)
+                started_at = _datetime.datetime.now().isoformat()
+                existing = vlm_artifact_store.caption_rows(video_id, variant.backend)
+                completed = {str(row.get("id")) for row in existing}
+                vlm_artifact_store.set_metadata(video_id, variant, expected, len(completed), "running", started_at=started_at)
+                if not inference_client.enabled:
+                    vlm_artifact_store.set_metadata(video_id, variant, expected, len(completed), "error", "inference worker is disabled", started_at, _datetime.datetime.now().isoformat())
+                    continue
+                error_message = ""
+                for source_kind, source_id, t_start, t_end, source_frames in sources:
+                    if source_id in completed:
+                        continue
+                    source_frames = sorted(source_frames, key=lambda row: float(row.get("timestamp", 0.0)))
+                    cap = settings.VLM_VIDEO_MAX_FRAMES if variant.input_mode == "video_chunk" else settings.VLM_FRAME_MAX_FRAMES
+                    if len(source_frames) > cap:
+                        positions = np.linspace(0, len(source_frames) - 1, cap).astype(int).tolist()
+                        source_frames = [source_frames[index] for index in positions]
+                    paths = [str(row.get("frame_path")) for row in source_frames if row.get("frame_path") and os.path.exists(str(row.get("frame_path")))]
+                    timestamps = [float(row.get("timestamp", 0.0)) for row in source_frames if row.get("frame_path") and os.path.exists(str(row.get("frame_path")))]
+                    if not paths:
+                        continue
+                    prompt_version = settings.VLM_VIDEO_PROMPT_VERSION if variant.input_mode == "video_chunk" else settings.VLM_CAPTION_PROMPT_VERSION
+                    request = CaptionRequest(
+                        scene_id=source_id, frame_paths=paths, timestamps=timestamps,
+                        prompt_version=prompt_version, max_new_tokens=128,
+                        vlm_backend=variant.backend, release_after=False,
+                        video_path=source_video_path if variant.input_mode == "video_chunk" else "", t_start=t_start, t_end=t_end,
+                        sample_fps=settings.VLM_VIDEO_SAMPLE_FPS if variant.input_mode == "video_chunk" else 1.0,
+                        max_frames=cap,
+                        prompt=("Analyze only visible visual content. Return JSON with summary, objects, attributes, actions, relations, temporal_events, uncertainty. Do not use OCR, subtitles, audio or identity.")
+                    )
+                    try:
+                        response = inference_client.vlm_caption(request)
+                        vlm_artifact_store.save_caption(video_id, variant, source_kind, source_id, t_start, t_end, timestamps, response, prompt_version)
+                        completed.add(source_id)
+                    except Exception as exc:
+                        error_message = str(exc)
+                        logger.warning("VLM ablation {} source {} failed: {}", variant.backend, source_id, exc)
+                        break
+                    if progress_callback:
+                        overall = (variant_index + ((len(completed) / max(1, expected)))) / max(1, len(variants)) * 100
+                        progress_callback(video_id, int(overall), f"VLM ablation {variant.label}: {len(completed)}/{expected}", f"vlm_ablation_{variant.backend}", {"backend": variant.backend, "completed": len(completed), "expected": expected})
+                    vlm_artifact_store.set_metadata(video_id, variant, expected, len(completed), "running", error_message, started_at)
+                status = "ready" if len(completed) == expected and not error_message else "error"
+                vlm_artifact_store.set_metadata(video_id, variant, expected, len(completed), status, error_message, started_at, _datetime.datetime.now().isoformat() if status == "ready" else "")
+                try:
+                    inference_client.vlm_unload(variant.backend)
+                except Exception:
+                    pass
+            if progress_callback:
+                progress_callback(video_id, 100, "VLM A–E artifacts complete", "vlm_ablation_complete", {})
+        except Exception as exc:
+            logger.error("Error in VLM ablation background for {}: {}", video_id, exc)
 
 ingestion_manager = ProgressiveIngestionManager()

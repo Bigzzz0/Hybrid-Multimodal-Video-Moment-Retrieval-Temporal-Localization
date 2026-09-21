@@ -167,6 +167,66 @@ QWEN_VERIFICATION_SCHEMA = pa.schema([
     pa.field("last_accessed_at", pa.string()),
 ])
 
+VLM_CAPTION_ARTIFACT_SCHEMA = pa.schema([
+    pa.field("id", pa.string()),
+    pa.field("video_id", pa.string()),
+    pa.field("source_kind", pa.string()),
+    pa.field("source_id", pa.string()),
+    pa.field("t_start", pa.float32()),
+    pa.field("t_end", pa.float32()),
+    pa.field("sampled_timestamps", pa.list_(pa.float32())),
+    pa.field("caption_text", pa.string()),
+    pa.field("structured_json", pa.string()),
+    pa.field("vlm_backend", pa.string()),
+    pa.field("model_id", pa.string()),
+    pa.field("model_revision", pa.string()),
+    pa.field("quantization", pa.string()),
+    pa.field("input_mode", pa.string()),
+    pa.field("artifact_version", pa.string()),
+    pa.field("prompt_version", pa.string()),
+    pa.field("status", pa.string()),
+    pa.field("load_ms", pa.float32()),
+    pa.field("inference_ms", pa.float32()),
+    pa.field("created_at", pa.string()),
+    pa.field("last_accessed_at", pa.string()),
+])
+
+VLM_ARTIFACT_METADATA_SCHEMA = pa.schema([
+    pa.field("id", pa.string()),
+    pa.field("video_id", pa.string()),
+    pa.field("vlm_backend", pa.string()),
+    pa.field("model_id", pa.string()),
+    pa.field("model_revision", pa.string()),
+    pa.field("expected_count", pa.int32()),
+    pa.field("completed_count", pa.int32()),
+    pa.field("status", pa.string()),
+    pa.field("error_message", pa.string()),
+    pa.field("started_at", pa.string()),
+    pa.field("completed_at", pa.string()),
+])
+
+VLM_VERIFICATION_SCHEMA = pa.schema([
+    pa.field("id", pa.string()),
+    pa.field("video_id", pa.string()),
+    pa.field("video_fingerprint", pa.string()),
+    pa.field("normalized_query", pa.string()),
+    pa.field("t_start", pa.float32()),
+    pa.field("t_end", pa.float32()),
+    pa.field("sampled_timestamps", pa.list_(pa.float32())),
+    pa.field("event_present", pa.bool_()),
+    pa.field("confidence", pa.float32()),
+    pa.field("reason", pa.string()),
+    pa.field("vlm_backend", pa.string()),
+    pa.field("model_id", pa.string()),
+    pa.field("model_revision", pa.string()),
+    pa.field("quantization", pa.string()),
+    pa.field("input_mode", pa.string()),
+    pa.field("verification_version", pa.string()),
+    pa.field("prompt_version", pa.string()),
+    pa.field("created_at", pa.string()),
+    pa.field("last_accessed_at", pa.string()),
+])
+
 # ======================= Pydantic Models for REST API =======================
 
 class VideoMetadata(BaseModel):
@@ -228,12 +288,21 @@ class SearchResponse(BaseModel):
     models_attempted: List[str] = Field(default_factory=list)
     stage_status: Dict[str, str] = Field(default_factory=dict)
     planner_version: str = ""
+    vlm_backend_requested: str = "qwen3_vl_2b"
+    vlm_backend_used: Optional[str] = None
+    vlm_model_id: Optional[str] = None
+    vlm_model_revision: Optional[str] = None
+    vlm_quantization: Optional[str] = None
+    vlm_input_mode: Optional[str] = None
+    vlm_artifact_version: Optional[str] = None
+    vlm_fallback: bool = False
 
 class SearchQueryRequest(BaseModel):
     query: str
     video_id: str
     top_k: int = Field(default=5, ge=1, le=20)
     profile: Literal["fast", "accurate"] = "fast"
+    vlm_backend: str = "qwen3_vl_2b"
 
     class Config:
         extra = "ignore"
