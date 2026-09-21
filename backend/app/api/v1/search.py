@@ -17,7 +17,8 @@ async def search_moments(req: SearchQueryRequest):
         )
 
     response = search_engine.search_moments(query=req.query, video_id=req.video_id,
-                                             top_k=req.top_k, profile=req.profile)
+                                             top_k=req.top_k, profile=req.profile,
+                                             vlm_backend=req.vlm_backend)
 
     if "reindex_required" in response.warnings:
         raise HTTPException(

@@ -8,8 +8,29 @@ from fastapi import APIRouter
 from app.core.config import settings
 from app.db.connection import db_manager
 from app.inference.client import inference_client
+from app.inference.vlm_registry import all_variants
+from app.retrieval.vlm_artifacts import vlm_artifact_store
 
 router = APIRouter()
+
+
+@router.get("/vlm-backends", response_model=List[Dict[str, Any]])
+def get_vlm_backends(video_id: str = ""):
+    """Expose VLM artifact readiness without loading any checkpoint."""
+    worker_health = inference_client.health()
+    worker_available = worker_health.get("status") == "healthy"
+    result = []
+    for variant in all_variants():
+        metadata = vlm_artifact_store.metadata(video_id, variant.backend) if video_id else None
+        result.append({
+            **variant.public_dict(),
+            "ready": bool(metadata and metadata.get("status") == "ready"),
+            "status": str(metadata.get("status", "not_indexed")) if metadata else "not_indexed",
+            "expected_count": int(metadata.get("expected_count", 0)) if metadata else 0,
+            "completed_count": int(metadata.get("completed_count", 0)) if metadata else 0,
+            "worker_available": worker_available,
+        })
+    return result
 
 @router.get("/telemetry", response_model=Dict[str, Any])
 def get_system_telemetry():
@@ -69,6 +90,9 @@ def get_system_telemetry():
         "sam_observations_v1",
         "scene_analysis_v1",
         "model_artifact_cache",
+        "vlm_caption_artifacts_v1",
+        "vlm_artifact_metadata_v1",
+        "vlm_verifications_v2",
     ]
     for t_name in table_names:
         try:
@@ -104,6 +128,13 @@ def get_system_telemetry():
             "model_id": settings.SAM_MODEL_ID,
             "grounding_version": settings.GROUNDING_VERSION,
             "compile": settings.SAM_COMPILE,
+            "search_enabled": bool(settings.ENABLE_SAM_GROUNDING and not settings.VLM_LAB_DISABLE_SAM),
+        },
+        "vlm_ablation": {
+            "default_backend": settings.VLM_DEFAULT_BACKEND,
+            "artifact_version": settings.VLM_ARTIFACT_VERSION,
+            "sam_disabled_in_search": settings.VLM_LAB_DISABLE_SAM,
+            "variants": [variant.public_dict() for variant in all_variants()],
         },
         "temporal_localizer": {
             "name": "Multi-scale visual proposals + Soft-NMS",

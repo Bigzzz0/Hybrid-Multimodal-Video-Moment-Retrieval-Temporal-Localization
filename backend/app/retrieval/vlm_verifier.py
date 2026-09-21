@@ -14,6 +14,7 @@ from PIL import Image
 from app.core.config import settings
 from app.core.logger import logger
 from app.db.connection import db_manager
+from app.inference.vlm_registry import get_variant
 
 
 class TemporalReranker(Protocol):
@@ -37,23 +38,27 @@ class QwenVisualReranker:
         self.last_cache_hits: Dict[str, bool] = {}
 
     @staticmethod
-    def _cache_key(video_fingerprint: str, candidate: Dict[str, Any], query: str, timestamps: List[float]) -> str:
+    def _cache_key(video_fingerprint: str, candidate: Dict[str, Any], query: str, timestamps: List[float], backend: str = "qwen3_vl_2b") -> str:
+        variant = get_variant(backend)
         raw = "|".join([
             video_fingerprint,
             f"{float(candidate.get('t_start', 0.0)):.3f}",
             f"{float(candidate.get('t_end', 0.0)):.3f}",
             " ".join(query.casefold().split()),
             ",".join(f"{value:.3f}" for value in timestamps),
-            settings.QWEN_VL_MODEL_ID,
-            "qwen-verify-v1",
-            "cascade-verifier-v2",
+            variant.backend,
+            variant.model_id,
+            variant.revision,
+            variant.quantization,
+            settings.VLM_VERIFY_ARTIFACT_VERSION,
+            "cascade-verifier-v3",
         ])
         return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
     @staticmethod
-    def _cached_verification(key: str) -> Optional[Dict[str, Any]]:
+    def _cached_verification(key: str, backend: str = "qwen3_vl_2b") -> Optional[Dict[str, Any]]:
         try:
-            table = db_manager.get_table("qwen_verifications_v1")
+            table = db_manager.get_table("vlm_verifications_v2")
             rows = table.search().where(f"id = '{key}'").limit(1).to_list()
             if not rows:
                 return None
@@ -76,10 +81,12 @@ class QwenVisualReranker:
         candidate: Dict[str, Any],
         timestamps: List[float],
         parsed: Dict[str, Any],
+        backend: str = "qwen3_vl_2b",
     ) -> None:
         now = datetime.now().isoformat()
         try:
-            db_manager.get_table("qwen_verifications_v1").add([{
+            variant = get_variant(backend)
+            db_manager.get_table("vlm_verifications_v2").add([{
                 "id": key,
                 "video_id": video_id,
                 "video_fingerprint": video_fingerprint,
@@ -90,9 +97,13 @@ class QwenVisualReranker:
                 "event_present": bool(parsed["action_present"]),
                 "confidence": float(parsed["confidence"]),
                 "reason": str(parsed.get("reason", "")),
-                "model_id": settings.QWEN_VL_MODEL_ID,
-                "verification_version": "qwen-verify-v1",
-                "prompt_version": "cascade-verifier-v2",
+                "vlm_backend": variant.backend,
+                "model_id": variant.model_id,
+                "model_revision": variant.revision,
+                "quantization": variant.quantization,
+                "input_mode": variant.input_mode,
+                "verification_version": settings.VLM_VERIFY_ARTIFACT_VERSION,
+                "prompt_version": "vlm-verify-ablation-v1",
                 "created_at": now,
                 "last_accessed_at": now,
             }])
@@ -179,6 +190,7 @@ class QwenVisualReranker:
         frames: List[Dict[str, Any]],
         video_path: Optional[str] = None,
         decoder: Any = None,
+        backend: str = "qwen3_vl_2b",
     ) -> List[Dict[str, Any]]:
         """Decode a real 2fps window when the source video is available.
 
@@ -215,7 +227,8 @@ class QwenVisualReranker:
                         rounded = round(float(timestamp), 3)
                         if not timestamps or rounded > timestamps[-1]:
                             timestamps.append(rounded)
-                    frame_cap = max(1, int(settings.VLM_VERIFY_FRAMES_PER_MOMENT))
+                    frame_cap = int(settings.VLM_VIDEO_MAX_FRAMES if backend == "caprl_video_4b" else settings.VLM_FRAME_MAX_FRAMES)
+                    frame_cap = max(1, frame_cap)
                     if len(timestamps) > frame_cap:
                         if frame_cap == 1:
                             timestamps = [timestamps[len(timestamps) // 2]]
@@ -235,7 +248,8 @@ class QwenVisualReranker:
         selected.sort(key=lambda f: float(f.get("timestamp", 0.0)))
         # Approximate 2 fps from the indexed frames while respecting the
         # configured per-candidate cap (4 by default).
-        frame_cap = max(1, int(settings.VLM_VERIFY_FRAMES_PER_MOMENT))
+        frame_cap = int(settings.VLM_VIDEO_MAX_FRAMES if backend == "caprl_video_4b" else settings.VLM_FRAME_MAX_FRAMES)
+        frame_cap = max(1, frame_cap)
         if len(selected) > frame_cap:
             step = max(1, len(selected) // frame_cap)
             selected = selected[::step][:frame_cap]
@@ -252,6 +266,7 @@ class QwenVisualReranker:
         video_id: str = "",
         video_fingerprint: str = "",
         limit_override: Optional[int] = None,
+        backend: str = "qwen3_vl_2b",
     ) -> List[Dict[str, Any]]:
         self.last_warnings = []
         self.last_cache_hits = {}
@@ -267,10 +282,11 @@ class QwenVisualReranker:
             worker_enabled = False
         try:
             if not worker_enabled:
-                captioner = self.captioner
-                warmup = getattr(captioner, "_lazy_load", None)
-                if callable(warmup):
-                    warmup()
+                if backend == "qwen3_vl_2b":
+                    captioner = self.captioner
+                    warmup = getattr(captioner, "_lazy_load", None)
+                    if callable(warmup):
+                        warmup()
         except Exception as exc:
             logger.warning("Qwen verifier warm-up failed: {}", exc)
             self.last_warnings.append("verifier_error_fallback")
@@ -302,13 +318,13 @@ class QwenVisualReranker:
                 self.last_warnings.append("verifier_timeout_fallback")
                 verified.append(candidate)
                 continue
-            sampled = self._sample_frames(candidate, frames, video_path=source_path, decoder=decoder)
+            sampled = self._sample_frames(candidate, frames, video_path=source_path, decoder=decoder, backend=backend)
             if len(sampled) < 2:
                 self.last_warnings.append("verifier_insufficient_frames")
                 verified.append(candidate)
                 continue
             timestamps = [round(float(f["timestamp"]), 3) for f in sampled]
-            cache_key = self._cache_key(video_fingerprint or video_id, candidate, query, timestamps)
+            cache_key = self._cache_key(video_fingerprint or video_id, candidate, query, timestamps, backend)
             prompt = (
                 "Analyze only visible objects, physical actions, movement and state changes; do not use audio, OCR, "
                 "subtitles or readable on-screen text as evidence. "
@@ -343,7 +359,7 @@ class QwenVisualReranker:
                     f"'{candidate_caption}'."
                 )
             worker_response = None
-            cached_response = self._cached_verification(cache_key) if (video_fingerprint or video_id) else None
+            cached_response = self._cached_verification(cache_key, backend) if (video_fingerprint or video_id) else None
             if cached_response is not None:
                 cached_response["start_frame_index"] = 0
                 cached_response["end_frame_index"] = max(0, len(timestamps) - 1)
@@ -371,9 +387,15 @@ class QwenVisualReranker:
                         grounding_evidence=list(candidate.get("grounding_evidence", [])),
                         semantic_requirements=list(semantic_requirements or []),
                         release_after=release_after,
+                        vlm_backend=backend,
+                        video_path=source_path or "",
+                        t_start=float(candidate.get("t_start", 0.0)),
+                        t_end=float(candidate.get("t_end", 0.0)),
+                        sample_fps=2.0,
+                        max_frames=len(sampled),
                     )
                     try:
-                        worker = inference_client.verify(request)
+                        worker = inference_client.vlm_verify(request)
                     except Exception as exc:
                         if "oom" not in str(exc).lower() or len(request.frame_paths) <= 2:
                             raise
@@ -381,8 +403,8 @@ class QwenVisualReranker:
                         request.frame_paths = request.frame_paths[:reduced_count]
                         request.timestamps = request.timestamps[:reduced_count]
                         timestamps = timestamps[:reduced_count]
-                        cache_key = self._cache_key(video_fingerprint or video_id, candidate, query, timestamps)
-                        worker = inference_client.verify(request)
+                        cache_key = self._cache_key(video_fingerprint or video_id, candidate, query, timestamps, backend)
+                        worker = inference_client.vlm_verify(request)
                     worker_response = {
                         "action_present": worker.event_present,
                         "start_frame_index": worker.start_frame_index,
@@ -392,8 +414,15 @@ class QwenVisualReranker:
                     }
                     self.last_cache_hits[cache_key] = False
             except Exception as exc:
-                self.last_warnings.append("qwen_timeout_fallback" if "timeout" in str(exc).lower() else "qwen_worker_unavailable")
-                logger.warning("Qwen worker verifier fallback: {}", exc)
+                self.last_warnings.append("vlm_timeout_fallback" if "timeout" in str(exc).lower() else "vlm_worker_unavailable")
+                logger.warning("VLM worker verifier fallback: {}", exc)
+
+            # Never silently run variant A locally when B--E was selected.
+            # That would make an ablation result look valid while using the
+            # wrong weights. Only the historical A path has a local fallback.
+            if worker_response is None and backend != "qwen3_vl_2b":
+                verified.append(candidate)
+                continue
 
             images = []
             generation_seconds = 0.0
@@ -450,7 +479,7 @@ class QwenVisualReranker:
                     continue
                 if cached_response is None and (video_fingerprint or video_id):
                     self._persist_verification(
-                        cache_key, video_id, video_fingerprint, query, candidate, timestamps, parsed
+                        cache_key, video_id, video_fingerprint, query, candidate, timestamps, parsed, backend
                     )
                 # Qwen can conservatively reject a static object even when
                 # the indexed dense visual caption independently names it.
@@ -482,8 +511,13 @@ class QwenVisualReranker:
                 refined["action_present"] = bool(parsed["action_present"])
                 refined["verifier_reason"] = str(parsed.get("reason", "")).strip()
                 refined["fast_score"] = base
-                refined["score"] = 0.65 * base + 0.35 * conf if parsed["action_present"] else base * 0.20
+                refined["score"] = 0.60 * base + 0.40 * conf if parsed["action_present"] else base * 0.20
                 refined["rank_score"] = refined["score"]
+                refined["vlm_backend"] = backend
+                refined["vlm_model_id"] = get_variant(backend).model_id
+                refined["vlm_model_revision"] = get_variant(backend).revision
+                refined["vlm_quantization"] = get_variant(backend).quantization
+                refined["vlm_input_mode"] = get_variant(backend).input_mode
                 start_index = parsed["start_frame_index"]
                 end_index = parsed["end_frame_index"]
                 refined["t_start"] = timestamps[start_index]

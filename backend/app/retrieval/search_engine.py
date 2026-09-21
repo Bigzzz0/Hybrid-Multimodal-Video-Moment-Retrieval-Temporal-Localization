@@ -18,6 +18,8 @@ from app.retrieval.temporal_smoother import TemporalSmoother
 from app.retrieval.vlm_verifier import vlm_verifier
 from app.retrieval.query_router import query_router
 from app.retrieval.grounding import grounding_orchestrator
+from app.inference.vlm_registry import get_variant
+from app.retrieval.vlm_artifacts import vlm_artifact_store
 
 
 def _lexical_score(text: str, query: str) -> float:
@@ -68,8 +70,14 @@ class HybridMomentSearchEngine:
                 rows = [row for row in rows if str(row.get(key)) == value.rstrip("'")]
             return rows[:limit]
 
-    def _caption_rows(self, query: str, video_id: str) -> List[Dict[str, Any]]:
+    def _caption_rows(self, query: str, video_id: str, vlm_backend: str = "") -> List[Dict[str, Any]]:
         """Query the scene FTS index; lexical scoring is only a safe fallback."""
+        if vlm_backend and vlm_artifact_store.is_ready(video_id, vlm_backend):
+            artifact_rows = vlm_artifact_store.caption_rows(video_id, vlm_backend)
+            matched = [row for row in artifact_rows if _lexical_score(str(row.get("caption", "")), query) > 0]
+            for row in matched:
+                row["_score"] = _lexical_score(str(row.get("caption", "")), query)
+            return matched
         table = db_manager.get_table("scenes_v2")
         rows: List[Dict[str, Any]] = []
         try:
@@ -195,11 +203,18 @@ class HybridMomentSearchEngine:
             return np.zeros_like(signal, dtype=np.float32)
         return np.clip((signal - lo) / (hi - lo), 0.0, 1.0).astype(np.float32)
 
-    def search_moments(self, query: str, video_id: str, top_k: int = 5, profile: str = "fast") -> SearchResponse:
+    def search_moments(self, query: str, video_id: str, top_k: int = 5, profile: str = "fast", vlm_backend: str = "") -> SearchResponse:
         started = time.monotonic()
         profile = profile if profile in {"fast", "accurate"} else "fast"
         top_k = max(1, min(int(top_k), 20))
         warnings: List[str] = []
+        requested_vlm_backend = (vlm_backend or settings.VLM_DEFAULT_BACKEND).strip().lower()
+        try:
+            requested_variant = get_variant(requested_vlm_backend)
+        except ValueError:
+            requested_vlm_backend = settings.VLM_DEFAULT_BACKEND
+            requested_variant = get_variant(requested_vlm_backend)
+            warnings.append("vlm_backend_invalid_fallback")
         stage_latency_ms: Dict[str, float] = {}
         models_used: List[str] = [settings.SIGLIP2_MODEL_ID]
         models_attempted: List[str] = [settings.SIGLIP2_MODEL_ID]
@@ -214,7 +229,8 @@ class HybridMomentSearchEngine:
             warnings.append("video_not_found")
             return SearchResponse(query=query, video_id=video_id, moments=[], timeline_heatmap=[], total_duration=0.0,
                                   latency_ms=round((time.monotonic() - started) * 1000, 2), top_k=top_k,
-                                  profile=profile, calibrated=False, index_version=settings.VISUAL_INDEX_VERSION, warnings=warnings)
+                                  profile=profile, calibrated=False, index_version=settings.VISUAL_INDEX_VERSION, warnings=warnings,
+                                  vlm_backend_requested=requested_vlm_backend)
         target = videos[0]
         duration = max(0.0, float(target.get("duration_sec", 0.0)))
         target_index_version = str(target.get("visual_index_version") or "")
@@ -222,7 +238,8 @@ class HybridMomentSearchEngine:
             warnings.append("reindex_required")
             return SearchResponse(query=query, video_id=video_id, moments=[], timeline_heatmap=[], total_duration=round(duration, 2),
                                   latency_ms=round((time.monotonic() - started) * 1000, 2), top_k=top_k,
-                                  profile=profile, calibrated=False, index_version=settings.VISUAL_INDEX_VERSION, warnings=warnings)
+                                  profile=profile, calibrated=False, index_version=settings.VISUAL_INDEX_VERSION, warnings=warnings,
+                                  vlm_backend_requested=requested_vlm_backend)
         # Older ``videos`` tables may not have the v2 metadata columns.  A
         # newly ingested video is still valid when its v2 metadata/frames are
         # present; a legacy-only video must explicitly reindex.
@@ -232,13 +249,15 @@ class HybridMomentSearchEngine:
                 warnings.append("reindex_required")
                 return SearchResponse(query=query, video_id=video_id, moments=[], timeline_heatmap=[], total_duration=round(duration, 2),
                                       latency_ms=round((time.monotonic() - started) * 1000, 2), top_k=top_k,
-                                      profile=profile, calibrated=False, index_version=settings.VISUAL_INDEX_VERSION, warnings=warnings)
+                                      profile=profile, calibrated=False, index_version=settings.VISUAL_INDEX_VERSION, warnings=warnings,
+                                      vlm_backend_requested=requested_vlm_backend)
         compatibility = db_manager.visual_index_compatibility(video_id)
         if not compatibility.get("compatible", False):
             warnings.append("reindex_required")
             return SearchResponse(query=query, video_id=video_id, moments=[], timeline_heatmap=[], total_duration=round(duration, 2),
                                   latency_ms=round((time.monotonic() - started) * 1000, 2), top_k=top_k,
-                                  profile=profile, calibrated=False, index_version=settings.VISUAL_INDEX_VERSION, warnings=warnings)
+                                  profile=profile, calibrated=False, index_version=settings.VISUAL_INDEX_VERSION, warnings=warnings,
+                                  vlm_backend_requested=requested_vlm_backend)
         frames = self._rows(db_manager.get_table("video_frames_v2"), f"video_id = '{video_id}'", 200000)
         dim = int(settings.SIGLIP2_EMBEDDING_DIM)
         frames = [frame for frame in frames if frame.get("siglip2_vector") is not None and len(frame.get("siglip2_vector")) == dim]
@@ -246,7 +265,8 @@ class HybridMomentSearchEngine:
             warnings.append("index_empty")
             return SearchResponse(query=query, video_id=video_id, moments=[], timeline_heatmap=[], total_duration=round(duration, 2),
                                   latency_ms=round((time.monotonic() - started) * 1000, 2), top_k=top_k,
-                                  profile=profile, calibrated=False, index_version=settings.VISUAL_INDEX_VERSION, warnings=warnings)
+                                  profile=profile, calibrated=False, index_version=settings.VISUAL_INDEX_VERSION, warnings=warnings,
+                                  vlm_backend_requested=requested_vlm_backend)
 
         variants = query_expander.get_query_variants(query)
         siglip_started = time.monotonic()
@@ -280,7 +300,12 @@ class HybridMomentSearchEngine:
         # Caption BM25/FTS results are distributed only to their own scene.
         scenes = self._rows(db_manager.get_table("scenes_v2"), f"video_id = '{video_id}'", 10000)
         scene_by_id = {str(scene.get("id")): scene for scene in scenes}
-        caption_rows = self._caption_rows(" ".join(text for text, _ in variants), video_id)
+        caption_rows = self._caption_rows(" ".join(text for text, _ in variants), video_id, requested_vlm_backend)
+        if profile == "fast" and not vlm_artifact_store.is_ready(video_id, requested_vlm_backend):
+            # Existing videos predate the ablation artifacts. Keep Fast usable
+            # from the established scenes_v2 captions while making readiness
+            # explicit to the UI and benchmark runner.
+            warnings.append("vlm_artifact_not_ready")
         caption_by_scene: Dict[str, float] = {}
         for row in caption_rows:
             scene_id = str(row.get("id"))
@@ -342,6 +367,11 @@ class HybridMomentSearchEngine:
             warnings.append("calibration_missing")
         route_info = query_router.route(query) if profile == "accurate" else {"route": "fast"}
         route = str(route_info.get("route", "fast"))
+        sam_enabled = bool(settings.ENABLE_SAM_GROUNDING and not settings.VLM_LAB_DISABLE_SAM)
+        vlm_backend_used: Optional[str] = None
+        vlm_fallback = False
+        if profile == "fast" and not vlm_artifact_store.is_ready(video_id, requested_vlm_backend):
+            vlm_fallback = True
         if profile == "accurate":
             planner_version = str(route_info.get("planner_version", "cascade-planner-v2"))
             for candidate in candidates:
@@ -349,7 +379,7 @@ class HybridMomentSearchEngine:
 
             grounding_limit = max(1, int(settings.SAM_SEARCH_TOP_K))
             grounding_started = time.monotonic()
-            if settings.ENABLE_SAM_GROUNDING and candidates:
+            if sam_enabled and candidates:
                 models_attempted.append(settings.SAM_MODEL_ID)
                 candidates, grounding_warnings, grounding_cache_hits = grounding_orchestrator.ground_candidates(
                     video_id=video_id,
@@ -382,67 +412,96 @@ class HybridMomentSearchEngine:
             else:
                 has_sam_evidence = False
                 stage_status["sam"] = "disabled"
-                cascade_path.append("sam:disabled")
-                warnings.append("sam_worker_unavailable")
-            stage_latency_ms["sam"] = round((time.monotonic() - grounding_started) * 1000, 2)
-
-            sam_scores = [float(item.get("sam_score", 0.0)) for item in candidates[:grounding_limit]]
-            qwen_required = (
-                not sam_scores
-                or max(sam_scores, default=0.0) < float(settings.SAM_STRONG_SCORE_THRESHOLD)
-                or bool(route_info.get("ambiguous"))
-                or bool(route_info.get("semantic_requirements"))
-                or len({e.get("concept") for item in candidates[:grounding_limit] for e in item.get("grounding_evidence", [])}) > 1
-            )
-            if route_info.get("ambiguous"):
-                warnings.append("sam_ambiguous_qwen_fallback")
-
-            remaining_budget = max(0.0, accurate_deadline - time.monotonic()) if accurate_deadline else 0.0
-            should_verify_with_qwen = (
-                qwen_required
-                and settings.ENABLE_VLM_STAGE2_VERIFY
-                and bool(candidates)
-                and remaining_budget >= float(settings.QWEN_MIN_REMAINING_SECONDS)
-            )
-            if qwen_required and not should_verify_with_qwen:
-                warnings.append("accurate_partial_budget" if remaining_budget < float(settings.QWEN_MIN_REMAINING_SECONDS) else "accurate_fallback_fast")
-                stage_status["qwen"] = "skipped"
-
-            if should_verify_with_qwen:
-                verify_limit = max(1, int(settings.QWEN_FALLBACK_TOP_K))
-                for candidate in candidates[:verify_limit]:
-                    midpoint = (float(candidate.get("t_start", 0.0)) + float(candidate.get("t_end", 0.0))) / 2.0
-                    scene = next((item for item in scenes if float(item.get("t_start", 0.0)) <= midpoint <= float(item.get("t_end", duration))), None)
-                    if scene:
-                        candidate["caption_preview"] = str(scene.get("caption", "") or "")
-                verifier_started = time.monotonic()
-                models_attempted.append(settings.QWEN_VL_MODEL_ID)
-                verifier_frames = [{"_video_path": str(target.get("filepath", ""))}] + frames
-                video_fingerprint = grounding_orchestrator._video_fingerprint(video_id)
-                verified_head = vlm_verifier.verify(
-                    candidates[:verify_limit],
-                    verifier_frames,
-                    query,
-                    budget_seconds=remaining_budget,
-                    semantic_requirements=list(route_info.get("semantic_requirements", [])),
-                    release_after=True,
-                    video_id=video_id,
-                    video_fingerprint=video_fingerprint,
-                    limit_override=verify_limit,
-                )
-                candidates = verified_head + candidates[verify_limit:]
-                warnings.extend(vlm_verifier.last_warnings)
-                cache_hits.update({f"qwen:{key}": value for key, value in vlm_verifier.last_cache_hits.items()})
-                stage_latency_ms["qwen"] = round((time.monotonic() - verifier_started) * 1000, 2)
-                has_qwen_evidence = any("verifier_confidence" in item for item in candidates[:verify_limit])
-                stage_status["qwen"] = "verified" if has_qwen_evidence else "unavailable"
-                cascade_path.extend(["qwen:verified" if has_qwen_evidence else "qwen:unavailable", "qwen:unloaded"])
-                if has_qwen_evidence:
-                    models_used.append(settings.QWEN_VL_MODEL_ID)
-                    if any(bool(item.get("action_present")) for item in candidates[:verify_limit]):
-                        warnings.append("qwen_fallback_verified")
+                # The ablation branch deliberately keeps SAM out of search.
+                # Its tables and code remain available for a future comparison.
+                if not sam_enabled:
+                    stage_status.pop("sam", None)
+                    verifier_started = time.monotonic()
+                    remaining_budget = max(0.0, accurate_deadline - time.monotonic()) if accurate_deadline else 0.0
+                    verify_limit = max(1, int(settings.QWEN_FALLBACK_TOP_K))
+                    should_verify = bool(candidates) and settings.ENABLE_VLM_STAGE2_VERIFY and remaining_budget > 0.0
+                    if should_verify:
+                        for candidate in candidates[:verify_limit]:
+                            midpoint = (float(candidate.get("t_start", 0.0)) + float(candidate.get("t_end", 0.0))) / 2.0
+                            scene = next((item for item in scenes if float(item.get("t_start", 0.0)) <= midpoint <= float(item.get("t_end", duration))), None)
+                            if scene:
+                                candidate["caption_preview"] = str(scene.get("caption", "") or "")
+                        models_attempted.append(requested_variant.model_id)
+                        verifier_frames = [{"_video_path": str(target.get("filepath", ""))}] + frames
+                        video_fingerprint = grounding_orchestrator._video_fingerprint(video_id)
+                        verified_head = vlm_verifier.verify(
+                            candidates[:verify_limit], verifier_frames, query,
+                            budget_seconds=remaining_budget,
+                            semantic_requirements=list(route_info.get("semantic_requirements", [])),
+                            release_after=True, video_id=video_id, video_fingerprint=video_fingerprint,
+                            limit_override=verify_limit, backend=requested_vlm_backend,
+                        )
+                        candidates = verified_head + candidates[verify_limit:]
+                        warnings.extend(vlm_verifier.last_warnings)
+                        cache_hits.update({f"vlm:{key}": value for key, value in vlm_verifier.last_cache_hits.items()})
+                        stage_latency_ms["vlm"] = round((time.monotonic() - verifier_started) * 1000, 2)
+                        has_vlm_evidence = any("verifier_confidence" in item for item in candidates[:verify_limit])
+                        stage_status["vlm"] = "verified" if has_vlm_evidence else "unavailable"
+                        cascade_path.extend(["vlm:verified" if has_vlm_evidence else "vlm:unavailable", "vlm:unloaded"])
+                        if has_vlm_evidence:
+                            vlm_backend_used = requested_vlm_backend
+                            models_used.append(requested_variant.model_id)
+                            warnings.append("vlm_verified" if any(bool(item.get("action_present")) for item in candidates[:verify_limit]) else "vlm_rejected")
+                        else:
+                            vlm_fallback = True
+                            warnings.append("vlm_fallback_fast")
                     else:
-                        warnings.append("qwen_fallback_rejected")
+                        vlm_fallback = True
+                        warnings.append("accurate_partial_budget")
+                        stage_status["vlm"] = "skipped"
+                stage_latency_ms["sam"] = round((time.monotonic() - grounding_started) * 1000, 2) if sam_enabled else 0.0
+
+            if sam_enabled:
+                sam_scores = [float(item.get("sam_score", 0.0)) for item in candidates[:grounding_limit]]
+                qwen_required = (
+                    not sam_scores
+                    or max(sam_scores, default=0.0) < float(settings.SAM_STRONG_SCORE_THRESHOLD)
+                    or bool(route_info.get("ambiguous"))
+                    or bool(route_info.get("semantic_requirements"))
+                    or len({e.get("concept") for item in candidates[:grounding_limit] for e in item.get("grounding_evidence", [])}) > 1
+                )
+                if route_info.get("ambiguous"):
+                    warnings.append("sam_ambiguous_qwen_fallback")
+
+                remaining_budget = max(0.0, accurate_deadline - time.monotonic()) if accurate_deadline else 0.0
+                should_verify_with_qwen = (
+                    qwen_required and settings.ENABLE_VLM_STAGE2_VERIFY and bool(candidates)
+                    and remaining_budget >= float(settings.QWEN_MIN_REMAINING_SECONDS)
+                )
+                if qwen_required and not should_verify_with_qwen:
+                    warnings.append("accurate_partial_budget" if remaining_budget < float(settings.QWEN_MIN_REMAINING_SECONDS) else "accurate_fallback_fast")
+                    stage_status["qwen"] = "skipped"
+
+                if should_verify_with_qwen:
+                    verify_limit = max(1, int(settings.QWEN_FALLBACK_TOP_K))
+                    for candidate in candidates[:verify_limit]:
+                        midpoint = (float(candidate.get("t_start", 0.0)) + float(candidate.get("t_end", 0.0))) / 2.0
+                        scene = next((item for item in scenes if float(item.get("t_start", 0.0)) <= midpoint <= float(item.get("t_end", duration))), None)
+                        if scene:
+                            candidate["caption_preview"] = str(scene.get("caption", "") or "")
+                    verifier_started = time.monotonic()
+                    models_attempted.append(settings.QWEN_VL_MODEL_ID)
+                    verifier_frames = [{"_video_path": str(target.get("filepath", ""))}] + frames
+                    video_fingerprint = grounding_orchestrator._video_fingerprint(video_id)
+                    verified_head = vlm_verifier.verify(
+                        candidates[:verify_limit], verifier_frames, query, budget_seconds=remaining_budget,
+                        semantic_requirements=list(route_info.get("semantic_requirements", [])), release_after=True,
+                        video_id=video_id, video_fingerprint=video_fingerprint, limit_override=verify_limit,
+                    )
+                    candidates = verified_head + candidates[verify_limit:]
+                    warnings.extend(vlm_verifier.last_warnings)
+                    cache_hits.update({f"qwen:{key}": value for key, value in vlm_verifier.last_cache_hits.items()})
+                    stage_latency_ms["qwen"] = round((time.monotonic() - verifier_started) * 1000, 2)
+                    has_qwen_evidence = any("verifier_confidence" in item for item in candidates[:verify_limit])
+                    stage_status["qwen"] = "verified" if has_qwen_evidence else "unavailable"
+                    cascade_path.extend(["qwen:verified" if has_qwen_evidence else "qwen:unavailable", "qwen:unloaded"])
+                    if has_qwen_evidence:
+                        models_used.append(settings.QWEN_VL_MODEL_ID)
 
             for candidate in candidates:
                 base = float(candidate.get("fast_score", candidate.get("score", 0.0)))
@@ -461,7 +520,16 @@ class HybridMomentSearchEngine:
 
             has_qwen_evidence = any("verifier_confidence" in item for item in candidates)
             has_sam_evidence = any(float(item.get("sam_score", 0.0)) > 0.0 for item in candidates)
-            strategy_used = "sam_qwen" if has_sam_evidence and has_qwen_evidence else "qwen" if has_qwen_evidence else "sam" if has_sam_evidence else "fast"
+            if has_sam_evidence and has_qwen_evidence:
+                strategy_used = "sam_qwen"
+            elif has_qwen_evidence and sam_enabled:
+                strategy_used = "qwen"
+            elif has_sam_evidence:
+                strategy_used = "sam"
+            elif vlm_backend_used:
+                strategy_used = "vlm"
+            else:
+                strategy_used = "fast"
             if strategy_used == "fast":
                 warnings.append("accurate_fallback_fast")
 
@@ -521,7 +589,9 @@ class HybridMomentSearchEngine:
                                           {"event_present": bool(candidate.get("action_present", False)),
                                            "confidence": round(verifier, 4),
                                            "reason": str(candidate.get("verifier_reason", "")),
-                                           "model_id": settings.QWEN_VL_MODEL_ID}
+                                           "model_id": str(candidate.get("vlm_model_id") or settings.QWEN_VL_MODEL_ID),
+                                           "vlm_backend": str(candidate.get("vlm_backend") or "qwen3_vl_2b"),
+                                           "model_revision": str(candidate.get("vlm_model_revision") or "")}
                                           if "verifier_confidence" in candidate else None
                                       )))
         # one heatmap value per second, derived only from display timeline
@@ -533,7 +603,15 @@ class HybridMomentSearchEngine:
                               strategy_used=strategy_used, models_used=models_used,
                               stage_latency_ms=stage_latency_ms, cache_hits=cache_hits,
                               cascade_path=cascade_path, models_attempted=models_attempted,
-                              stage_status=stage_status, planner_version=planner_version)
+                              stage_status=stage_status, planner_version=planner_version,
+                              vlm_backend_requested=requested_vlm_backend,
+                              vlm_backend_used=vlm_backend_used,
+                              vlm_model_id=requested_variant.model_id if vlm_backend_used else None,
+                              vlm_model_revision=requested_variant.revision if vlm_backend_used else None,
+                              vlm_quantization=requested_variant.quantization if vlm_backend_used else None,
+                              vlm_input_mode=requested_variant.input_mode if vlm_backend_used else None,
+                              vlm_artifact_version=settings.VLM_ARTIFACT_VERSION if vlm_backend_used else None,
+                              vlm_fallback=vlm_fallback)
 
 
 search_engine = HybridMomentSearchEngine()
