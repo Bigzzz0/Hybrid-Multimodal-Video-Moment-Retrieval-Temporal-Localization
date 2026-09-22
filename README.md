@@ -11,7 +11,7 @@
 
 <p align="center">
   <b>Natural Language Video Moment Retrieval & Temporal Boundary Localization System</b><br />
-  Powered by <b>SigLIP 2 (NaFlex)</b>, <b>SAM 3.1</b>, <b>Qwen3-VL-2B (4-bit)</b>, calibrated temporal proposals, and <b>LanceDB (IVF-PQ & FTS)</b>.<br />
+  Powered by <b>SigLIP 2 (NaFlex)</b>, precomputed <b>CapRL-Qwen3VL-4B Q6</b> captions, selective <b>Qwen3-VL-2B (4-bit)</b> verification, and <b>LanceDB</b>.<br />
   <i>100% Local On-Premise Execution on an RTX 5070 12GB with Zero Cloud API Costs.</i>
 </p>
 
@@ -21,7 +21,7 @@
 
 * 🔒 **100% Local On-Premise & Complete Data Privacy:** ประมวลผลและจัดเก็บข้อมูลเวกเตอร์ภายในเครื่องทั้งหมด ข้อมูลวิดีโอไม่รั่วไหลสู่คลาวด์ภายนอก และไม่มีค่าใช้จ่าย API รายเดือน
 * ⚡ **Consumer GPU Optimized (RTX 5070 12GB):** ใช้ SigLIP2 เป็น retrieval หลัก และแยก Qwen3/SAM ไว้ใน local inference worker เพื่อควบคุม VRAM และป้องกัน OOM
-* 🚀 **Progressive Visual Ingestion:** สกัด scene, keyframe และ frame embeddings ก่อนค้นหา พร้อมสร้าง dense visual captions แบบ background
+* 🚀 **Progressive Visual Ingestion:** เปิด Fast Search หลังสร้าง SigLIP2 index แล้วสร้าง CapRL Q6 captions แบบ background โดยไม่บล็อกการค้นหา
 * 📈 **Dynamic Relevance Density Heatmap:** แถบเรืองแสงแสดงระดับความเกี่ยวข้องของเนื้อหาตลอดทั้งวิดีโอแบบ 1-Hz Canvas Visualizer ช่วยให้ผู้ใช้เห็นภาพรวมของทั้งคลิปได้ในเสี้ยววินาที
 * ⏱️ **Calibrated Multi-scale Temporal Localization:** สกัดช่วงเวลาเริ่มต้น-สิ้นสุด $[t_{start}, t_{end}]$ ด้วย rolling proposals, boundary/transition refinement และ Gaussian Soft-NMS ก่อนจัดลำดับหลายเหตุการณ์
 
@@ -47,8 +47,8 @@
                    │
          ┌─────────┴──────────────────────┐
          ▼                                ▼
-  [ SigLIP 2 (NaFlex) ]       [ Qwen3-VL-2B ]       [ SAM 3.1 ]
-   (768-dim Retrieval)       (Caption / VQA)    (Grounding / Mask / Track)
+  [ SigLIP 2 (NaFlex) ]       [ CapRL Q6 ]       [ Qwen3-VL-2B ]
+   (768-dim Retrieval)       (Offline Caption) (Selective Verify / VQA)
          │                                │
          └────────────────┬───────────────┘
                           ▼
@@ -97,8 +97,9 @@
 | ส่วนประกอบ | เทคโนโลยีที่เลือกใช้ | บทบาทและจุดเด่น |
 | :--- | :--- | :--- |
 | **Visual-Text Backbone** | `google/siglip2-base-patch16-naflex` | สกัดเวกเตอร์ภาพ 768-dim โดยรักษา aspect ratio |
-| **Dense Visual Captioner / VQA**| `Qwen/Qwen3-VL-2B-Instruct` (NF4 4-bit) | caption, action/relation verification และ Video VQA |
-| **Object Grounding** | `facebook/sam3.1` | text grounding, bounding box, mask และ temporal evidence |
+| **Primary Captioner** | `CapRL-Qwen3VL-4B Q6_K` (llama.cpp CUDA) | สร้าง structured scene caption ล่วงหน้าหลัง upload |
+| **Online Verifier / VQA**| `Qwen/Qwen3-VL-2B-Instruct` (NF4 4-bit) | ตรวจ action/relation เมื่อ caption ยังไม่ชัด และ Video VQA |
+| **Object Grounding** | `facebook/sam3.1` (ปิดใน production flow) | เก็บโค้ดและ artifacts เดิมไว้สำหรับการทดลองภายหลัง |
 | **Video Decoding**        | `Decord` (NVDEC GPU Hardware Fallback) | ถอดรหัสเฟรมจริงพร้อมรักษา timestamp และ fallback บน CPU |
 | **Vector Storage**        | `LanceDB` (Apache Arrow Format) | Vector DB แบบ Serverless บน SSD พร้อมดัชนี IVF-PQ และ FTS |
 | **Temporal Algorithm**    | `1D Gaussian Convolution & RRF` | กรองสัญญาณรบกวนและสกัดช่วงเวลาต่อเนื่อง $[t_s, t_e]$ |
@@ -140,7 +141,13 @@ HF_TOKEN=hf_your_token_here
 
 SIGLIP2_MODEL_ID=google/siglip2-base-patch16-naflex
 QWEN_VL_MODEL_ID=Qwen/Qwen3-VL-2B-Instruct
-SAM_MODEL_ID=facebook/sam3.1
+ENABLE_SAM_GROUNDING=false
+CAPTION_PRIMARY_BACKEND=caprl_qwen3vl_4b_q6
+CAPTION_FALLBACK_BACKEND=qwen3_vl_2b
+CAPTION_ARTIFACT_VERSION=q6-scene-caption-v1
+CAPTION_PROMPT_VERSION=pure-visual-caption-v1
+LLAMA_CPP_PATH=C:\\path\\to\\llama-server.exe
+VLM_GGUF_DIR=C:\\path\\to\\caprl-qwen3vl-4b-q6
 INFERENCE_WORKER_ENABLED=true
 INFERENCE_WORKER_URL=http://127.0.0.1:8011
 INFERENCE_WORKER_TOKEN=change-this-local-secret
@@ -154,7 +161,7 @@ SAM_COMPILE=false
 ```
 
 โมเดลหนักจะทำงานใน process แยกที่ bind เฉพาะ `127.0.0.1` เพื่อให้ main API
-ไม่ต้องถือ SAM/Qwen พร้อมกันเอง:
+ไม่ต้องถือ SigLIP2, CapRL Q6 และ Qwen พร้อมกันเอง:
 
 ```bash
 # terminal แยก: ใช้ environment ที่ติดตั้ง requirements-inference.txt
@@ -162,7 +169,7 @@ cd backend
 python -m inference_worker.main
 ```
 
-ถ้ายังไม่ได้ติดตั้ง worker หรือยังไม่มีสิทธิ์ดาวน์โหลด SAM checkpoint ให้ตั้ง
+ถ้ายังไม่ได้ติดตั้ง worker หรือยังไม่มีไฟล์ Q6 ให้ตั้ง
 `INFERENCE_WORKER_ENABLED=false` ระบบยังค้น Fast ได้ และ Accurate จะ fallback ตาม
 warning ที่คืนใน API แทนการทำให้เซิร์ฟเวอร์ล้ม
 
@@ -212,16 +219,33 @@ npm run dev
 `profile` เป็น `fast` หรือ `accurate` ค่า tuning รุ่นเก่าที่ส่งมาเกินจะถูก ignore
 ชั่วคราวเพื่อให้ client เดิมไม่พัง แต่ server เป็นผู้กำหนดน้ำหนักและ threshold เอง
 
-`fast` ใช้ frame embeddings + scene-caption RRF; `accurate` ใช้ GPU cascade แบบลำดับ
-SigLIP2 → unload → SAM 3.1 → unload → Qwen3-VL เมื่อ SAM ยังตอบคำค้นไม่ครบ → unload
-ภายใต้งบเวลารวม 60 วินาที SAM และ Qwen จะไม่อยู่ใน VRAM พร้อมกัน หาก Qwen เหลือเวลา
-น้อยกว่า 12 วินาที ระบบจะคืน partial result จาก Fast/SAM ที่เสร็จแล้ว ผลลัพธ์คืน `score` ที่ calibrated
+`fast` ใช้ frame embeddings + stored scene-caption RRF; `accurate` ใช้ลำดับ
+SigLIP2 → stored CapRL Q6 captions → Qwen3-VL-2B เมื่อจำเป็น → unload
+ใน production flow นี้ SAM ถูกปิดไว้ (`ENABLE_SAM_GROUNDING=false`) ภายใต้งบเวลารวม 60 วินาที
+Accurate ใช้ SigLIP2 + caption artifact และโหลด Qwen3-VL-2B เฉพาะเมื่อ query ต้องตรวจ action/relation
+หรือ caption ยังไม่ชัด หากเหลือเวลาน้อยกว่า 12 วินาที ระบบจะคืน partial result จาก Fast ที่เสร็จแล้ว
 (เมื่อมี artifact), `modality_breakdown`, `occurrence_index`, `profile`,
 `calibrated`, `index_version`, `strategy_used`, `models_used`, `models_attempted`,
 `cascade_path`, `stage_status`, `planner_version`, `stage_latency_ms`, `cache_hits`
 และ `warnings` โดยคืนได้หลาย occurrence หรือ `moments=[]` สำหรับ no-match.
-ผล Accurate ที่ใช้ SAM จะมี `grounding_evidence` และ frontend overlay จะแสดง bbox/mask
-ตาม timestamp ผ่าน `GET /api/v1/grounding/track/{track_id}`
+SAM code และ artifacts เดิมยังเก็บไว้ แต่ production UI จะไม่แสดง SAM evidence หรือ overlay ขณะ feature flag ปิด
+
+### Production CapRL Q6 caption flow
+
+ตั้งค่า `LLAMA_CPP_PATH` และ `VLM_GGUF_DIR` ใน `backend/.env` ให้ชี้ไปยัง
+`llama-server.exe`, `CapRL-Qwen3VL-4B-q6_k.gguf` และ `CapRL-Qwen3VL-4B-mmproj-Q8_0.gguf`
+ที่อยู่นอก Git จากนั้นเปิด `INFERENCE_WORKER_ENABLED=true` และรัน worker ที่ `127.0.0.1:8011`
+
+หลังอัปโหลด Phase 1 จะเปิด Fast Search ก่อน แล้ว worker จะสร้าง scene captions ด้วย Q6 แบบ background
+จน artifact เป็น `ready`. หาก Q6 สร้างบาง scene ไม่สำเร็จ ระบบจะ retry ด้วยเฟรมลดลงและใช้ Qwen3-VL-2B
+เป็น fallback เฉพาะ scene นั้น. สามารถสั่ง backfill ที่ resume ได้ด้วย:
+
+```powershell
+python -m scripts.backfill_primary_captions --all-videos --resume
+python -m scripts.backfill_primary_captions --video-id <ID> --resume
+```
+
+CapRL Q6 ใช้เพื่อการวิจัย/เดโมตามเงื่อนไขของโมเดล upstream; ตรวจสอบ license ก่อนใช้เชิงพาณิชย์
 
 ### Model / dataset attribution
 

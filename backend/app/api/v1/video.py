@@ -174,6 +174,10 @@ async def delete_video(video_id: str):
         ("sam_observations_v1", f"video_id = '{video_id}'"),
         ("model_artifact_cache", f"video_id = '{video_id}'"),
         ("scene_analysis_v1", f"video_id = '{video_id}'"),
+        ("qwen_verifications_v1", f"video_id = '{video_id}'"),
+        ("qwen_verifications_v2", f"video_id = '{video_id}'"),
+        ("vlm_caption_artifacts_v1", f"video_id = '{video_id}'"),
+        ("vlm_artifact_metadata_v1", f"video_id = '{video_id}'"),
     ]
 
     for tbl_name, filter_expr in tables_to_clean:

@@ -36,15 +36,18 @@ def run_progressive_pipeline(video_id: str, file_path: str, filename: str):
             progress_callback=lambda vid, pct, msg, stg, det: sync_progress_adapter(vid, pct, msg, stg, "phase1", det)
         )
 
-        # Phase 2: Deep Action Captioning (Background)
-        ingestion_manager.process_video_phase2_background(
+        # Background captioning starts after Phase 1 has already marked the
+        # video searchable. Q6 stays resident for this video and falls back
+        # to Qwen3-VL-2B only for failed scenes.
+        ingestion_manager.process_video_primary_captions(
             video_id=video_id,
             progress_callback=lambda vid, pct, msg, stg, det: sync_progress_adapter(vid, pct, msg, stg, "phase2", det)
         )
-        ingestion_manager.process_video_phase3_background(
-            video_id=video_id,
-            progress_callback=lambda vid, pct, msg, stg, det: sync_progress_adapter(vid, pct, msg, stg, "phase3", det)
-        )
+        if settings.ENABLE_SAM_GROUNDING:
+            ingestion_manager.process_video_phase3_background(
+                video_id=video_id,
+                progress_callback=lambda vid, pct, msg, stg, det: sync_progress_adapter(vid, pct, msg, stg, "phase3", det)
+            )
     except Exception as e:
         logger.error(f"Error in progressive pipeline for {video_id}: {e}")
         sync_progress_adapter(video_id, 100, f"Error: {str(e)}", "error", "error")

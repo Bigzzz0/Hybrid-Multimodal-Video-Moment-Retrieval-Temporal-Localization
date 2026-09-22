@@ -69,6 +69,9 @@ def get_system_telemetry():
         "sam_observations_v1",
         "scene_analysis_v1",
         "model_artifact_cache",
+        "qwen_verifications_v2",
+        "vlm_caption_artifacts_v1",
+        "vlm_artifact_metadata_v1",
     ]
     for t_name in table_names:
         try:
@@ -98,6 +101,12 @@ def get_system_telemetry():
             "name": "Qwen3-VL-2B-Instruct (top-3)",
             "model_id": settings.QWEN_VL_MODEL_ID,
             "quantization": "4-bit NormalFloat (NF4) BitsAndBytes"
+        },
+        "primary_captioner": {
+            "name": "CapRL-Qwen3VL-4B Q6_K",
+            "backend": settings.CAPTION_PRIMARY_BACKEND,
+            "artifact_version": settings.CAPTION_ARTIFACT_VERSION,
+            "runtime": "llama.cpp CUDA",
         },
         "sam_grounder": {
             "name": "SAM 3.1 text-grounded segmentation",

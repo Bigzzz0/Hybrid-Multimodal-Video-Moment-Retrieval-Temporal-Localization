@@ -18,6 +18,8 @@ from app.retrieval.temporal_smoother import TemporalSmoother
 from app.retrieval.vlm_verifier import vlm_verifier
 from app.retrieval.query_router import query_router
 from app.retrieval.grounding import grounding_orchestrator
+from app.retrieval.vlm_artifacts import vlm_artifact_store
+from app.inference.vlm_registry import get_variant
 
 
 def _lexical_score(text: str, query: str) -> float:
@@ -69,7 +71,18 @@ class HybridMomentSearchEngine:
             return rows[:limit]
 
     def _caption_rows(self, query: str, video_id: str) -> List[Dict[str, Any]]:
-        """Query the scene FTS index; lexical scoring is only a safe fallback."""
+        """Search active versioned captions, then retain legacy captions as fallback."""
+        try:
+            artifact_rows = vlm_artifact_store.caption_rows(video_id, settings.CAPTION_PRIMARY_BACKEND)
+        except Exception:
+            artifact_rows = []
+        if artifact_rows:
+            for row in artifact_rows:
+                row["_score"] = _lexical_score(str(row.get("caption", "")), query)
+            return [row for row in artifact_rows if float(row.get("_score", 0.0)) > 0.0]
+
+        # Existing videos may only have the legacy Qwen caption column while
+        # their new Q6 artifact backfill is still pending.
         table = db_manager.get_table("scenes_v2")
         rows: List[Dict[str, Any]] = []
         try:
@@ -281,6 +294,21 @@ class HybridMomentSearchEngine:
         scenes = self._rows(db_manager.get_table("scenes_v2"), f"video_id = '{video_id}'", 10000)
         scene_by_id = {str(scene.get("id")): scene for scene in scenes}
         caption_rows = self._caption_rows(" ".join(text for text, _ in variants), video_id)
+        caption_text_by_scene = {str(row.get("id")): str(row.get("caption", "") or "") for row in caption_rows}
+        try:
+            caption_metadata = vlm_artifact_store.metadata(video_id, settings.CAPTION_PRIMARY_BACKEND)
+        except Exception:
+            caption_metadata = None
+        caption_status = str((caption_metadata or {}).get("build_status", (caption_metadata or {}).get("status", "legacy" if caption_rows else "unavailable")))
+        caption_model_id = (caption_metadata or {}).get("model_id") or (settings.QWEN_VL_MODEL_ID if caption_rows else None)
+        caption_fallback_used = bool((caption_metadata or {}).get("fallback_count", 0))
+        if caption_rows and caption_status == "ready":
+            if caption_model_id and caption_model_id not in models_used:
+                models_used.append(str(caption_model_id))
+            if caption_fallback_used and settings.QWEN_VL_MODEL_ID not in models_used:
+                models_used.append(settings.QWEN_VL_MODEL_ID)
+        if caption_status in {"pending", "running"}:
+            warnings.append("caption_backfill_pending")
         caption_by_scene: Dict[str, float] = {}
         for row in caption_rows:
             scene_id = str(row.get("id"))
@@ -333,96 +361,39 @@ class HybridMomentSearchEngine:
                                                                           transition_energy=transition_timeline, scene_boundaries=sorted(set(boundaries)))
         if not candidates:
             warnings.append("no_candidates")
-        # Snapshot the profile-independent retrieval result. If a heavy model
-        # is disabled, times out, or returns no valid evidence, Accurate must
-        # return this exact baseline instead of silently degrading ranking.
+        # Snapshot the profile-independent retrieval result. Accurate may add
+        # Qwen evidence, but a verifier failure must never erase Fast results.
         baseline_candidates = [dict(candidate) for candidate in candidates]
         calibration_available = self._load_calibration() is not None
         if not calibration_available:
             warnings.append("calibration_missing")
         route_info = query_router.route(query) if profile == "accurate" else {"route": "fast"}
-        route = str(route_info.get("route", "fast"))
         if profile == "accurate":
-            planner_version = str(route_info.get("planner_version", "cascade-planner-v2"))
+            planner_version = str(route_info.get("planner_version", "caption-cascade-v1"))
             for candidate in candidates:
                 candidate["fast_score"] = float(candidate.get("score", 0.0))
 
-            grounding_limit = max(1, int(settings.SAM_SEARCH_TOP_K))
-            grounding_started = time.monotonic()
-            if settings.ENABLE_SAM_GROUNDING and candidates:
-                models_attempted.append(settings.SAM_MODEL_ID)
-                candidates, grounding_warnings, grounding_cache_hits = grounding_orchestrator.ground_candidates(
-                    video_id=video_id,
-                    candidates=candidates,
-                    frames=frames,
-                    prompts=[str(prompt) for prompt in route_info.get("sam_prompts", [])],
-                    limit=grounding_limit,
-                    deadline=accurate_deadline,
-                    release_after=True,
-                )
-                warnings.extend(grounding_warnings)
-                cache_hits.update({f"sam:{key}": value for key, value in grounding_cache_hits.items()})
-                sam_checked = candidates[:grounding_limit]
-                has_sam_evidence = any(float(item.get("sam_score", 0.0)) > 0.0 for item in sam_checked)
-                has_sam_error = any(item.get("sam_error") for item in sam_checked) or any(
-                    code in grounding_warnings for code in ("sam_timeout_fallback", "sam_oom_fallback", "sam_worker_unavailable")
-                )
-                if has_sam_evidence:
-                    stage_status["sam"] = "detected"
-                    cascade_path.append("sam:detected")
-                    models_used.append(settings.SAM_MODEL_ID)
-                elif has_sam_error:
-                    stage_status["sam"] = "unavailable"
-                    cascade_path.append("sam:unavailable")
-                else:
-                    stage_status["sam"] = "no_detection"
-                    cascade_path.append("sam:no_detection")
-                    warnings.append("sam_no_detection_qwen_fallback")
-                cascade_path.append("sam:unloaded")
-            else:
-                has_sam_evidence = False
-                stage_status["sam"] = "disabled"
-                cascade_path.append("sam:disabled")
-                warnings.append("sam_worker_unavailable")
-            stage_latency_ms["sam"] = round((time.monotonic() - grounding_started) * 1000, 2)
-
-            sam_scores = [float(item.get("sam_score", 0.0)) for item in candidates[:grounding_limit]]
-            qwen_required = (
-                not sam_scores
-                or max(sam_scores, default=0.0) < float(settings.SAM_STRONG_SCORE_THRESHOLD)
-                or bool(route_info.get("ambiguous"))
-                or bool(route_info.get("semantic_requirements"))
-                or len({e.get("concept") for item in candidates[:grounding_limit] for e in item.get("grounding_evidence", [])}) > 1
+            caption_scores = sorted((float(row.get("_score", 0.0) or 0.0) for row in caption_rows), reverse=True)
+            caption_margin = caption_scores[0] - caption_scores[1] if len(caption_scores) > 1 else 1.0
+            semantic_required = bool(route_info.get("semantic_requirements")) or bool(route_info.get("ambiguous"))
+            caption_missing = not caption_rows or not caption_scores
+            should_verify_with_qwen = bool(candidates) and (
+                semantic_required or caption_missing or caption_margin < 0.05
             )
-            if route_info.get("ambiguous"):
-                warnings.append("sam_ambiguous_qwen_fallback")
-
             remaining_budget = max(0.0, accurate_deadline - time.monotonic()) if accurate_deadline else 0.0
-            should_verify_with_qwen = (
-                qwen_required
-                and settings.ENABLE_VLM_STAGE2_VERIFY
-                and bool(candidates)
-                and remaining_budget >= float(settings.QWEN_MIN_REMAINING_SECONDS)
-            )
-            if qwen_required and not should_verify_with_qwen:
-                warnings.append("accurate_partial_budget" if remaining_budget < float(settings.QWEN_MIN_REMAINING_SECONDS) else "accurate_fallback_fast")
-                stage_status["qwen"] = "skipped"
-
-            if should_verify_with_qwen:
-                verify_limit = max(1, int(settings.QWEN_FALLBACK_TOP_K))
+            verify_limit = max(1, min(int(settings.ACCURATE_VERIFY_TOP_K), len(candidates)))
+            if should_verify_with_qwen and remaining_budget >= float(settings.ACCURATE_MIN_REMAINING_SECONDS):
                 for candidate in candidates[:verify_limit]:
                     midpoint = (float(candidate.get("t_start", 0.0)) + float(candidate.get("t_end", 0.0))) / 2.0
-                    scene = next((item for item in scenes if float(item.get("t_start", 0.0)) <= midpoint <= float(item.get("t_end", duration))), None)
-                    if scene:
-                        candidate["caption_preview"] = str(scene.get("caption", "") or "")
+                    caption_match = next((row for row in caption_rows if float(row.get("t_start", 0.0)) <= midpoint <= float(row.get("t_end", duration))), None)
+                    if caption_match:
+                        candidate["caption_preview"] = str(caption_match.get("caption", "") or "")
                 verifier_started = time.monotonic()
                 models_attempted.append(settings.QWEN_VL_MODEL_ID)
                 verifier_frames = [{"_video_path": str(target.get("filepath", ""))}] + frames
                 video_fingerprint = grounding_orchestrator._video_fingerprint(video_id)
                 verified_head = vlm_verifier.verify(
-                    candidates[:verify_limit],
-                    verifier_frames,
-                    query,
+                    candidates[:verify_limit], verifier_frames, query,
                     budget_seconds=remaining_budget,
                     semantic_requirements=list(route_info.get("semantic_requirements", [])),
                     release_after=True,
@@ -439,31 +410,30 @@ class HybridMomentSearchEngine:
                 cascade_path.extend(["qwen:verified" if has_qwen_evidence else "qwen:unavailable", "qwen:unloaded"])
                 if has_qwen_evidence:
                     models_used.append(settings.QWEN_VL_MODEL_ID)
-                    if any(bool(item.get("action_present")) for item in candidates[:verify_limit]):
-                        warnings.append("qwen_fallback_verified")
-                    else:
-                        warnings.append("qwen_fallback_rejected")
+                    warnings.append("qwen_fallback_verified" if any(bool(item.get("action_present")) for item in candidates[:verify_limit]) else "qwen_fallback_rejected")
+            elif should_verify_with_qwen:
+                stage_status["qwen"] = "skipped"
+                warnings.append("accurate_partial_budget")
+            else:
+                stage_status["qwen"] = "not_needed"
+                cascade_path.append("qwen:not_needed")
 
             for candidate in candidates:
                 base = float(candidate.get("fast_score", candidate.get("score", 0.0)))
-                sam_score = float(candidate.get("sam_score", 0.0))
-                has_sam = sam_score > 0.0
                 has_qwen = "verifier_confidence" in candidate
                 fused_score = self._fuse_accurate_score(
                     base,
-                    sam_score,
+                    0.0,
                     float(candidate["verifier_confidence"]) if has_qwen else None,
                     bool(candidate.get("action_present", False)),
                 )
-                candidate["grounding_verified"] = has_sam
                 candidate["score"] = fused_score
                 candidate["rank_score"] = fused_score
 
             has_qwen_evidence = any("verifier_confidence" in item for item in candidates)
-            has_sam_evidence = any(float(item.get("sam_score", 0.0)) > 0.0 for item in candidates)
-            strategy_used = "sam_qwen" if has_sam_evidence and has_qwen_evidence else "qwen" if has_qwen_evidence else "sam" if has_sam_evidence else "fast"
+            strategy_used = "qwen" if has_qwen_evidence else "fast"
             if strategy_used == "fast":
-                warnings.append("accurate_fallback_fast")
+                warnings.append("accurate_fallback_fast" if should_verify_with_qwen else "accurate_caption_only")
 
         scored: List[Tuple[float, Dict[str, Any]]] = []
         threshold: Optional[float] = None
@@ -485,11 +455,9 @@ class HybridMomentSearchEngine:
         occurrence_by_key: Dict[Tuple[float, float], int] = {}
         for occurrence_index, (_, candidate) in enumerate(sorted(scored, key=lambda pair: (float(pair[1].get("t_start", 0.0)), float(pair[1].get("t_end", 0.0)))), start=1):
             occurrence_by_key[(float(candidate.get("t_start", 0.0)), float(candidate.get("t_end", 0.0)))] = occurrence_index
-        # For Accurate object searches, a positive SAM track is stronger
-        # evidence than an ungrounded SigLIP-only proposal. Promote verified
-        # moments so the UI opens on a frame where the mask is actually
-        # available instead of showing SAM=0 on the first card while hiding
-        # the useful evidence lower in the list.
+        # Promote semantically verified moments so the UI opens on a frame
+        # with explicit VLM evidence instead of leaving the useful result
+        # lower in the list when stored-caption scores are close.
         scored.sort(key=lambda pair: (
             0 if pair[1].get("action_present") is True else 1 if pair[1].get("grounding_verified") else 2,
             -pair[0],
@@ -506,8 +474,8 @@ class HybridMomentSearchEngine:
             breakdown = {"visual": round(float(visual), 4), "caption": round(float(caption), 4),
                          "temporal": round(float(candidate.get("score", 0.0)), 4), "verifier": round(verifier, 4),
                          "sam": round(float(candidate.get("sam_score", 0.0)), 4)}
-            scene_caption = ""
-            if nearest.get("scene_id") in scene_by_id:
+            scene_caption = caption_text_by_scene.get(str(nearest.get("scene_id")), "")
+            if not scene_caption and nearest.get("scene_id") in scene_by_id:
                 scene_caption = str(scene_by_id[nearest["scene_id"]].get("caption", "") or "")
             moments.append(MomentItem(t_start=start, t_end=end, score=round(float(probability), 4),
                                       raw_score=round(float(candidate.get("rank_score", candidate.get("score", 0.0))), 6), display_score=round(float(candidate.get("score", 0.0)), 4),
@@ -533,7 +501,12 @@ class HybridMomentSearchEngine:
                               strategy_used=strategy_used, models_used=models_used,
                               stage_latency_ms=stage_latency_ms, cache_hits=cache_hits,
                               cascade_path=cascade_path, models_attempted=models_attempted,
-                              stage_status=stage_status, planner_version=planner_version)
+                              stage_status=stage_status, planner_version=planner_version,
+                              caption_status=caption_status, caption_model_id=caption_model_id,
+                              caption_artifact_version=settings.CAPTION_ARTIFACT_VERSION,
+                              caption_fallback_used=caption_fallback_used,
+                              online_verifier_used=settings.QWEN_VL_MODEL_ID in models_used and profile == "accurate",
+                              online_verifier_model_id=settings.QWEN_VL_MODEL_ID if settings.QWEN_VL_MODEL_ID in models_used else None)
 
 
 search_engine = HybridMomentSearchEngine()

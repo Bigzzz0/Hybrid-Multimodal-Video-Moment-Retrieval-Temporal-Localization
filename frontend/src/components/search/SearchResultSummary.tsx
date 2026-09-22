@@ -14,9 +14,12 @@ interface SearchResultSummaryProps {
   modelsUsed?: string[];
   modelsAttempted?: string[];
   cascadePath?: string[];
+  captionStatus?: string;
+  captionModelId?: string | null;
+  onlineVerifierUsed?: boolean;
 }
 
-export const SearchResultSummary: React.FC<SearchResultSummaryProps> = ({ query, count, profile, latencyMs, calibrated, indexVersion, strategyUsed = "fast", modelsUsed = [], modelsAttempted = [], cascadePath = [] }) => (
+export const SearchResultSummary: React.FC<SearchResultSummaryProps> = ({ query, count, profile, latencyMs, calibrated, indexVersion, strategyUsed = "fast", modelsUsed = [], modelsAttempted = [], cascadePath = [], captionStatus, captionModelId, onlineVerifierUsed = false }) => (
   <div className="glass-panel rounded-xl border border-surfaceBorder p-3" aria-label="Search result summary">
     <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-[11px] text-gray-400">
       <span className="min-w-0 flex-1 truncate">คำค้นหา: <b className="text-white font-medium">“{query}”</b></span>
@@ -27,6 +30,9 @@ export const SearchResultSummary: React.FC<SearchResultSummaryProps> = ({ query,
       <span className="font-mono text-gray-500">index {indexVersion}</span>
       <span className="font-mono text-fuchsia-300">strategy {strategyUsed}</span>
       {modelsUsed.length > 0 && <span className="truncate max-w-full text-gray-500" title={modelsUsed.join(", ")}>{modelsUsed.join(" + ")}</span>}
+      {captionStatus && <span className="font-mono text-indigo-300">caption {captionStatus}</span>}
+      {captionModelId && <span className="truncate max-w-full text-gray-500" title={captionModelId}>{captionModelId}</span>}
+      {onlineVerifierUsed && <span className="font-mono text-emerald-300">Qwen verified</span>}
     </div>
     {profile === "accurate" && cascadePath.length > 0 && (
       <div className="mt-2 flex flex-wrap gap-1.5 text-[10px] font-mono text-cyan-300" aria-label="Accurate cascade path">

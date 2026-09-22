@@ -15,6 +15,8 @@ from app.inference.contracts import (
     EmbeddingResponse,
     GroundRequest,
     GroundResponse,
+    VLMUnloadRequest,
+    VLMUnloadResponse,
     VerifyRequest,
     VerifyResponse,
 )
@@ -80,6 +82,9 @@ class InferenceWorkerClient:
     def caption(self, request: CaptionRequest) -> CaptionResponse:
         return self._post("/v1/qwen/caption", request.model_dump(), CaptionResponse)
 
+    def vlm_caption(self, request: CaptionRequest, timeout_sec: Optional[float] = None) -> CaptionResponse:
+        return self._post("/v1/vlm/caption", request.model_dump(), CaptionResponse, timeout_sec=timeout_sec)
+
     def embed_text(self, request: EmbedTextRequest) -> EmbeddingResponse:
         return self._post("/v1/siglip/embed-text", request.model_dump(), EmbeddingResponse)
 
@@ -88,6 +93,12 @@ class InferenceWorkerClient:
 
     def verify(self, request: VerifyRequest) -> VerifyResponse:
         return self._post("/v1/qwen/verify", request.model_dump(), VerifyResponse)
+
+    def vlm_verify(self, request: VerifyRequest) -> VerifyResponse:
+        return self._post("/v1/vlm/verify", request.model_dump(), VerifyResponse)
+
+    def vlm_unload(self, backend: str) -> VLMUnloadResponse:
+        return self._post("/v1/vlm/unload", VLMUnloadRequest(vlm_backend=backend).model_dump(), VLMUnloadResponse)
 
     def answer(self, request: AnswerRequest) -> AnswerResponse:
         return self._post("/v1/qwen/answer", request.model_dump(), AnswerResponse)

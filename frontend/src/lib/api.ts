@@ -8,9 +8,10 @@ import {
   ProgressStatus,
   ClipExportResponse,
   SystemTelemetry,
+  CaptionStatus,
 } from "./types";
 
-export type { VideoMetadata, VideoKeyframeItem, VideoQAResult, UploadResponse, ProgressStatus, ClipExportResponse, SystemTelemetry };
+export type { VideoMetadata, VideoKeyframeItem, VideoQAResult, UploadResponse, ProgressStatus, ClipExportResponse, SystemTelemetry, CaptionStatus };
 
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -45,6 +46,15 @@ export const apiClient = {
   async getProgressStatus(videoId: string): Promise<ProgressStatus> {
     const res = await api.get<ProgressStatus>(`/progress/${videoId}/status`);
     return res.data;
+  },
+
+  async getCaptionStatus(videoId: string): Promise<CaptionStatus> {
+    const res = await api.get<CaptionStatus>(`/videos/${videoId}/caption-status`);
+    return res.data;
+  },
+
+  async rebuildCaptions(videoId: string): Promise<void> {
+    await api.post(`/videos/${videoId}/captions/rebuild`);
   },
 
   // 4. Moment Search

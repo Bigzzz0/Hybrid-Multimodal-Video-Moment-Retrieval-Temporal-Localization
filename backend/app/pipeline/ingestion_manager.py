@@ -15,6 +15,9 @@ from app.pipeline.keyframe_filter import SSIMKeyframeFilter, compute_pixel_motio
 from app.pipeline.visual_encoder import SigLIP2VisualEncoder
 from app.pipeline.dense_captioner import QwenVLDenseCaptioner
 from app.retrieval.grounding import grounding_orchestrator
+from app.retrieval.vlm_artifacts import vlm_artifact_store
+from app.inference.vlm_registry import get_variant
+from app.inference.contracts import CaptionRequest, CaptionResponse
 
 class ProgressiveIngestionManager:
     """Orchestrates Progressive Two-Phase Video Ingestion and Visual-Centric Feature Extraction."""
@@ -379,6 +382,193 @@ class ProgressiveIngestionManager:
 
         except Exception as e:
             logger.error(f"Error in Phase 2 background captioning: {e}")
+
+    def process_video_primary_captions(
+        self,
+        video_id: str,
+        progress_callback: Optional[Callable[[str, int, str, str, Dict[str, Any]], None]] = None,
+    ):
+        """Create the active Q6 scene-caption version after Phase 1.
+
+        Q6 remains resident for the whole video. A scene-level failure falls
+        back to Qwen3-VL-2B and records the actual backend in the artifact.
+        The old scene caption columns are left untouched until the new version
+        has a complete artifact set.
+        """
+        from collections import defaultdict
+        from app.inference.client import inference_client
+
+        primary = get_variant(settings.CAPTION_PRIMARY_BACKEND)
+        fallback = get_variant(settings.CAPTION_FALLBACK_BACKEND)
+        frames_table = db_manager.get_table("video_frames_v2")
+        scenes_table = db_manager.get_table("scenes_v2")
+        try:
+            frames = frames_table.search().where(f"video_id = '{video_id}'").limit(200000).to_list()
+            scenes = scenes_table.search().where(f"video_id = '{video_id}'").limit(10000).to_list()
+        except Exception:
+            frames = [row for row in frames_table.to_arrow().to_pylist() if str(row.get("video_id")) == video_id]
+            scenes = [row for row in scenes_table.to_arrow().to_pylist() if str(row.get("video_id")) == video_id]
+        scenes = sorted(scenes, key=lambda row: float(row.get("t_start", 0.0)))
+        if not scenes:
+            return
+
+        previous_metadata = vlm_artifact_store.metadata(video_id, primary.backend) or {}
+        active_version = str(previous_metadata.get("active_artifact_version") or "")
+        if not active_version and previous_metadata.get("status") == "ready":
+            active_version = settings.VLM_ARTIFACT_VERSION
+        pending_version = str(previous_metadata.get("pending_artifact_version") or "")
+        if pending_version and previous_metadata.get("build_status", previous_metadata.get("status")) in {"running", "error"}:
+            job_version = pending_version
+        elif active_version:
+            # Never overwrite the active scene rows while rebuilding.  The
+            # active pointer changes only after every scene in this version
+            # has a valid Q6/fallback artifact.
+            job_version = f"{settings.VLM_ARTIFACT_VERSION}:{uuid.uuid4().hex[:10]}"
+        else:
+            job_version = settings.VLM_ARTIFACT_VERSION
+
+        # Ingestion may resume from a metadata row still marked running/error;
+        # retrieval uses the default require_ready=True and never exposes this
+        # partial set to Fast Search.
+        existing = vlm_artifact_store.caption_rows(
+            video_id, settings.CAPTION_PRIMARY_BACKEND, require_ready=False, artifact_version=job_version
+        )
+        existing_ids = {str(row.get("id")) for row in existing}
+        started_at = datetime.datetime.now().isoformat()
+        vlm_artifact_store.set_metadata(
+            video_id, primary, len(scenes), len(existing_ids),
+            "ready" if active_version else "running",
+            started_at=started_at, active_artifact_version=active_version,
+            pending_artifact_version=job_version, build_status="running",
+        )
+        active_backend = ""
+        fallback_count = sum(1 for row in existing if row.get("vlm_backend") == fallback.backend)
+
+        def choose_frames(scene_id: str):
+            group = sorted(
+                [row for row in frames if str(row.get("scene_id")) == str(scene_id) and os.path.exists(str(row.get("frame_path", "")))],
+                key=lambda row: float(row.get("timestamp", 0.0)),
+            )
+            if not group:
+                return [], []
+            count = min(len(group), max(1, int(settings.CAPTION_MAX_FRAMES_PER_SCENE)))
+            indexes = np.linspace(0, len(group) - 1, count).round().astype(int).tolist()
+            selected = [group[index] for index in indexes]
+            return [str(row["frame_path"]) for row in selected], [float(row.get("timestamp", 0.0)) for row in selected]
+
+        def caption_with_backend(backend: str, paths: list[str], timestamps: list[float], max_frames: int):
+            request = CaptionRequest(
+                scene_id="",
+                frame_paths=paths[:max_frames],
+                timestamps=timestamps[:max_frames],
+                prompt=(
+                    "Analyze only visible visual content in these chronological CCTV frames. "
+                    "Return exactly one compact JSON object with keys summary, objects, attributes, "
+                    "actions, relations, temporal_events, uncertainty. Do not use OCR, subtitles, "
+                    "audio, names, identities or face recognition."
+                ),
+                prompt_version=settings.CAPTION_PROMPT_VERSION,
+                max_new_tokens=settings.CAPTION_MAX_NEW_TOKENS,
+                vlm_backend=backend,
+                release_after=False,
+                max_frames=max_frames,
+            )
+            if settings.INFERENCE_WORKER_ENABLED:
+                return inference_client.vlm_caption(request, timeout_sec=240.0)
+            if backend != fallback.backend:
+                raise RuntimeError("Q6 caption requires the local inference worker")
+            text = self.dense_captioner.generate_scene_caption_from_paths(paths[:max_frames], timestamps=timestamps[:max_frames], max_frames=max_frames)
+            structured = getattr(self.dense_captioner, "last_structured", {}) or {}
+            return CaptionResponse(
+                text=text or "", summary=str(structured.get("summary", text or "")),
+                objects=[str(item) for item in structured.get("objects", [])] if isinstance(structured.get("objects", []), list) else [],
+                actions=[str(item) for item in structured.get("actions", [])] if isinstance(structured.get("actions", []), list) else [],
+                relations=[str(item) for item in structured.get("relations", [])] if isinstance(structured.get("relations", []), list) else [],
+                uncertainty=[str(item) for item in structured.get("uncertainty", [])] if isinstance(structured.get("uncertainty", []), list) else [],
+                model_id=settings.QWEN_VL_MODEL_ID, status="generated", vlm_backend=fallback.backend,
+                model_revision=settings.QWEN_VL_MODEL_REVISION, quantization="NF4", input_mode="frames",
+                artifact_version=settings.CAPTION_ARTIFACT_VERSION, json_valid=bool(text),
+            )
+
+        try:
+            for index, scene in enumerate(scenes):
+                scene_id = str(scene.get("id"))
+                if scene_id in existing_ids:
+                    continue
+                paths, timestamps = choose_frames(scene_id)
+                if not paths:
+                    continue
+                response = None
+                backend_used = active_backend or primary.backend
+                try:
+                    response = caption_with_backend(backend_used, paths, timestamps, len(paths))
+                    if not getattr(response, "summary", "") and not getattr(response, "text", ""):
+                        raise RuntimeError("empty caption response")
+                    if backend_used == primary.backend and not bool(getattr(response, "json_valid", False)):
+                        raise RuntimeError("primary caption returned invalid JSON")
+                except Exception as first_error:
+                    logger.warning("Primary caption failed for scene %s: %s", scene_id, first_error)
+                    if backend_used == primary.backend:
+                        try:
+                            inference_client.vlm_unload(primary.backend)
+                        except Exception:
+                            pass
+                        active_backend = fallback.backend
+                        try:
+                            response = caption_with_backend(fallback.backend, paths, timestamps, min(len(paths), settings.CAPTION_RETRY_FRAMES))
+                            fallback_count += 1
+                        except Exception as fallback_error:
+                            logger.error("Fallback caption failed for scene %s: %s", scene_id, fallback_error)
+                            response = None
+                    else:
+                        response = None
+                if response is not None:
+                    variant_used = get_variant(getattr(response, "vlm_backend", backend_used) or backend_used)
+                    vlm_artifact_store.save_caption(
+                        video_id, variant_used, "scene", scene_id,
+                        float(scene.get("t_start", 0.0)), float(scene.get("t_end", 0.0)), timestamps, response,
+                        settings.CAPTION_PROMPT_VERSION, artifact_version=job_version,
+                    )
+                    existing_ids.add(scene_id)
+                if progress_callback:
+                    percent = int(((index + 1) / max(1, len(scenes))) * 100)
+                    progress_callback(video_id, percent, f"CapRL Q6 captions: Scene {index + 1}/{len(scenes)}", "dense_visual_caption", {"scene_idx": index + 1, "total_scenes": len(scenes), "fallback_count": fallback_count})
+            complete = len(existing_ids) == len(scenes)
+            status = "ready" if complete else ("ready" if active_version else "error")
+            vlm_artifact_store.set_metadata(
+                video_id, primary, len(scenes), len(existing_ids), status,
+                error_message="" if complete else "one or more scenes failed",
+                started_at=started_at,
+                completed_at=datetime.datetime.now().isoformat() if complete else "",
+                fallback_count=fallback_count,
+                active_artifact_version=job_version if complete else active_version,
+                pending_artifact_version="" if complete else job_version,
+                build_status="ready" if complete else "error",
+            )
+            if complete:
+                try:
+                    db_manager.get_table("videos").update(where=f"id = '{video_id}'", values={"ingestion_phase": "caption_ready"})
+                except Exception:
+                    pass
+                if progress_callback:
+                    progress_callback(video_id, 100, "Caption artifacts ready: Fast and Accurate search can use them.", "dense_visual_caption", {"caption_backend": primary.backend, "fallback_count": fallback_count})
+        except Exception as exc:
+            logger.exception("Primary captioning failed for %s", video_id)
+            vlm_artifact_store.set_metadata(
+                video_id, primary, len(scenes), len(existing_ids),
+                "ready" if active_version else "error", error_message=str(exc),
+                started_at=started_at, fallback_count=fallback_count,
+                active_artifact_version=active_version,
+                pending_artifact_version=job_version,
+                build_status="error",
+            )
+        finally:
+            for backend in {primary.backend, fallback.backend}:
+                try:
+                    if settings.INFERENCE_WORKER_ENABLED:
+                        inference_client.vlm_unload(backend)
+                except Exception:
+                    pass
 
     def process_video_phase3_background(
         self,

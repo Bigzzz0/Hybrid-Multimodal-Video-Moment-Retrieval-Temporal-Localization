@@ -30,6 +30,9 @@ class TemporalReranker(Protocol):
 class QwenVisualReranker:
     """Verify top candidates using only the sampled frame images."""
 
+    VERIFICATION_VERSION = "qwen-verify-v2"
+    PROMPT_VERSION = "pure-visual-verifier-v1"
+
     def __init__(self) -> None:
         self._captioner = None
         self.max_seconds = float(getattr(settings, "VLM_RERANK_MAX_SECONDS", settings.ACCURATE_MAX_SECONDS))
@@ -44,16 +47,20 @@ class QwenVisualReranker:
             f"{float(candidate.get('t_end', 0.0)):.3f}",
             " ".join(query.casefold().split()),
             ",".join(f"{value:.3f}" for value in timestamps),
+            "qwen3_vl_2b",
             settings.QWEN_VL_MODEL_ID,
-            "qwen-verify-v1",
-            "cascade-verifier-v2",
+            settings.QWEN_VL_MODEL_REVISION,
+            "NF4",
+            "frames",
+            QwenVisualReranker.VERIFICATION_VERSION,
+            QwenVisualReranker.PROMPT_VERSION,
         ])
         return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
     @staticmethod
     def _cached_verification(key: str) -> Optional[Dict[str, Any]]:
         try:
-            table = db_manager.get_table("qwen_verifications_v1")
+            table = db_manager.get_table("qwen_verifications_v2")
             rows = table.search().where(f"id = '{key}'").limit(1).to_list()
             if not rows:
                 return None
@@ -79,7 +86,7 @@ class QwenVisualReranker:
     ) -> None:
         now = datetime.now().isoformat()
         try:
-            db_manager.get_table("qwen_verifications_v1").add([{
+            db_manager.get_table("qwen_verifications_v2").add([{
                 "id": key,
                 "video_id": video_id,
                 "video_fingerprint": video_fingerprint,
@@ -90,9 +97,13 @@ class QwenVisualReranker:
                 "event_present": bool(parsed["action_present"]),
                 "confidence": float(parsed["confidence"]),
                 "reason": str(parsed.get("reason", "")),
+                "vlm_backend": "qwen3_vl_2b",
                 "model_id": settings.QWEN_VL_MODEL_ID,
-                "verification_version": "qwen-verify-v1",
-                "prompt_version": "cascade-verifier-v2",
+                "model_revision": settings.QWEN_VL_MODEL_REVISION,
+                "quantization": "NF4",
+                "input_mode": "frames",
+                "verification_version": QwenVisualReranker.VERIFICATION_VERSION,
+                "prompt_version": QwenVisualReranker.PROMPT_VERSION,
                 "created_at": now,
                 "last_accessed_at": now,
             }])

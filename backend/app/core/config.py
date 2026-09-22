@@ -54,15 +54,30 @@ class Settings(BaseSettings):
     SIGLIP2_EMBEDDING_DIM: int = 768
     SIGLIP2_EMBEDDING_VERSION: str = "siglip2-naflex-v2"
     QWEN_VL_MODEL_ID: str = os.environ.get("QWEN_VL_MODEL_ID", "Qwen/Qwen3-VL-2B-Instruct")
+    QWEN_VL_MODEL_REVISION: str = os.environ.get("QWEN_VL_MODEL_REVISION", "89644892e4d85e24eaac8bacfd4f463576704203")
     SAM_MODEL_ID: str = os.environ.get("SAM_MODEL_ID", "facebook/sam3.1")
     ENABLE_SAM_GROUNDING: bool = os.environ.get("ENABLE_SAM_GROUNDING", "false").lower() in {"1", "true", "yes"}
     CAPTION_VERSION: str = os.environ.get("CAPTION_VERSION", "qwen3vl2b-v1")
+    CAPTION_PRIMARY_BACKEND: str = os.environ.get("CAPTION_PRIMARY_BACKEND", "caprl_qwen3vl_4b_q6")
+    CAPTION_FALLBACK_BACKEND: str = os.environ.get("CAPTION_FALLBACK_BACKEND", "qwen3_vl_2b")
+    CAPTION_ARTIFACT_VERSION: str = os.environ.get("CAPTION_ARTIFACT_VERSION", "q6-scene-caption-v1")
+    CAPTION_PROMPT_VERSION: str = os.environ.get("CAPTION_PROMPT_VERSION", "pure-visual-caption-v1")
+    CAPTION_MAX_FRAMES_PER_SCENE: int = int(os.environ.get("CAPTION_MAX_FRAMES_PER_SCENE", "4"))
+    CAPTION_RETRY_FRAMES: int = int(os.environ.get("CAPTION_RETRY_FRAMES", "2"))
+    CAPTION_MAX_NEW_TOKENS: int = int(os.environ.get("CAPTION_MAX_NEW_TOKENS", "256"))
+    VLM_ARTIFACT_VERSION: str = os.environ.get("VLM_ARTIFACT_VERSION", os.environ.get("CAPTION_ARTIFACT_VERSION", "q6-scene-caption-v1"))
+    VLM_CAPTION_MAX_NEW_TOKENS: int = int(os.environ.get("VLM_CAPTION_MAX_NEW_TOKENS", "256"))
+    VLM_JSON_REPAIR_MAX_NEW_TOKENS: int = int(os.environ.get("VLM_JSON_REPAIR_MAX_NEW_TOKENS", "128"))
+    LLAMA_CPP_PATH: str = os.environ.get("LLAMA_CPP_PATH", "")
+    VLM_GGUF_DIR: str = os.environ.get("VLM_GGUF_DIR", "")
+    Q6_STARTUP_TIMEOUT_SEC: float = float(os.environ.get("Q6_STARTUP_TIMEOUT_SEC", "180"))
+    VLM_VIDEO_USE_CONTAINER: bool = os.environ.get("VLM_VIDEO_USE_CONTAINER", "false").lower() in {"1", "true", "yes"}
     GROUNDING_VERSION: str = os.environ.get("GROUNDING_VERSION", "sam31-v1")
 
     # Optional local inference worker.  Keeping this opt-in preserves the
     # existing single-process development path while the worker environment
     # is installed separately for CUDA/SAM compatibility.
-    INFERENCE_WORKER_ENABLED: bool = os.environ.get("INFERENCE_WORKER_ENABLED", "false").lower() in {"1", "true", "yes"}
+    INFERENCE_WORKER_ENABLED: bool = os.environ.get("INFERENCE_WORKER_ENABLED", "true").lower() in {"1", "true", "yes"}
     INFERENCE_WORKER_URL: str = os.environ.get("INFERENCE_WORKER_URL", "http://127.0.0.1:8011")
     INFERENCE_WORKER_TOKEN: Optional[str] = os.environ.get("INFERENCE_WORKER_TOKEN", None)
     INFERENCE_REQUEST_TIMEOUT_SEC: float = float(os.environ.get("INFERENCE_REQUEST_TIMEOUT_SEC", "35"))
@@ -85,6 +100,8 @@ class Settings(BaseSettings):
     ACCURATE_MAX_SECONDS: float = float(os.environ.get("ACCURATE_MAX_SECONDS", "60"))
     QWEN_FALLBACK_TOP_K: int = int(os.environ.get("QWEN_FALLBACK_TOP_K", "1"))
     QWEN_MIN_REMAINING_SECONDS: float = float(os.environ.get("QWEN_MIN_REMAINING_SECONDS", "12"))
+    ACCURATE_VERIFY_TOP_K: int = int(os.environ.get("ACCURATE_VERIFY_TOP_K", "2"))
+    ACCURATE_MIN_REMAINING_SECONDS: float = float(os.environ.get("ACCURATE_MIN_REMAINING_SECONDS", "12"))
     GROUNDING_ARTIFACTS_DIR: Path = DATA_DIR / "grounding"
     
     # Ingestion & Sampling Parameters

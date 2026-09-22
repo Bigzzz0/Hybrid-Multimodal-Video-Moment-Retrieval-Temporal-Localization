@@ -17,12 +17,14 @@ from app.inference.contracts import (
     EmbedTextRequest,
     GroundRequest,
     VerifyRequest,
+    VLMUnloadRequest,
 )
 from inference_worker.model_manager import model_manager
-from inference_worker.qwen_service import Qwen3VLService
+from inference_worker.vlm_service import VariantVLMService
 from inference_worker.sam_service import SAM31Grounder
 from inference_worker.scheduler import inference_scheduler
 from inference_worker.siglip_service import SigLIPService
+from app.inference.vlm_registry import get_variant
 
 
 def _authorize(token: str | None = Header(default=None, alias="X-Inference-Token")) -> None:
@@ -85,7 +87,7 @@ async def lifespan(app: FastAPI):
         try:
             # Pay the one-time model load before Accurate starts its bounded
             # verification budget. The model manager still enforces VRAM.
-            await asyncio.to_thread(model_manager.get, "qwen", Qwen3VLService)
+            await asyncio.to_thread(model_manager.get, "qwen", lambda: VariantVLMService("qwen3_vl_2b"))
         except Exception as exc:
             # Keep Fast search available if the optional warm-up fails.
             model_manager.states["qwen"] = "error"
@@ -117,17 +119,47 @@ async def embed_images(request: EmbedImagesRequest, _: None = Depends(_authorize
 
 @app.post("/v1/qwen/caption")
 async def caption(request: CaptionRequest, _: None = Depends(_authorize)):
-    return await _run("qwen", Qwen3VLService, "caption", request, priority="ingestion")
+    request.vlm_backend = "qwen3_vl_2b"
+    return await _run("qwen", lambda: VariantVLMService("qwen3_vl_2b"), "caption", request, priority="ingestion")
 
 
 @app.post("/v1/qwen/verify")
 async def verify(request: VerifyRequest, _: None = Depends(_authorize)):
-    return await _run("qwen", Qwen3VLService, "verify", request, priority="interactive_search")
+    request.vlm_backend = "qwen3_vl_2b"
+    return await _run("qwen", lambda: VariantVLMService("qwen3_vl_2b"), "verify", request, priority="interactive_search")
 
 
 @app.post("/v1/qwen/answer")
 async def answer(request: AnswerRequest, _: None = Depends(_authorize)):
-    return await _run("qwen", Qwen3VLService, "answer", request, priority="vqa")
+    request.vlm_backend = "qwen3_vl_2b"
+    return await _run("qwen", lambda: VariantVLMService("qwen3_vl_2b"), "answer", request, priority="vqa")
+
+
+def _vlm_worker_name(backend: str) -> str:
+    try:
+        variant = get_variant(backend)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    return "q6" if variant.backend == "caprl_qwen3vl_4b_q6" else "qwen"
+
+
+@app.post("/v1/vlm/caption")
+async def vlm_caption(request: CaptionRequest, _: None = Depends(_authorize)):
+    name = _vlm_worker_name(request.vlm_backend)
+    return await _run(name, lambda: VariantVLMService(request.vlm_backend), "caption", request, priority="ingestion")
+
+
+@app.post("/v1/vlm/verify")
+async def vlm_verify(request: VerifyRequest, _: None = Depends(_authorize)):
+    name = _vlm_worker_name(request.vlm_backend)
+    return await _run(name, lambda: VariantVLMService(request.vlm_backend), "verify", request, priority="interactive_search")
+
+
+@app.post("/v1/vlm/unload")
+async def vlm_unload(request: VLMUnloadRequest, _: None = Depends(_authorize)):
+    name = _vlm_worker_name(request.vlm_backend)
+    model_manager.unload(name)
+    return {"status": "unloaded", "backend": request.vlm_backend, "model_state": model_manager.states.get(name, "unloaded")}
 
 
 @app.post("/v1/sam/ground-video")

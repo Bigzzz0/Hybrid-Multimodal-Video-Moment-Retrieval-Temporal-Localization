@@ -27,7 +27,14 @@ class CaptionRequest(BaseModel):
     timestamps: List[float] = Field(default_factory=list)
     prompt: str = ""
     prompt_version: str = "classroom-caption-v1"
-    max_new_tokens: int = 128
+    max_new_tokens: int = 256
+    vlm_backend: str = "qwen3_vl_2b"
+    release_after: bool = False
+    video_path: str = ""
+    t_start: float = 0.0
+    t_end: float = 0.0
+    sample_fps: float = 2.0
+    max_frames: int = 4
 
 
 class CaptionResponse(BaseModel):
@@ -35,11 +42,22 @@ class CaptionResponse(BaseModel):
     summary: str = ""
     people_count: Optional[int] = None
     objects: List[str] = Field(default_factory=list)
+    attributes: List[str] = Field(default_factory=list)
     actions: List[str] = Field(default_factory=list)
     relations: List[str] = Field(default_factory=list)
+    temporal_events: List[str] = Field(default_factory=list)
     uncertainty: List[str] = Field(default_factory=list)
     model_id: str = ""
     status: str = "unavailable"
+    vlm_backend: str = "qwen3_vl_2b"
+    model_revision: str = ""
+    quantization: str = ""
+    input_mode: str = "frames"
+    artifact_version: str = ""
+    load_ms: float = 0.0
+    inference_ms: float = 0.0
+    json_valid: bool = False
+    json_repaired: bool = False
 
 
 class VerifyRequest(BaseModel):
@@ -51,6 +69,7 @@ class VerifyRequest(BaseModel):
     grounding_evidence: List[Dict[str, Any]] = Field(default_factory=list)
     semantic_requirements: List[str] = Field(default_factory=list)
     release_after: bool = False
+    vlm_backend: str = "qwen3_vl_2b"
 
 
 class VerifyResponse(BaseModel):
@@ -61,6 +80,11 @@ class VerifyResponse(BaseModel):
     reason: str = ""
     raw_text: str = ""
     model_id: str = ""
+    vlm_backend: str = "qwen3_vl_2b"
+    model_revision: str = ""
+    quantization: str = ""
+    input_mode: str = "frames"
+    artifact_version: str = ""
 
 
 class AnswerRequest(BaseModel):
@@ -115,3 +139,13 @@ class GroundResponse(BaseModel):
     grounding_version: str = ""
     cache_hit: bool = False
     status: str = "unavailable"
+
+
+class VLMUnloadRequest(BaseModel):
+    vlm_backend: str = "qwen3_vl_2b"
+
+
+class VLMUnloadResponse(BaseModel):
+    status: str = "unavailable"
+    backend: str = ""
+    model_state: str = "unloaded"

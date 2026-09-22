@@ -14,7 +14,7 @@ class ModelManager:
 
     def __init__(self) -> None:
         self.services: Dict[str, Any] = {}
-        self.states: Dict[str, str] = {"siglip": "unloaded", "qwen": "unloaded", "sam": "unloaded"}
+        self.states: Dict[str, str] = {"siglip": "unloaded", "qwen": "unloaded", "q6": "unloaded", "sam": "unloaded"}
         self.loaded_at: Dict[str, float] = {}
         self.current_model = ""
         self.current_task = ""
@@ -90,16 +90,18 @@ class ModelManager:
         if name in self.services:
             self.states[name] = "ready"
             return self.services[name]
-        # Qwen and SAM are both large multimodal models. On a 12 GB card,
-        # loading them together can leave no activation headroom even when
-        # their weights individually fit. Keep those two heavy models
-        # mutually exclusive, but keep SigLIP resident alongside Qwen: its
-        # text encoder is small enough to fit and reloading it for every
-        # action query makes Accurate needlessly slow.
-        if name == "qwen":
+        # Qwen, CapRL Q6, and SAM are large multimodal models. On a 12 GB
+        # card, loading any of them alongside SigLIP can leave no activation
+        # headroom. Keep every heavy VLM mutually exclusive with SigLIP and
+        # with the other heavy model; this is especially important when the
+        # background Q6 caption job follows Phase 1 indexing.
+        if name in {"qwen", "q6"}:
             self.unload("sam")
+            self.unload("qwen" if name == "q6" else "q6")
+            self.unload("siglip")
         elif name == "sam":
             self.unload("qwen")
+            self.unload("q6")
             # SAM 3.1 is the model that nearly fills this 12 GB card. Evict
             # SigLIP before its allocation so the checkpoint can load safely.
             self.unload("siglip")

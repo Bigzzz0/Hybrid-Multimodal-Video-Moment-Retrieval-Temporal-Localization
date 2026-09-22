@@ -30,6 +30,7 @@ import { DevPanel } from "@/components/dev/DevPanel";
 import { ShortcutModal } from "@/components/ui/ShortcutModal";
 import { SearchProfileControl } from "@/components/search/SearchProfileControl";
 import { SearchStatus } from "@/components/search/SearchStatus";
+import { CaptionStatusBadge } from "@/components/search/CaptionStatusBadge";
 import { SearchWarningBanner } from "@/components/search/SearchWarningBanner";
 import { SearchResultSummary } from "@/components/search/SearchResultSummary";
 import { uniqueWarnings, momentIdentity } from "@/lib/ui";
@@ -170,16 +171,14 @@ export default function DashboardPage() {
       const res = await apiClient.searchMoments(q, selectedVideo.id, 5, searchProfile, controller.signal);
       if (requestId !== searchRequestIdRef.current) return;
       setSearchResult(res);
-      // In Accurate mode, open the first moment that has actual SAM evidence
-      // so the user sees the bbox/mask immediately. If no track was found,
-      // keep the existing result list without forcing a jump.
+      // Accurate is VLM-only in the production flow; open the top ranked moment.
       if (searchProfile === "accurate") {
-        const grounded = res.moments.find((moment) => (moment.grounding_evidence?.length || 0) > 0);
-        if (grounded) {
-          setActiveMoment(grounded);
-          setActiveMomentKey(momentIdentity(grounded));
-          setSeekTime(grounded.t_start);
-          setHighlightInterval([grounded.t_start, grounded.t_end]);
+        const first = res.moments[0];
+        if (first) {
+          setActiveMoment(first);
+          setActiveMomentKey(momentIdentity(first));
+          setSeekTime(first.t_start);
+          setHighlightInterval([first.t_start, first.t_end]);
         }
       }
       if (res.warnings?.includes("reindex_required")) {
@@ -316,7 +315,10 @@ export default function DashboardPage() {
         <div className="flex items-center justify-between gap-3 border-b border-surfaceBorder/60 pb-2">
           <div>
             <p className="text-xs font-semibold text-gray-200">Pure-Visual Moment Search</p>
-            <p className="text-[10px] font-mono text-gray-500">Frame embeddings + dense visual scene captions</p>
+            <div className="flex items-center gap-2">
+              <p className="text-[10px] font-mono text-gray-500">SigLIP2 retrieval + precomputed CapRL Q6 visual captions</p>
+              <CaptionStatusBadge videoId={selectedVideo?.id} />
+            </div>
           </div>
           <div className="flex items-center gap-2">
             <button type="button" onClick={() => setShowShortcutModal(true)} aria-label="Open keyboard shortcuts" className="min-h-9 rounded-xl border border-surfaceBorder bg-surface px-3 text-xs font-mono text-gray-300 hover:border-cyan-500/40 hover:text-cyan-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400" title="Pro Keyboard Shortcuts (?)">
@@ -495,7 +497,7 @@ export default function DashboardPage() {
           </div>
 
           {/* Latency & Telemetry Metric Pill */}
-          {searchResult && activeTab === "moments" && <SearchResultSummary query={searchResult.query} count={searchResult.moments.length} profile={searchResult.profile} latencyMs={searchResult.latency_ms} calibrated={searchResult.calibrated} indexVersion={searchResult.index_version} strategyUsed={searchResult.strategy_used} modelsUsed={searchResult.models_used} modelsAttempted={searchResult.models_attempted} cascadePath={searchResult.cascade_path} />}
+          {searchResult && activeTab === "moments" && <SearchResultSummary query={searchResult.query} count={searchResult.moments.length} profile={searchResult.profile} latencyMs={searchResult.latency_ms} calibrated={searchResult.calibrated} indexVersion={searchResult.index_version} strategyUsed={searchResult.strategy_used} modelsUsed={searchResult.models_used} modelsAttempted={searchResult.models_attempted} cascadePath={searchResult.cascade_path} captionStatus={searchResult.caption_status} captionModelId={searchResult.caption_model_id} onlineVerifierUsed={searchResult.online_verifier_used} />}
           {searchResult && activeTab === "moments" && <SearchWarningBanner warnings={uniqueWarnings(searchResult.warnings)} onReindex={() => setShowUploader(true)} />}
 
           {/* Tab Content */}

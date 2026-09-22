@@ -92,12 +92,12 @@ class ClassroomQueryRouter:
             for prompt in prompts
         ]
         return {
-            "policy": "always_sam_then_qwen",
+            "policy": "stored_caption_then_qwen",
             "sam_prompts": prompts,
             "semantic_requirements": semantic_requirements,
             "ambiguous": ambiguous,
             "ambiguity_reasons": ambiguity_reasons,
-            "planner_version": "cascade-planner-v2",
+            "planner_version": "caption-cascade-v1",
             "route": legacy_route,
             "object_prompts": legacy_prompts,
             "action_text": query,

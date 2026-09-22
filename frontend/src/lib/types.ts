@@ -108,6 +108,25 @@ export interface SearchResponse {
   models_attempted?: string[];
   stage_status?: Record<string, string>;
   planner_version?: string;
+  caption_status?: string;
+  caption_model_id?: string | null;
+  caption_artifact_version?: string | null;
+  caption_fallback_used?: boolean;
+  online_verifier_used?: boolean;
+  online_verifier_model_id?: string | null;
+}
+
+export interface CaptionStatus {
+  video_id: string;
+  status: "unavailable" | "pending" | "running" | "ready" | "error" | string;
+  expected_count: number;
+  completed_count: number;
+  fallback_count?: number;
+  active_backend: string;
+  active_model_id: string;
+  fallback_backend: string;
+  artifact_version: string;
+  warnings: string[];
 }
 
 export interface GroundedMoment {

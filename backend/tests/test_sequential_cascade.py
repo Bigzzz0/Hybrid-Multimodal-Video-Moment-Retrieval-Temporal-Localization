@@ -26,10 +26,10 @@ from inference_worker.model_manager import model_manager
 )
 def test_cascade_planner_canonical_prompts(query, prompts, ambiguous):
     plan = ClassroomQueryRouter().route(query)
-    assert plan["policy"] == "always_sam_then_qwen"
+    assert plan["policy"] == "stored_caption_then_qwen"
     assert plan["sam_prompts"] == prompts
     assert plan["ambiguous"] is ambiguous
-    assert plan["planner_version"] == "cascade-planner-v2"
+    assert plan["planner_version"] == "caption-cascade-v1"
 
 
 def test_action_without_subject_still_grounds_person_first():
