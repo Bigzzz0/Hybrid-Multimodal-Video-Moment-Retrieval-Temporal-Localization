@@ -1,7 +1,8 @@
-"""Allow-listed production VLM runtimes.
+"""Allow-listed production VLM runtime.
 
-The production path intentionally exposes only the Q6 captioner and the
-small Qwen verifier. The A--E research variants remain on the ablation branch.
+Production uses one local multimodal model for both stored captions and
+Accurate verification. The old Qwen3-VL-2B runtime is intentionally not
+registered here.
 """
 
 from __future__ import annotations
@@ -32,15 +33,6 @@ class VLMVariant:
 
 
 _VARIANTS: Dict[str, VLMVariant] = {
-    "qwen3_vl_2b": VLMVariant(
-        backend="qwen3_vl_2b",
-        label="Qwen3-VL-2B",
-        model_id="Qwen/Qwen3-VL-2B-Instruct",
-        revision="89644892e4d85e24eaac8bacfd4f463576704203",
-        runtime="transformers_nf4",
-        input_mode="frames",
-        quantization="NF4",
-    ),
     "caprl_qwen3vl_4b_q6": VLMVariant(
         backend="caprl_qwen3vl_4b_q6",
         label="CapRL-Qwen3VL-4B Q6",
@@ -61,7 +53,7 @@ def all_variants() -> List[VLMVariant]:
 
 
 def get_variant(backend: Optional[str]) -> VLMVariant:
-    key = (backend or "qwen3_vl_2b").strip().lower()
+    key = (backend or "caprl_qwen3vl_4b_q6").strip().lower()
     if key not in _VARIANTS:
         raise ValueError(f"unsupported VLM backend: {backend}")
     variant = _VARIANTS[key]

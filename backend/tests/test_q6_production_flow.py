@@ -11,16 +11,17 @@ from app.retrieval.vlm_artifacts import VLMArtifactStore
 from inference_worker.model_manager import ModelManager
 
 
-def test_production_registry_only_exposes_q6_and_qwen():
+def test_production_registry_only_exposes_q6():
     assert get_variant("caprl_qwen3vl_4b_q6").quantization == "Q6_K"
-    assert get_variant("qwen3_vl_2b").model_id == "Qwen/Qwen3-VL-2B-Instruct"
+    with pytest.raises(ValueError):
+        get_variant("qwen3_vl_2b")
     with pytest.raises(ValueError):
         get_variant("caprl_video_4b")
 
 
 def test_caption_request_defaults_to_production_frame_contract():
     request = CaptionRequest(frame_paths=[r"C:\frames\scene.jpg"], timestamps=[2.0])
-    assert request.vlm_backend == "qwen3_vl_2b"
+    assert request.vlm_backend == "caprl_qwen3vl_4b_q6"
     assert request.release_after is False
     assert request.max_new_tokens == 256
 

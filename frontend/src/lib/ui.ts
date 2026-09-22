@@ -52,7 +52,7 @@ const WARNING_COPY: Record<string, Omit<UiWarning, "code">> = {
     severity: "info",
   },
   sam_paused_vlm_fallback: {
-    message: "พัก SAM 3.1 ชั่วคราว จึงใช้ Qwen VLM ตรวจแทน",
+    message: "พัก SAM 3.1 ชั่วคราว จึงใช้ CapRL Q6 ตรวจแทน",
     severity: "info",
   },
   accurate_budget_exhausted: {
@@ -60,23 +60,23 @@ const WARNING_COPY: Record<string, Omit<UiWarning, "code">> = {
     severity: "warning",
   },
   accurate_partial_budget: {
-    message: "เวลาที่เหลือไม่พอโหลด Qwen จึงแสดงผล SAM/Fast ที่ตรวจเสร็จแล้ว",
+    message: "เวลาที่เหลือไม่พอโหลด CapRL Q6 จึงแสดงผลที่ตรวจเสร็จแล้ว",
     severity: "warning",
   },
   sam_no_detection_qwen_fallback: {
-    message: "SAM 3.1 ทำงานสำเร็จแต่ไม่พบ object ระบบจึงให้ Qwen ตรวจความหมายต่อ",
+    message: "SAM 3.1 ทำงานสำเร็จแต่ไม่พบ object ระบบจึงให้ CapRL Q6 ตรวจความหมายต่อ",
     severity: "info",
   },
   sam_ambiguous_qwen_fallback: {
-    message: "คำค้นมีหลายความหมาย ระบบจึงให้ Qwen ช่วยยืนยันบริบท",
+    message: "คำค้นมีหลายความหมาย ระบบจึงให้ CapRL Q6 ช่วยยืนยันบริบท",
     severity: "info",
   },
   qwen_fallback_verified: {
-    message: "Qwen ยืนยันว่าพบเหตุการณ์ตามความหมายของคำค้น",
+    message: "CapRL Q6 ยืนยันว่าพบเหตุการณ์ตามความหมายของคำค้น",
     severity: "info",
   },
   qwen_fallback_rejected: {
-    message: "Qwen ตรวจภาพแล้วไม่พบเหตุการณ์ตามคำค้น จึงลดอันดับ candidate นี้",
+    message: "CapRL Q6 ตรวจภาพแล้วไม่พบเหตุการณ์ตามคำค้น จึงลดอันดับ candidate นี้",
     severity: "info",
   },
   sam_oom_fallback: {
@@ -92,11 +92,11 @@ const WARNING_COPY: Record<string, Omit<UiWarning, "code">> = {
     severity: "warning",
   },
   qwen_worker_unavailable: {
-    message: "Qwen3-VL worker ไม่พร้อมใช้งาน จึงใช้หลักฐาน retrieval ที่มีอยู่",
+    message: "CapRL Q6 worker ไม่พร้อมใช้งาน จึงใช้หลักฐาน retrieval ที่มีอยู่",
     severity: "warning",
   },
   qwen_vqa_fallback: {
-    message: "ตอบ Video VQA จากหลักฐาน retrieval แทน เพราะ Qwen3-VL ใช้งานไม่ได้",
+    message: "ตอบ Video VQA จากหลักฐาน retrieval แทน เพราะ CapRL Q6 ใช้งานไม่ได้",
     severity: "warning",
   },
   sam_insufficient_frames: {
@@ -110,6 +110,22 @@ const WARNING_COPY: Record<string, Omit<UiWarning, "code">> = {
   caption_backfill_pending: {
     message: "กำลังสร้าง caption รุ่นใหม่ จึงอาจใช้ caption เดิมบางฉากชั่วคราว",
     severity: "info",
+  },
+  caprl_q6_verified: {
+    message: "CapRL Q6 ยืนยันว่าพบเหตุการณ์ตามความหมายของคำค้น",
+    severity: "info",
+  },
+  caprl_q6_rejected: {
+    message: "CapRL Q6 ตรวจภาพแล้วไม่พบเหตุการณ์ตามคำค้น จึงลดอันดับ candidate นี้",
+    severity: "info",
+  },
+  caprl_q6_worker_unavailable: {
+    message: "CapRL Q6 worker ไม่พร้อมใช้งาน จึงคงผล Fast เดิมไว้",
+    severity: "warning",
+  },
+  caprl_q6_timeout_fallback: {
+    message: "CapRL Q6 ใช้เวลาเกินกำหนด จึงคงผล Fast เดิมไว้",
+    severity: "warning",
   },
 };
 

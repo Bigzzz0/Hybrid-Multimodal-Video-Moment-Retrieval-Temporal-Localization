@@ -80,7 +80,8 @@ class InferenceWorkerClient:
             return {"status": "unavailable", "error": str(exc)}
 
     def caption(self, request: CaptionRequest) -> CaptionResponse:
-        return self._post("/v1/qwen/caption", request.model_dump(), CaptionResponse)
+        request.vlm_backend = "caprl_qwen3vl_4b_q6"
+        return self._post("/v1/vlm/caption", request.model_dump(), CaptionResponse)
 
     def vlm_caption(self, request: CaptionRequest, timeout_sec: Optional[float] = None) -> CaptionResponse:
         return self._post("/v1/vlm/caption", request.model_dump(), CaptionResponse, timeout_sec=timeout_sec)
@@ -92,7 +93,8 @@ class InferenceWorkerClient:
         return self._post("/v1/siglip/embed-images", request.model_dump(), EmbeddingResponse)
 
     def verify(self, request: VerifyRequest) -> VerifyResponse:
-        return self._post("/v1/qwen/verify", request.model_dump(), VerifyResponse)
+        request.vlm_backend = "caprl_qwen3vl_4b_q6"
+        return self._post("/v1/vlm/verify", request.model_dump(), VerifyResponse)
 
     def vlm_verify(self, request: VerifyRequest) -> VerifyResponse:
         return self._post("/v1/vlm/verify", request.model_dump(), VerifyResponse)
@@ -101,7 +103,8 @@ class InferenceWorkerClient:
         return self._post("/v1/vlm/unload", VLMUnloadRequest(vlm_backend=backend).model_dump(), VLMUnloadResponse)
 
     def answer(self, request: AnswerRequest) -> AnswerResponse:
-        return self._post("/v1/qwen/answer", request.model_dump(), AnswerResponse)
+        request.vlm_backend = "caprl_qwen3vl_4b_q6"
+        return self._post("/v1/vlm/answer", request.model_dump(), AnswerResponse)
 
     def ground(self, request: GroundRequest, timeout_sec: Optional[float] = None) -> GroundResponse:
         return self._post("/v1/sam/ground-video", request.model_dump(), GroundResponse, timeout_sec=timeout_sec)

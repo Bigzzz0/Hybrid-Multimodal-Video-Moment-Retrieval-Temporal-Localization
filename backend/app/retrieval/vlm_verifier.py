@@ -14,6 +14,7 @@ from PIL import Image
 from app.core.config import settings
 from app.core.logger import logger
 from app.db.connection import db_manager
+from app.inference.vlm_registry import get_variant
 
 
 class TemporalReranker(Protocol):
@@ -27,10 +28,10 @@ class TemporalReranker(Protocol):
         ...
 
 
-class QwenVisualReranker:
-    """Verify top candidates using only the sampled frame images."""
+class CapRLQ6VisualReranker:
+    """Verify top candidates with the same CapRL Q6 model used for captions."""
 
-    VERIFICATION_VERSION = "qwen-verify-v2"
+    VERIFICATION_VERSION = "caprl-q6-verify-v1"
     PROMPT_VERSION = "pure-visual-verifier-v1"
 
     def __init__(self) -> None:
@@ -47,13 +48,13 @@ class QwenVisualReranker:
             f"{float(candidate.get('t_end', 0.0)):.3f}",
             " ".join(query.casefold().split()),
             ",".join(f"{value:.3f}" for value in timestamps),
-            "qwen3_vl_2b",
-            settings.QWEN_VL_MODEL_ID,
-            settings.QWEN_VL_MODEL_REVISION,
-            "NF4",
+            settings.VLM_VERIFIER_BACKEND,
+            get_variant(settings.VLM_VERIFIER_BACKEND).model_id,
+            get_variant(settings.VLM_VERIFIER_BACKEND).revision,
+            get_variant(settings.VLM_VERIFIER_BACKEND).quantization,
             "frames",
-            QwenVisualReranker.VERIFICATION_VERSION,
-            QwenVisualReranker.PROMPT_VERSION,
+            CapRLQ6VisualReranker.VERIFICATION_VERSION,
+            CapRLQ6VisualReranker.PROMPT_VERSION,
         ])
         return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
@@ -97,18 +98,18 @@ class QwenVisualReranker:
                 "event_present": bool(parsed["action_present"]),
                 "confidence": float(parsed["confidence"]),
                 "reason": str(parsed.get("reason", "")),
-                "vlm_backend": "qwen3_vl_2b",
-                "model_id": settings.QWEN_VL_MODEL_ID,
-                "model_revision": settings.QWEN_VL_MODEL_REVISION,
-                "quantization": "NF4",
+                "vlm_backend": settings.VLM_VERIFIER_BACKEND,
+                "model_id": get_variant(settings.VLM_VERIFIER_BACKEND).model_id,
+                "model_revision": get_variant(settings.VLM_VERIFIER_BACKEND).revision,
+                "quantization": get_variant(settings.VLM_VERIFIER_BACKEND).quantization,
                 "input_mode": "frames",
-                "verification_version": QwenVisualReranker.VERIFICATION_VERSION,
-                "prompt_version": QwenVisualReranker.PROMPT_VERSION,
+                "verification_version": CapRLQ6VisualReranker.VERIFICATION_VERSION,
+                "prompt_version": CapRLQ6VisualReranker.PROMPT_VERSION,
                 "created_at": now,
                 "last_accessed_at": now,
             }])
         except Exception:
-            logger.debug("Qwen verification cache write failed", exc_info=True)
+            logger.debug("CapRL Q6 verification cache write failed", exc_info=True)
 
     @property
     def captioner(self):
@@ -121,7 +122,7 @@ class QwenVisualReranker:
     def _parse_response(raw: str, timestamps: List[float]) -> Optional[Dict[str, Any]]:
         """Extract the first valid verifier object from natural model output.
 
-        Qwen occasionally wraps the object in a markdown fence or adds a short
+        The local VLM may wrap the object in a markdown fence or add a short
         explanation. We accept that harmless formatting while keeping the
         semantic contract strict and ignoring optional extra keys.
         """
@@ -141,8 +142,8 @@ class QwenVisualReranker:
             if isinstance(start, bool) or isinstance(end, bool):
                 continue
             try:
-                start_num = QwenVisualReranker._coerce_frame_index(start, timestamps)
-                end_num = QwenVisualReranker._coerce_frame_index(end, timestamps)
+                start_num = CapRLQ6VisualReranker._coerce_frame_index(start, timestamps)
+                end_num = CapRLQ6VisualReranker._coerce_frame_index(end, timestamps)
                 confidence = float(data.get("confidence"))
             except (TypeError, ValueError, OverflowError):
                 continue
@@ -268,23 +269,13 @@ class QwenVisualReranker:
         self.last_cache_hits = {}
         if not candidates:
             return []
-        # Model loading is a one-time startup cost. Warm it before starting the
-        # bounded verification budget so a cold GPU does not consume the
-        # entire budget before the first candidate is analyzed.
+        # CapRL Q6 is loaded by the local worker only when a candidate needs
+        # verification. There is deliberately no in-process Qwen fallback.
         try:
             from app.inference.client import inference_client
             worker_enabled = inference_client.enabled
         except Exception:
             worker_enabled = False
-        try:
-            if not worker_enabled:
-                captioner = self.captioner
-                warmup = getattr(captioner, "_lazy_load", None)
-                if callable(warmup):
-                    warmup()
-        except Exception as exc:
-            logger.warning("Qwen verifier warm-up failed: {}", exc)
-            self.last_warnings.append("verifier_error_fallback")
         started = time.monotonic()
         budget = self.max_seconds if budget_seconds is None else max(0.0, float(budget_seconds))
         try:
@@ -400,17 +391,27 @@ class QwenVisualReranker:
                         "end_frame_index": worker.end_frame_index,
                         "confidence": worker.confidence,
                         "reason": worker.reason,
+                        # Preserve the actual text emitted by the local VLM;
+                        # the structured fields above remain the stable parse
+                        # contract used for scoring.
+                        "raw_output": worker.raw_text,
                     }
                     self.last_cache_hits[cache_key] = False
             except Exception as exc:
-                self.last_warnings.append("qwen_timeout_fallback" if "timeout" in str(exc).lower() else "qwen_worker_unavailable")
-                logger.warning("Qwen worker verifier fallback: {}", exc)
+                self.last_warnings.append("caprl_q6_timeout_fallback" if "timeout" in str(exc).lower() else "caprl_q6_worker_unavailable")
+                logger.warning("CapRL Q6 worker verifier fallback: {}", exc)
+
+            # A worker failure must return the Fast candidate. Do not invoke
+            # the removed Qwen3-VL-2B in-process fallback.
+            if worker_response is None and self._captioner is None:
+                verified.append(candidate)
+                continue
 
             images = []
             generation_seconds = 0.0
             try:
                 if worker_response is not None:
-                    response = json.dumps(worker_response)
+                    response = str(worker_response.get("raw_output") or json.dumps(worker_response))
                 else:
                     images = [
                         item["image"] if item.get("image") is not None
@@ -429,7 +430,7 @@ class QwenVisualReranker:
                     generation_seconds = time.monotonic() - generation_started
             except Exception as exc:
                 is_oom = exc.__class__.__name__ in {"OutOfMemoryError", "CUDAOutOfMemoryError"}
-                logger.warning("Qwen verifier generation fallback: {}", exc)
+                logger.warning("CapRL Q6 verifier generation fallback: {}", exc)
                 self.last_warnings.append("verifier_oom_fallback" if is_oom else "verifier_error_fallback")
                 verified.append(candidate)
                 continue
@@ -441,7 +442,7 @@ class QwenVisualReranker:
             try:
                 total_seconds = time.monotonic() - started
                 logger.debug(
-                    "Qwen verifier candidate {}/{}: {} frames, generation {:.2f}s, "
+                    "CapRL Q6 verifier candidate {}/{}: {} frames, generation {:.2f}s, "
                     "total {:.2f}s, response: {}",
                     candidate_index + 1,
                     limit,
@@ -455,6 +456,15 @@ class QwenVisualReranker:
                     verified.append(candidate)
                     continue
                 parsed = self._parse_response(response, timestamps)
+                # The worker already validated the structured fields. If the
+                # backend's raw text cannot be parsed again here, retain the
+                # real raw output for display but score from those validated
+                # fields instead of losing the candidate.
+                if parsed is None and worker_response is not None:
+                    parsed = self._parse_response(
+                        json.dumps({key: value for key, value in worker_response.items() if key != "raw_output"}),
+                        timestamps,
+                    )
                 if parsed is None:
                     self.last_warnings.append("verifier_invalid_json_fallback")
                     verified.append(candidate)
@@ -463,7 +473,7 @@ class QwenVisualReranker:
                     self._persist_verification(
                         cache_key, video_id, video_fingerprint, query, candidate, timestamps, parsed
                     )
-                # Qwen can conservatively reject a static object even when
+                    # The verifier can conservatively reject a static object even when
                 # the indexed dense visual caption independently names it.
                 # For object-only queries, use that visual caption as a narrow
                 # fallback signal; motion queries never take this shortcut.
@@ -492,6 +502,13 @@ class QwenVisualReranker:
                 refined["verifier_confidence"] = conf
                 refined["action_present"] = bool(parsed["action_present"])
                 refined["verifier_reason"] = str(parsed.get("reason", "")).strip()
+                # Keep the exact structured response produced by the VLM in
+                # the API result so the UI can show what was actually judged.
+                # This is intentionally response-only; the existing cache
+                # schema remains backward compatible.
+                refined["verifier_raw_output"] = str(
+                    (worker_response.get("raw_output") if worker_response else None) or response
+                )
                 refined["fast_score"] = base
                 refined["score"] = 0.65 * base + 0.35 * conf if parsed["action_present"] else base * 0.20
                 refined["rank_score"] = refined["score"]
@@ -501,7 +518,7 @@ class QwenVisualReranker:
                 refined["t_end"] = timestamps[end_index]
                 if refined["t_end"] <= refined["t_start"]:
                     # Never invent a floating timestamp.  Expand to an
-                    # adjacent sampled frame if Qwen returned a single index.
+                    # adjacent sampled frame if the verifier returned a single index.
                     if end_index + 1 < len(timestamps):
                         refined["t_end"] = timestamps[end_index + 1]
                     elif start_index > 0:
@@ -509,7 +526,7 @@ class QwenVisualReranker:
                 verified.append(refined)
             except Exception as exc:
                 is_oom = exc.__class__.__name__ in {"OutOfMemoryError", "CUDAOutOfMemoryError"}
-                logger.warning("Qwen verifier fallback: {}", exc)
+                logger.warning("CapRL Q6 verifier fallback: {}", exc)
                 self.last_warnings.append("verifier_oom_fallback" if is_oom else "verifier_error_fallback")
                 if is_oom:
                     try:
@@ -524,7 +541,10 @@ class QwenVisualReranker:
         return verified
 
 
-class VLMStage2Verifier(QwenVisualReranker):
+QwenVisualReranker = CapRLQ6VisualReranker
+
+
+class VLMStage2Verifier(CapRLQ6VisualReranker):
     """Compatibility alias for existing imports."""
 
     def verify_and_refine(self, candidate_moments: List[Dict[str, Any]], video_frames: List[Dict[str, Any]], query: str, top_k_verify: int = 3) -> List[Dict[str, Any]]:

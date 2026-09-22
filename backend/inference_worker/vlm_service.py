@@ -1,4 +1,4 @@
-"""Local VLM service for production CapRL Q6 captions and Qwen verification.
+"""Local VLM service for production CapRL Q6 captions and verification.
 
 Heavy dependencies are imported inside ``load`` so the API and Fast profile
 can start even when the optional lab environment or a gated checkpoint is not
@@ -26,7 +26,7 @@ class VLMBackendError(RuntimeError):
 
 
 class VariantVLMService:
-    def __init__(self, backend: str = "qwen3_vl_2b") -> None:
+    def __init__(self, backend: str = "caprl_qwen3vl_4b_q6") -> None:
         self.variant: VLMVariant = get_variant(backend)
         self.model: Any = None
         self.processor: Any = None
@@ -111,10 +111,24 @@ class VariantVLMService:
             raise VLMBackendError(f"GGUF/mmproj files are missing for {self.variant.backend}")
         port = 18100 + list(("caprl_qwen3vl_4b_q4", "caprl_qwen3vl_4b_q6")).index(self.variant.backend)
         self.server_port = port
-        self.server_process = subprocess.Popen([
-            executable, "--model", model_path, "--mmproj", mmproj_path,
+        # llama.cpp 0.4.x ships a single ``llama.exe`` dispatcher whose HTTP
+        # server is the ``serve`` subcommand.  Older builds expose a separate
+        # ``llama-server.exe`` binary.  Support both forms so a local Windows
+        # release can be configured directly without a wrapper script.
+        executable_name = os.path.basename(executable).lower()
+        command = [executable]
+        if executable_name in {"llama.exe", "llama"}:
+            command.append("serve")
+        command.extend([
+            "--model", model_path, "--mmproj", mmproj_path,
             "--host", "127.0.0.1", "--port", str(port), "--n-gpu-layers", "99",
-        ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        ])
+        self.server_process = subprocess.Popen(
+            command,
+            cwd=os.path.dirname(executable) or None,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
         # GGUF weights are memory-mapped and uploaded to the 5070 before the
         # health endpoint changes from 503 to 200.  Thirty seconds is too short
         # on a cold Windows start, especially for the Q6 file.
@@ -334,7 +348,8 @@ class VariantVLMService:
         prompt = request.prompt or (
             "Analyze only visible visual content in these chronological frames. "
             "Return exactly one compact JSON object with keys summary, objects, attributes, actions, relations, temporal_events, uncertainty. "
-            "Keep summary under 40 words and each array under 6 items. Do not use markdown, OCR, subtitles, audio, names, identities or face recognition."
+            "Keep summary under 20 words and each array to at most 4 short items. Use empty arrays when absent. "
+            "Do not use markdown, OCR, subtitles, audio, names, identities, timestamps or face recognition."
         )
         started = time.perf_counter()
         raw = self._generate(request, prompt, max(int(request.max_new_tokens), settings.VLM_CAPTION_MAX_NEW_TOKENS))
@@ -343,7 +358,8 @@ class VariantVLMService:
         if not data:
             repair_raw = self._generate(
                 request,
-                "Return one compact valid JSON object only. Keys: summary, objects, attributes, actions, relations, temporal_events, uncertainty. No markdown.",
+                "Return one compact valid JSON object only. Keys: summary, objects, attributes, actions, relations, temporal_events, uncertainty. "
+                "Summary under 20 words, at most 4 short items per array, empty arrays when absent, no markdown or extra keys.",
                 min(settings.VLM_JSON_REPAIR_MAX_NEW_TOKENS, max(64, int(request.max_new_tokens))),
             )
             data = self._extract_json(repair_raw)
@@ -421,7 +437,7 @@ class VariantVLMService:
 
 
 class Qwen3VLService(VariantVLMService):
-    """Compatibility wrapper for the legacy /v1/qwen endpoints."""
+    """Compatibility wrapper for legacy imports; it now points to CapRL Q6."""
 
     def __init__(self) -> None:
-        super().__init__("qwen3_vl_2b")
+        super().__init__("caprl_qwen3vl_4b_q6")

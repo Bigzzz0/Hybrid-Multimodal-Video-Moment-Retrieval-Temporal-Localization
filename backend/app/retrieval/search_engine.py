@@ -42,13 +42,19 @@ class HybridMomentSearchEngine:
         self._fusion_cache: Optional[Dict[str, float]] = None
 
     @staticmethod
-    def _fuse_accurate_score(base: float, sam_score: float = 0.0, qwen_confidence: Optional[float] = None, qwen_present: bool = True) -> float:
-        if qwen_confidence is not None and not qwen_present:
+    def _fuse_accurate_score(base: float, sam_score: float = 0.0, vlm_confidence: Optional[float] = None, vlm_present: bool = True, **legacy: Any) -> float:
+        # Keep the old keyword contract for persisted/test callers while the
+        # production implementation is model-neutral and runs CapRL Q6.
+        if vlm_confidence is None and "qwen_confidence" in legacy:
+            vlm_confidence = legacy["qwen_confidence"]
+        if "qwen_present" in legacy:
+            vlm_present = bool(legacy["qwen_present"])
+        if vlm_confidence is not None and not vlm_present:
             return base * 0.20
-        if sam_score > 0.0 and qwen_confidence is not None:
-            return 0.45 * base + 0.25 * sam_score + 0.30 * qwen_confidence
-        if qwen_confidence is not None:
-            return 0.60 * base + 0.40 * qwen_confidence
+        if sam_score > 0.0 and vlm_confidence is not None:
+            return 0.45 * base + 0.25 * sam_score + 0.30 * vlm_confidence
+        if vlm_confidence is not None:
+            return 0.60 * base + 0.40 * vlm_confidence
         if sam_score > 0.0:
             return 0.55 * base + 0.45 * sam_score
         return base
@@ -300,13 +306,11 @@ class HybridMomentSearchEngine:
         except Exception:
             caption_metadata = None
         caption_status = str((caption_metadata or {}).get("build_status", (caption_metadata or {}).get("status", "legacy" if caption_rows else "unavailable")))
-        caption_model_id = (caption_metadata or {}).get("model_id") or (settings.QWEN_VL_MODEL_ID if caption_rows else None)
+        caption_model_id = (caption_metadata or {}).get("model_id") or (get_variant(settings.CAPTION_PRIMARY_BACKEND).model_id if caption_rows else None)
         caption_fallback_used = bool((caption_metadata or {}).get("fallback_count", 0))
         if caption_rows and caption_status == "ready":
             if caption_model_id and caption_model_id not in models_used:
                 models_used.append(str(caption_model_id))
-            if caption_fallback_used and settings.QWEN_VL_MODEL_ID not in models_used:
-                models_used.append(settings.QWEN_VL_MODEL_ID)
         if caption_status in {"pending", "running"}:
             warnings.append("caption_backfill_pending")
         caption_by_scene: Dict[str, float] = {}
@@ -348,7 +352,7 @@ class HybridMomentSearchEngine:
             ts = float(item.get("timestamp", 0.0))
             raw_by_timestamp[ts] = max(raw_by_timestamp.get(ts, -1.0), float(result["fused_score"]))
         # Keep the proposal generator identical between profiles. Accurate
-        # gets its extra signal from SAM/Qwen; it must not discard a good Fast
+        # gets its extra signal from grounding/VLM verification; it must not discard a good Fast
         # proposal merely because a second-stage verifier is unavailable.
         axis, raw_timeline = self.smoother.smooth_timeline(duration, list(raw_by_timestamp.items()), sigma=settings.TEMPORAL_GAUSSIAN_SIGMA,
                                                            resolution_hz=2, use_multiscale=False)
@@ -362,12 +366,13 @@ class HybridMomentSearchEngine:
         if not candidates:
             warnings.append("no_candidates")
         # Snapshot the profile-independent retrieval result. Accurate may add
-        # Qwen evidence, but a verifier failure must never erase Fast results.
+        # CapRL Q6 evidence, but a verifier failure must never erase Fast results.
         baseline_candidates = [dict(candidate) for candidate in candidates]
         calibration_available = self._load_calibration() is not None
         if not calibration_available:
             warnings.append("calibration_missing")
         route_info = query_router.route(query) if profile == "accurate" else {"route": "fast"}
+        verifier_variant = get_variant(settings.VLM_VERIFIER_BACKEND)
         if profile == "accurate":
             planner_version = str(route_info.get("planner_version", "caption-cascade-v1"))
             for candidate in candidates:
@@ -377,19 +382,19 @@ class HybridMomentSearchEngine:
             caption_margin = caption_scores[0] - caption_scores[1] if len(caption_scores) > 1 else 1.0
             semantic_required = bool(route_info.get("semantic_requirements")) or bool(route_info.get("ambiguous"))
             caption_missing = not caption_rows or not caption_scores
-            should_verify_with_qwen = bool(candidates) and (
+            should_verify_with_vlm = bool(candidates) and (
                 semantic_required or caption_missing or caption_margin < 0.05
             )
             remaining_budget = max(0.0, accurate_deadline - time.monotonic()) if accurate_deadline else 0.0
             verify_limit = max(1, min(int(settings.ACCURATE_VERIFY_TOP_K), len(candidates)))
-            if should_verify_with_qwen and remaining_budget >= float(settings.ACCURATE_MIN_REMAINING_SECONDS):
+            if should_verify_with_vlm and remaining_budget >= float(settings.ACCURATE_MIN_REMAINING_SECONDS):
                 for candidate in candidates[:verify_limit]:
                     midpoint = (float(candidate.get("t_start", 0.0)) + float(candidate.get("t_end", 0.0))) / 2.0
                     caption_match = next((row for row in caption_rows if float(row.get("t_start", 0.0)) <= midpoint <= float(row.get("t_end", duration))), None)
                     if caption_match:
                         candidate["caption_preview"] = str(caption_match.get("caption", "") or "")
                 verifier_started = time.monotonic()
-                models_attempted.append(settings.QWEN_VL_MODEL_ID)
+                models_attempted.append(verifier_variant.model_id)
                 verifier_frames = [{"_video_path": str(target.get("filepath", ""))}] + frames
                 video_fingerprint = grounding_orchestrator._video_fingerprint(video_id)
                 verified_head = vlm_verifier.verify(
@@ -403,37 +408,38 @@ class HybridMomentSearchEngine:
                 )
                 candidates = verified_head + candidates[verify_limit:]
                 warnings.extend(vlm_verifier.last_warnings)
-                cache_hits.update({f"qwen:{key}": value for key, value in vlm_verifier.last_cache_hits.items()})
-                stage_latency_ms["qwen"] = round((time.monotonic() - verifier_started) * 1000, 2)
-                has_qwen_evidence = any("verifier_confidence" in item for item in candidates[:verify_limit])
-                stage_status["qwen"] = "verified" if has_qwen_evidence else "unavailable"
-                cascade_path.extend(["qwen:verified" if has_qwen_evidence else "qwen:unavailable", "qwen:unloaded"])
-                if has_qwen_evidence:
-                    models_used.append(settings.QWEN_VL_MODEL_ID)
-                    warnings.append("qwen_fallback_verified" if any(bool(item.get("action_present")) for item in candidates[:verify_limit]) else "qwen_fallback_rejected")
-            elif should_verify_with_qwen:
-                stage_status["qwen"] = "skipped"
+                cache_hits.update({f"caprl_q6:{key}": value for key, value in vlm_verifier.last_cache_hits.items()})
+                stage_latency_ms["caprl_q6"] = round((time.monotonic() - verifier_started) * 1000, 2)
+                has_vlm_evidence = any("verifier_confidence" in item for item in candidates[:verify_limit])
+                stage_status["caprl_q6"] = "verified" if has_vlm_evidence else "unavailable"
+                cascade_path.extend(["caprl_q6:verified" if has_vlm_evidence else "caprl_q6:unavailable", "caprl_q6:unloaded"])
+                if has_vlm_evidence:
+                    if verifier_variant.model_id not in models_used:
+                        models_used.append(verifier_variant.model_id)
+                    warnings.append("caprl_q6_verified" if any(bool(item.get("action_present")) for item in candidates[:verify_limit]) else "caprl_q6_rejected")
+            elif should_verify_with_vlm:
+                stage_status["caprl_q6"] = "skipped"
                 warnings.append("accurate_partial_budget")
             else:
-                stage_status["qwen"] = "not_needed"
-                cascade_path.append("qwen:not_needed")
+                stage_status["caprl_q6"] = "not_needed"
+                cascade_path.append("caprl_q6:not_needed")
 
             for candidate in candidates:
                 base = float(candidate.get("fast_score", candidate.get("score", 0.0)))
-                has_qwen = "verifier_confidence" in candidate
+                has_vlm = "verifier_confidence" in candidate
                 fused_score = self._fuse_accurate_score(
                     base,
                     0.0,
-                    float(candidate["verifier_confidence"]) if has_qwen else None,
+                    float(candidate["verifier_confidence"]) if has_vlm else None,
                     bool(candidate.get("action_present", False)),
                 )
                 candidate["score"] = fused_score
                 candidate["rank_score"] = fused_score
 
-            has_qwen_evidence = any("verifier_confidence" in item for item in candidates)
-            strategy_used = "qwen" if has_qwen_evidence else "fast"
+            has_vlm_evidence = any("verifier_confidence" in item for item in candidates)
+            strategy_used = "caprl_q6" if has_vlm_evidence else "fast"
             if strategy_used == "fast":
-                warnings.append("accurate_fallback_fast" if should_verify_with_qwen else "accurate_caption_only")
+                warnings.append("accurate_fallback_fast" if should_verify_with_vlm else "accurate_caption_only")
 
         scored: List[Tuple[float, Dict[str, Any]]] = []
         threshold: Optional[float] = None
@@ -480,6 +486,7 @@ class HybridMomentSearchEngine:
             moments.append(MomentItem(t_start=start, t_end=end, score=round(float(probability), 4),
                                       raw_score=round(float(candidate.get("rank_score", candidate.get("score", 0.0))), 6), display_score=round(float(candidate.get("score", 0.0)), 4),
                                       preview_frame_path=nearest.get("frame_path"), caption_preview=scene_caption or None,
+                                      caption_full=scene_caption or None,
                                       modality_breakdown=breakdown,
                                       occurrence_index=occurrence_by_key.get((start, end), 0),
                                       context_t_start=round(float(candidate.get("context_t_start", start)), 3),
@@ -489,11 +496,14 @@ class HybridMomentSearchEngine:
                                           {"event_present": bool(candidate.get("action_present", False)),
                                            "confidence": round(verifier, 4),
                                            "reason": str(candidate.get("verifier_reason", "")),
-                                           "model_id": settings.QWEN_VL_MODEL_ID}
+                                            "model_id": verifier_variant.model_id,
+                                            "raw_output": str(candidate.get("verifier_raw_output", ""))}
                                           if "verifier_confidence" in candidate else None
                                       )))
         # one heatmap value per second, derived only from display timeline
         heatmap = [round(float(display_timeline[min(len(display_timeline) - 1, int(sec * 2))]), 4) for sec in range(max(0, int(np.ceil(duration))))] if len(display_timeline) else []
+        models_used = list(dict.fromkeys(models_used))
+        models_attempted = list(dict.fromkeys(models_attempted))
         return SearchResponse(query=query, video_id=video_id, moments=moments, timeline_heatmap=heatmap,
                               total_duration=round(duration, 2), latency_ms=round((time.monotonic() - started) * 1000, 2),
                               top_k=top_k, profile=profile, calibrated=calibration_available,
@@ -505,8 +515,8 @@ class HybridMomentSearchEngine:
                               caption_status=caption_status, caption_model_id=caption_model_id,
                               caption_artifact_version=settings.CAPTION_ARTIFACT_VERSION,
                               caption_fallback_used=caption_fallback_used,
-                              online_verifier_used=settings.QWEN_VL_MODEL_ID in models_used and profile == "accurate",
-                              online_verifier_model_id=settings.QWEN_VL_MODEL_ID if settings.QWEN_VL_MODEL_ID in models_used else None)
+                              online_verifier_used=verifier_variant.model_id in models_used and profile == "accurate",
+                              online_verifier_model_id=verifier_variant.model_id if verifier_variant.model_id in models_used else None)
 
 
 search_engine = HybridMomentSearchEngine()

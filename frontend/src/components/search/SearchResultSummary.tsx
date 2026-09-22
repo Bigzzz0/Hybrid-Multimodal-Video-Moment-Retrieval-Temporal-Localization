@@ -32,7 +32,7 @@ export const SearchResultSummary: React.FC<SearchResultSummaryProps> = ({ query,
       {modelsUsed.length > 0 && <span className="truncate max-w-full text-gray-500" title={modelsUsed.join(", ")}>{modelsUsed.join(" + ")}</span>}
       {captionStatus && <span className="font-mono text-indigo-300">caption {captionStatus}</span>}
       {captionModelId && <span className="truncate max-w-full text-gray-500" title={captionModelId}>{captionModelId}</span>}
-      {onlineVerifierUsed && <span className="font-mono text-emerald-300">Qwen verified</span>}
+      {onlineVerifierUsed && <span className="font-mono text-emerald-300">CapRL Q6 verified</span>}
     </div>
     {profile === "accurate" && cascadePath.length > 0 && (
       <div className="mt-2 flex flex-wrap gap-1.5 text-[10px] font-mono text-cyan-300" aria-label="Accurate cascade path">

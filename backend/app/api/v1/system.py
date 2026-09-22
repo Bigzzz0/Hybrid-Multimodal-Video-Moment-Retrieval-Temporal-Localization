@@ -98,9 +98,9 @@ def get_system_telemetry():
             "acceleration": "CUDA FP16 / Tensor Cores" if torch.cuda.is_available() else "CPU"
         },
         "visual_temporal_reranker": {
-            "name": "Qwen3-VL-2B-Instruct (top-3)",
+            "name": "CapRL-Qwen3VL-4B Q6_K (top candidates)",
             "model_id": settings.QWEN_VL_MODEL_ID,
-            "quantization": "4-bit NormalFloat (NF4) BitsAndBytes"
+            "quantization": "Q6_K GGUF / llama.cpp CUDA"
         },
         "primary_captioner": {
             "name": "CapRL-Qwen3VL-4B Q6_K",

@@ -1,13 +1,11 @@
 import time
 import numpy as np
 from typing import List, Dict, Any, Optional
-from PIL import Image
 from pydantic import BaseModel, Field
 from app.core.config import settings
 from app.core.logger import logger
 from app.db.connection import db_manager
 from app.pipeline.visual_encoder import SigLIP2VisualEncoder
-from app.pipeline.dense_captioner import QwenVLDenseCaptioner
 from app.inference.client import inference_client
 from app.inference.contracts import AnswerRequest
 
@@ -37,7 +35,6 @@ class VideoRAGEngine:
 
     def __init__(self):
         self.text_encoder = SigLIP2VisualEncoder()
-        self.captioner = QwenVLDenseCaptioner()
 
     def answer_question(self, video_id: str, question: str) -> VideoQAResponse:
         t0 = time.time()
@@ -86,8 +83,8 @@ class VideoRAGEngine:
                     thumbnail_path=f.get("frame_path")
                 ))
 
-        # Evidence-grounded Qwen3-VL answer.  The isolated worker is preferred;
-        # direct inference is retained only for the legacy single-process path.
+        # Evidence-grounded CapRL Q6 answer. The isolated worker owns the only
+        # production VLM; there is deliberately no in-process Qwen fallback.
         answer = ""
         models_used: List[str] = [settings.SIGLIP2_MODEL_ID]
         warnings: List[str] = []
@@ -112,24 +109,11 @@ class VideoRAGEngine:
                     if response.model_id:
                         models_used.append(response.model_id)
                 except Exception as exc:
-                    warnings.append("qwen_worker_unavailable")
-                    logger.warning(f"Video VQA worker fallback: {exc}")
+                    warnings.append("caprl_q6_worker_unavailable")
+                    logger.warning(f"Video VQA CapRL Q6 worker unavailable: {exc}")
             else:
-                try:
-                    images = [Image.open(path).convert("RGB") for path in valid_frame_paths[:settings.QWEN_MAX_FRAMES_PER_CANDIDATE]]
-                    answer = self.captioner.generate_scene_caption(
-                        images,
-                        prompt_override=prompt,
-                        max_frames=len(images),
-                        max_new_tokens=256,
-                    ).strip()
-                    for image in images:
-                        image.close()
-                    if answer:
-                        models_used.append(settings.QWEN_VL_MODEL_ID)
-                except Exception as exc:
-                    warnings.append("qwen_vqa_fallback")
-                    logger.warning(f"Direct Qwen VQA fallback: {exc}")
+                warnings.append("inference_worker_unavailable")
+                logger.warning("Video VQA requires the local CapRL Q6 inference worker")
 
         if not answer:
             if context_visual_str.strip():

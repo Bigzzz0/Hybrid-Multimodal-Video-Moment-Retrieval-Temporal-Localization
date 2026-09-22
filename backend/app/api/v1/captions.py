@@ -25,19 +25,43 @@ def caption_status(video_id: str) -> Dict[str, Any]:
     if not _video_exists(video_id):
         raise HTTPException(status_code=404, detail="video not found")
     primary = get_variant(settings.CAPTION_PRIMARY_BACKEND)
-    fallback = get_variant(settings.CAPTION_FALLBACK_BACKEND)
+    fallback_backend = str(settings.CAPTION_FALLBACK_BACKEND or "").strip()
     metadata = vlm_artifact_store.metadata(video_id, primary.backend) or {}
+    status = metadata.get("build_status", metadata.get("status", "unavailable"))
+    # Backfill workers may run in a separate process (for example through the
+    # resumable CLI), so the metadata row is only a checkpoint. Count the
+    # scene artifacts themselves to expose live progress without requiring the
+    # worker to be restarted or to share Python memory with the API process.
+    pending_version = str(metadata.get("pending_artifact_version") or "")
+    active_version = str(metadata.get("active_artifact_version") or "")
+    observed_version = pending_version if status in {"running", "pending"} and pending_version else active_version
+    observed_rows = vlm_artifact_store.caption_rows(
+        video_id,
+        primary.backend,
+        require_ready=False,
+        artifact_version=observed_version or None,
+    )
+    observed_count = len({str(row.get("id", "")) for row in observed_rows if row.get("id")})
+    expected_count = int(metadata.get("expected_count", 0) or 0)
+    completed_count = max(int(metadata.get("completed_count", 0) or 0), observed_count)
+    progress_percent = int((completed_count / expected_count) * 100) if expected_count else 0
+    worker = inference_client.health()
+    worker_models = worker.get("models", {}) if isinstance(worker, dict) else {}
     return {
         "video_id": video_id,
-        "status": metadata.get("build_status", metadata.get("status", "unavailable")),
-        "expected_count": int(metadata.get("expected_count", 0) or 0),
-        "completed_count": int(metadata.get("completed_count", 0) or 0),
+        "status": status,
+        "expected_count": expected_count,
+        "completed_count": completed_count,
+        "progress_percent": min(100, max(0, progress_percent)),
         "fallback_count": int(metadata.get("fallback_count", 0) or 0),
         "active_backend": primary.backend,
         "active_model_id": primary.model_id,
-        "fallback_backend": fallback.backend,
+        "fallback_backend": fallback_backend,
         "artifact_version": settings.CAPTION_ARTIFACT_VERSION,
-        "worker": inference_client.health(),
+        "worker": worker,
+        "current_model": worker_models.get("current_model", ""),
+        "current_task": worker_models.get("current_task", ""),
+        "cascade_stage": worker_models.get("cascade_stage", "idle"),
         "warnings": [metadata["error_message"]] if metadata.get("error_message") else [],
     }
 

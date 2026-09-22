@@ -45,6 +45,7 @@ export interface MomentItem {
   score: number;
   preview_frame_path?: string | null;
   caption_preview?: string | null;
+  caption_full?: string | null;
   modality_breakdown?: Record<string, number> | null;
   occurrence_index?: number;
   context_t_start?: number | null;
@@ -67,6 +68,7 @@ export interface VerifierEvidence {
   confidence: number;
   reason?: string;
   model_id?: string;
+  raw_output?: string;
 }
 
 export interface DragHandleState {
@@ -121,11 +123,24 @@ export interface CaptionStatus {
   status: "unavailable" | "pending" | "running" | "ready" | "error" | string;
   expected_count: number;
   completed_count: number;
+  progress_percent?: number;
   fallback_count?: number;
   active_backend: string;
   active_model_id: string;
   fallback_backend: string;
   artifact_version: string;
+  current_model?: string;
+  current_task?: string;
+  cascade_stage?: string;
+  worker?: {
+    status?: string;
+    models?: {
+      current_model?: string;
+      current_task?: string;
+      cascade_stage?: string;
+      queue_depth?: number;
+    };
+  };
   warnings: string[];
 }
 

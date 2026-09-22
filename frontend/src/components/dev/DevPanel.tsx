@@ -369,7 +369,7 @@ export const DevPanel: React.FC<DevPanelProps> = ({ isOpen, onClose }) => {
                   </div>
                   <div>
                     <h4 className="text-sm font-bold text-white">Dense Captioner: CapRL 4B Q6</h4>
-                    <p className="text-xs text-gray-400">Background scene captioning with Qwen3-VL-2B fallback</p>
+                    <p className="text-xs text-gray-400">Background scene captioning and Accurate verification with CapRL Q6</p>
                   </div>
                 </div>
                 <div className="p-3 rounded-lg bg-background/80 border border-surfaceBorder space-y-1 text-xs font-mono">

@@ -28,7 +28,7 @@ class CaptionRequest(BaseModel):
     prompt: str = ""
     prompt_version: str = "classroom-caption-v1"
     max_new_tokens: int = 256
-    vlm_backend: str = "qwen3_vl_2b"
+    vlm_backend: str = "caprl_qwen3vl_4b_q6"
     release_after: bool = False
     video_path: str = ""
     t_start: float = 0.0
@@ -49,7 +49,7 @@ class CaptionResponse(BaseModel):
     uncertainty: List[str] = Field(default_factory=list)
     model_id: str = ""
     status: str = "unavailable"
-    vlm_backend: str = "qwen3_vl_2b"
+    vlm_backend: str = "caprl_qwen3vl_4b_q6"
     model_revision: str = ""
     quantization: str = ""
     input_mode: str = "frames"
@@ -69,7 +69,7 @@ class VerifyRequest(BaseModel):
     grounding_evidence: List[Dict[str, Any]] = Field(default_factory=list)
     semantic_requirements: List[str] = Field(default_factory=list)
     release_after: bool = False
-    vlm_backend: str = "qwen3_vl_2b"
+    vlm_backend: str = "caprl_qwen3vl_4b_q6"
 
 
 class VerifyResponse(BaseModel):
@@ -80,7 +80,7 @@ class VerifyResponse(BaseModel):
     reason: str = ""
     raw_text: str = ""
     model_id: str = ""
-    vlm_backend: str = "qwen3_vl_2b"
+    vlm_backend: str = "caprl_qwen3vl_4b_q6"
     model_revision: str = ""
     quantization: str = ""
     input_mode: str = "frames"
@@ -142,7 +142,7 @@ class GroundResponse(BaseModel):
 
 
 class VLMUnloadRequest(BaseModel):
-    vlm_backend: str = "qwen3_vl_2b"
+    vlm_backend: str = "caprl_qwen3vl_4b_q6"
 
 
 class VLMUnloadResponse(BaseModel):

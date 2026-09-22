@@ -38,7 +38,7 @@ def run_progressive_pipeline(video_id: str, file_path: str, filename: str):
 
         # Background captioning starts after Phase 1 has already marked the
         # video searchable. Q6 stays resident for this video and falls back
-        # to Qwen3-VL-2B only for failed scenes.
+        # to the production CapRL Q6 caption flow only.
         ingestion_manager.process_video_primary_captions(
             video_id=video_id,
             progress_callback=lambda vid, pct, msg, stg, det: sync_progress_adapter(vid, pct, msg, stg, "phase2", det)

@@ -546,7 +546,7 @@ export default function DashboardPage() {
             </p>
 
             <p className="text-xs text-red-300/90 bg-red-950/40 p-3 rounded-xl border border-red-900/50 leading-relaxed">
-              ⚠️ การลบนี้จะลบเวกเตอร์ภาพ SigLIP 2 (768 มิติ), คำบรรยาย Qwen3-VL, หลักฐาน SAM 3.1, ตลอดจนไฟล์คีย์เฟรมและไฟล์วิดีโอต้นฉบับออกจากระบบอย่างถาวร
+              ⚠️ การลบนี้จะลบเวกเตอร์ภาพ SigLIP 2 (768 มิติ), คำบรรยาย CapRL Q6, หลักฐาน SAM 3.1, ตลอดจนไฟล์คีย์เฟรมและไฟล์วิดีโอต้นฉบับออกจากระบบอย่างถาวร
             </p>
 
             {deleteError && (

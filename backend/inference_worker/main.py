@@ -83,15 +83,8 @@ def torch_oom_error():
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await inference_scheduler.start()
-    if settings.INFERENCE_WARMUP_QWEN:
-        try:
-            # Pay the one-time model load before Accurate starts its bounded
-            # verification budget. The model manager still enforces VRAM.
-            await asyncio.to_thread(model_manager.get, "qwen", lambda: VariantVLMService("qwen3_vl_2b"))
-        except Exception as exc:
-            # Keep Fast search available if the optional warm-up fails.
-            model_manager.states["qwen"] = "error"
-            print(f"Qwen warm-up failed: {exc}")
+    # CapRL Q6 is deliberately lazy-loaded. Caption backfill and Accurate
+    # verification share the same runtime and release it when requested.
     yield
     await inference_scheduler.stop()
     model_manager.unload_inactive()
@@ -119,20 +112,22 @@ async def embed_images(request: EmbedImagesRequest, _: None = Depends(_authorize
 
 @app.post("/v1/qwen/caption")
 async def caption(request: CaptionRequest, _: None = Depends(_authorize)):
-    request.vlm_backend = "qwen3_vl_2b"
-    return await _run("qwen", lambda: VariantVLMService("qwen3_vl_2b"), "caption", request, priority="ingestion")
+    # Compatibility endpoint: the production model is CapRL Q6.
+    request.vlm_backend = "caprl_qwen3vl_4b_q6"
+    return await _run("q6", lambda: VariantVLMService("caprl_qwen3vl_4b_q6"), "caption", request, priority="ingestion")
 
 
 @app.post("/v1/qwen/verify")
 async def verify(request: VerifyRequest, _: None = Depends(_authorize)):
-    request.vlm_backend = "qwen3_vl_2b"
-    return await _run("qwen", lambda: VariantVLMService("qwen3_vl_2b"), "verify", request, priority="interactive_search")
+    request.vlm_backend = "caprl_qwen3vl_4b_q6"
+    return await _run("q6", lambda: VariantVLMService("caprl_qwen3vl_4b_q6"), "verify", request, priority="interactive_search")
 
 
 @app.post("/v1/qwen/answer")
 async def answer(request: AnswerRequest, _: None = Depends(_authorize)):
-    request.vlm_backend = "qwen3_vl_2b"
-    return await _run("qwen", lambda: VariantVLMService("qwen3_vl_2b"), "answer", request, priority="vqa")
+    # Compatibility endpoint: Video VQA also uses the single production VLM.
+    request.vlm_backend = "caprl_qwen3vl_4b_q6"
+    return await _run("q6", lambda: VariantVLMService("caprl_qwen3vl_4b_q6"), "answer", request, priority="vqa")
 
 
 def _vlm_worker_name(backend: str) -> str:
@@ -140,7 +135,7 @@ def _vlm_worker_name(backend: str) -> str:
         variant = get_variant(backend)
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
-    return "q6" if variant.backend == "caprl_qwen3vl_4b_q6" else "qwen"
+    return "q6"
 
 
 @app.post("/v1/vlm/caption")

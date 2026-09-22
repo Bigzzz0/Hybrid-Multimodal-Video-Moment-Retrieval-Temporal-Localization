@@ -14,12 +14,25 @@ import {
   CheckSquare,
   Square,
   Activity,
+  ChevronDown,
+  ChevronUp,
+  FileText,
+  Bot,
 } from "lucide-react";
 import { apiClient } from "@/lib/api";
 import { MomentEvidenceBreakdown } from "@/components/search/MomentEvidenceBreakdown";
 import { MomentScore } from "@/components/search/MomentScore";
 import { momentIdentity, formatMomentTime } from "@/lib/ui";
 import { SearchEmptyState } from "@/components/search/SearchEmptyState";
+
+const formatEvidenceText = (value?: string | null): string => {
+  if (!value) return "";
+  try {
+    return JSON.stringify(JSON.parse(value), null, 2);
+  } catch {
+    return value;
+  }
+};
 
 interface MomentCardsProps {
   moments: MomentItem[];
@@ -51,6 +64,7 @@ export const MomentCards: React.FC<MomentCardsProps> = ({
   const [exportingIndex, setExportingIndex] = useState<number | null>(null);
   const [isBatchExporting, setIsBatchExporting] = useState(false);
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
+  const [expandedEvidence, setExpandedEvidence] = useState<Set<string>>(new Set());
   const headingRef = useRef<HTMLHeadingElement | null>(null);
 
   useEffect(() => {
@@ -60,7 +74,94 @@ export const MomentCards: React.FC<MomentCardsProps> = ({
   useEffect(() => {
     setSelectedMoments(new Set());
     setCopiedIndex(null);
+    setExpandedEvidence(new Set());
   }, [moments]);
+
+  const toggleEvidence = (e: React.MouseEvent, moment: MomentItem, section: "caption" | "verifier") => {
+    e.stopPropagation();
+    const key = `${momentIdentity(moment)}:${section}`;
+    const updated = new Set(expandedEvidence);
+    if (updated.has(key)) updated.delete(key);
+    else updated.add(key);
+    setExpandedEvidence(updated);
+  };
+
+  const renderEvidencePanel = (m: MomentItem) => {
+    const caption = m.caption_full ?? m.caption_preview;
+    const verifier = m.verifier_evidence;
+    if (!caption && !verifier) return null;
+
+    const key = momentIdentity(m);
+    const captionExpanded = expandedEvidence.has(`${key}:caption`);
+    const verifierExpanded = expandedEvidence.has(`${key}:verifier`);
+    const verifierFallback = verifier
+      ? JSON.stringify({
+          event_present: verifier.event_present,
+          confidence: verifier.confidence,
+          reason: verifier.reason ?? "",
+        }, null, 2)
+      : "";
+
+    return (
+      <div className="space-y-1.5" onClick={(e) => e.stopPropagation()}>
+        <div className="flex flex-wrap items-center gap-1.5">
+          {caption && (
+            <button
+              type="button"
+              onClick={(e) => toggleEvidence(e, m, "caption")}
+              className="inline-flex items-center gap-1 rounded-lg border border-cyan-800/60 bg-cyan-950/30 px-2 py-1 text-[10px] font-medium text-cyan-200 hover:bg-cyan-900/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400"
+            >
+              <FileText className="h-3 w-3" />
+              Caption เต็ม
+              {captionExpanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+            </button>
+          )}
+          {verifier && (
+            <button
+              type="button"
+              onClick={(e) => toggleEvidence(e, m, "verifier")}
+              className="inline-flex items-center gap-1 rounded-lg border border-violet-800/60 bg-violet-950/30 px-2 py-1 text-[10px] font-medium text-violet-200 hover:bg-violet-900/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400"
+            >
+              <Bot className="h-3 w-3" />
+              ผล Accurate verifier
+              {verifierExpanded ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+            </button>
+          )}
+        </div>
+
+        {(captionExpanded || verifierExpanded) && (
+          <div className="rounded-xl border border-surfaceBorder bg-black/20 p-2.5 space-y-2.5">
+            {caption && captionExpanded && (
+              <section>
+                <div className="mb-1 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-cyan-300">
+                  <FileText className="h-3 w-3" /> Caption เต็มของซีน
+                </div>
+                <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-black/35 p-2 text-[10px] leading-relaxed text-gray-200">
+                  {formatEvidenceText(caption)}
+                </pre>
+              </section>
+            )}
+            {verifier && verifierExpanded && (
+              <section>
+                <div className="mb-1 flex flex-wrap items-center gap-2 text-[10px] font-semibold uppercase tracking-wide text-violet-300">
+                  <Bot className="h-3 w-3" /> Accurate verifier output
+                  {verifier.model_id && <span className="normal-case font-normal text-gray-400">{verifier.model_id}</span>}
+                </div>
+                <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-black/35 p-2 text-[10px] leading-relaxed text-gray-200">
+                  {formatEvidenceText(verifier.raw_output) || verifierFallback}
+                </pre>
+                <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-gray-400">
+                  <span>event_present: <b className={verifier.event_present ? "text-emerald-300" : "text-rose-300"}>{String(verifier.event_present)}</b></span>
+                  <span>confidence: <b className="text-violet-200">{verifier.confidence.toFixed(3)}</b></span>
+                  {verifier.reason && <span className="basis-full text-gray-300">reason: {verifier.reason}</span>}
+                </div>
+              </section>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
 
   const toggleSelectMoment = (e: React.MouseEvent, idx: number) => {
     e.stopPropagation();
@@ -332,6 +433,8 @@ export const MomentCards: React.FC<MomentCardsProps> = ({
                         ))}
                       </div>
                     )}
+
+                    {renderEvidencePanel(m)}
                   </div>
                 </div>
 
@@ -445,6 +548,7 @@ export const MomentCards: React.FC<MomentCardsProps> = ({
                 <p className="text-[11px] text-gray-400 line-clamp-1 leading-snug">
                   {m.caption_preview || "Caption unavailable — frame embeddings only"}
                 </p>
+                {renderEvidencePanel(m)}
                 {onExpandContext && m.context_t_start != null && m.context_t_end != null && (m.context_t_start < m.t_start - 0.01 || m.context_t_end > m.t_end + 0.01) && (
                   <button type="button" onClick={(e) => { e.stopPropagation(); onExpandContext(m); }} className="min-h-9 rounded-lg border border-indigo-800/60 px-2 py-1 text-[10px] font-semibold text-indigo-200 hover:bg-indigo-900/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400">ดูบริบท {formatMomentTime(m.context_t_start)}–{formatMomentTime(m.context_t_end)}</button>
                 )}

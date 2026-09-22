@@ -53,21 +53,26 @@ class Settings(BaseSettings):
     VISUAL_INDEX_VERSION: str = os.environ.get("VISUAL_INDEX_VERSION", "v2")
     SIGLIP2_EMBEDDING_DIM: int = 768
     SIGLIP2_EMBEDDING_VERSION: str = "siglip2-naflex-v2"
-    QWEN_VL_MODEL_ID: str = os.environ.get("QWEN_VL_MODEL_ID", "Qwen/Qwen3-VL-2B-Instruct")
-    QWEN_VL_MODEL_REVISION: str = os.environ.get("QWEN_VL_MODEL_REVISION", "89644892e4d85e24eaac8bacfd4f463576704203")
+    # Compatibility names retained for old persisted rows/API clients. The
+    # production runtime is CapRL Q6; no Qwen3-VL-2B model is loaded.
+    QWEN_VL_MODEL_ID: str = os.environ.get("QWEN_VL_MODEL_ID", "internlm/CapRL-Qwen3VL-4B-GGUF")
+    QWEN_VL_MODEL_REVISION: str = os.environ.get("QWEN_VL_MODEL_REVISION", "922d08bb6257875336aa138616c74902f736099c")
     SAM_MODEL_ID: str = os.environ.get("SAM_MODEL_ID", "facebook/sam3.1")
     ENABLE_SAM_GROUNDING: bool = os.environ.get("ENABLE_SAM_GROUNDING", "false").lower() in {"1", "true", "yes"}
-    CAPTION_VERSION: str = os.environ.get("CAPTION_VERSION", "qwen3vl2b-v1")
+    CAPTION_VERSION: str = os.environ.get("CAPTION_VERSION", "q6-scene-caption-v1")
     CAPTION_PRIMARY_BACKEND: str = os.environ.get("CAPTION_PRIMARY_BACKEND", "caprl_qwen3vl_4b_q6")
-    CAPTION_FALLBACK_BACKEND: str = os.environ.get("CAPTION_FALLBACK_BACKEND", "qwen3_vl_2b")
+    CAPTION_FALLBACK_BACKEND: str = os.environ.get("CAPTION_FALLBACK_BACKEND", "")
+    VLM_VERIFIER_BACKEND: str = os.environ.get("VLM_VERIFIER_BACKEND", "caprl_qwen3vl_4b_q6")
     CAPTION_ARTIFACT_VERSION: str = os.environ.get("CAPTION_ARTIFACT_VERSION", "q6-scene-caption-v1")
     CAPTION_PROMPT_VERSION: str = os.environ.get("CAPTION_PROMPT_VERSION", "pure-visual-caption-v1")
     CAPTION_MAX_FRAMES_PER_SCENE: int = int(os.environ.get("CAPTION_MAX_FRAMES_PER_SCENE", "4"))
     CAPTION_RETRY_FRAMES: int = int(os.environ.get("CAPTION_RETRY_FRAMES", "2"))
-    CAPTION_MAX_NEW_TOKENS: int = int(os.environ.get("CAPTION_MAX_NEW_TOKENS", "256"))
+    # CapRL Q6 can be verbose on multi-frame scenes. Keep enough headroom for
+    # a complete JSON object while the prompt below constrains each field.
+    CAPTION_MAX_NEW_TOKENS: int = int(os.environ.get("CAPTION_MAX_NEW_TOKENS", "384"))
     VLM_ARTIFACT_VERSION: str = os.environ.get("VLM_ARTIFACT_VERSION", os.environ.get("CAPTION_ARTIFACT_VERSION", "q6-scene-caption-v1"))
     VLM_CAPTION_MAX_NEW_TOKENS: int = int(os.environ.get("VLM_CAPTION_MAX_NEW_TOKENS", "256"))
-    VLM_JSON_REPAIR_MAX_NEW_TOKENS: int = int(os.environ.get("VLM_JSON_REPAIR_MAX_NEW_TOKENS", "128"))
+    VLM_JSON_REPAIR_MAX_NEW_TOKENS: int = int(os.environ.get("VLM_JSON_REPAIR_MAX_NEW_TOKENS", "256"))
     LLAMA_CPP_PATH: str = os.environ.get("LLAMA_CPP_PATH", "")
     VLM_GGUF_DIR: str = os.environ.get("VLM_GGUF_DIR", "")
     Q6_STARTUP_TIMEOUT_SEC: float = float(os.environ.get("Q6_STARTUP_TIMEOUT_SEC", "180"))

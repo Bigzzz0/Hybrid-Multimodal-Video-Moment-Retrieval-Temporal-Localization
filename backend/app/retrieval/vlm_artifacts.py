@@ -1,4 +1,4 @@
-"""Versioned storage helpers for production Q6 and Qwen caption artifacts."""
+"""Versioned storage helpers for production CapRL Q6 caption artifacts."""
 
 from __future__ import annotations
 
@@ -134,7 +134,7 @@ class VLMArtifactStore:
             "status": "ready", "load_ms": float(getattr(response, "load_ms", 0.0) or 0.0),
             "inference_ms": float(getattr(response, "inference_ms", 0.0) or 0.0),
             "json_valid": bool(getattr(response, "json_valid", False)),
-            "fallback_used": variant.backend == settings.CAPTION_FALLBACK_BACKEND,
+            "fallback_used": bool(settings.CAPTION_FALLBACK_BACKEND) and variant.backend == settings.CAPTION_FALLBACK_BACKEND,
             "created_at": now, "last_accessed_at": now,
         })
         return key
@@ -160,17 +160,19 @@ class VLMArtifactStore:
             selected_version = str(metadata.get("pending_artifact_version") or "")
         if not selected_version:
             selected_version = settings.VLM_ARTIFACT_VERSION
-        fallback_backend = settings.CAPTION_FALLBACK_BACKEND
+        fallback_backend = str(settings.CAPTION_FALLBACK_BACKEND or "").strip()
         rows = cls._rows("vlm_caption_artifacts_v1", f"video_id = '{video_id}'", 200000)
         output = []
         for row in rows:
             row_backend = str(row.get("vlm_backend", ""))
-            allowed = {variant.backend, fallback_backend}
+            allowed = {variant.backend}
+            if fallback_backend and fallback_backend != variant.backend:
+                allowed.add(fallback_backend)
             if row_backend not in allowed or row.get("artifact_version") != selected_version or row.get("status") != "ready":
                 continue
             if row_backend == variant.backend and row.get("model_revision") != variant.revision:
                 continue
-            if row_backend == fallback_backend and row.get("model_id") != settings.QWEN_VL_MODEL_ID:
+            if fallback_backend and row_backend == fallback_backend and row.get("model_id") != settings.QWEN_VL_MODEL_ID:
                 continue
             output.append({
                 "id": str(row.get("source_id", row.get("id", ""))),

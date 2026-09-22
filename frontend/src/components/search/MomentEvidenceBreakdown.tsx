@@ -7,7 +7,7 @@ const EVIDENCE = [
   ["visual", "VIS", "Visual match", "text-cyan-300", "bg-cyan-400", User],
   ["caption", "CAP", "Scene caption match", "text-indigo-300", "bg-indigo-400", Sparkles],
   ["temporal", "TMP", "Temporal proposal quality", "text-amber-300", "bg-amber-400", Activity],
-  ["verifier", "VLM", "Qwen visual verification", "text-emerald-300", "bg-emerald-400", Zap],
+  ["verifier", "VLM", "CapRL Q6 visual verification", "text-emerald-300", "bg-emerald-400", Zap],
 ] as const;
 
 export const MomentEvidenceBreakdown: React.FC<{ breakdown?: Record<string, number> | null; showVerifier?: boolean }> = ({ breakdown = {}, showVerifier = true }) => (

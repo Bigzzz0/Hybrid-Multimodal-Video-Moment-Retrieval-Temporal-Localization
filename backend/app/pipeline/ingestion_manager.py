@@ -270,7 +270,8 @@ class ProgressiveIngestionManager:
         progress_callback: Optional[Callable[[str, int, str, str, Dict[str, Any]], None]] = None
     ):
         """
-        Phase 2: Deep Context Ingestion (Background) - Generates Qwen3-VL-2B Spatiotemporal Action Captions.
+        Legacy phase 2 path retained for old data, but production uploads use
+        ``process_video_primary_captions`` with CapRL Q6 artifacts below.
         """
         logger.info(f"=== Starting Phase 2 Background Captioning for Video ID: {video_id} ===")
         if progress_callback:
@@ -390,8 +391,9 @@ class ProgressiveIngestionManager:
     ):
         """Create the active Q6 scene-caption version after Phase 1.
 
-        Q6 remains resident for the whole video. A scene-level failure falls
-        back to Qwen3-VL-2B and records the actual backend in the artifact.
+        CapRL Q6 remains resident for the whole video. A scene-level failure
+        stays unresolved for a later resumable retry; it never switches to a
+        second VLM silently.
         The old scene caption columns are left untouched until the new version
         has a complete artifact set.
         """
@@ -399,7 +401,8 @@ class ProgressiveIngestionManager:
         from app.inference.client import inference_client
 
         primary = get_variant(settings.CAPTION_PRIMARY_BACKEND)
-        fallback = get_variant(settings.CAPTION_FALLBACK_BACKEND)
+        fallback_backend = str(settings.CAPTION_FALLBACK_BACKEND or "").strip()
+        fallback = get_variant(fallback_backend) if fallback_backend else None
         frames_table = db_manager.get_table("video_frames_v2")
         scenes_table = db_manager.get_table("scenes_v2")
         try:
@@ -442,7 +445,7 @@ class ProgressiveIngestionManager:
             pending_artifact_version=job_version, build_status="running",
         )
         active_backend = ""
-        fallback_count = sum(1 for row in existing if row.get("vlm_backend") == fallback.backend)
+        fallback_count = sum(1 for row in existing if fallback and row.get("vlm_backend") == fallback.backend)
 
         def choose_frames(scene_id: str):
             group = sorted(
@@ -465,7 +468,9 @@ class ProgressiveIngestionManager:
                     "Analyze only visible visual content in these chronological CCTV frames. "
                     "Return exactly one compact JSON object with keys summary, objects, attributes, "
                     "actions, relations, temporal_events, uncertainty. Do not use OCR, subtitles, "
-                    "audio, names, identities or face recognition."
+                    "audio, names, identities or face recognition. Keep summary under 20 words, "
+                    "each array to at most 4 short items, and use empty arrays when absent. "
+                    "Do not include timestamps, long explanations, markdown or extra keys."
                 ),
                 prompt_version=settings.CAPTION_PROMPT_VERSION,
                 max_new_tokens=settings.CAPTION_MAX_NEW_TOKENS,
@@ -475,20 +480,7 @@ class ProgressiveIngestionManager:
             )
             if settings.INFERENCE_WORKER_ENABLED:
                 return inference_client.vlm_caption(request, timeout_sec=240.0)
-            if backend != fallback.backend:
-                raise RuntimeError("Q6 caption requires the local inference worker")
-            text = self.dense_captioner.generate_scene_caption_from_paths(paths[:max_frames], timestamps=timestamps[:max_frames], max_frames=max_frames)
-            structured = getattr(self.dense_captioner, "last_structured", {}) or {}
-            return CaptionResponse(
-                text=text or "", summary=str(structured.get("summary", text or "")),
-                objects=[str(item) for item in structured.get("objects", [])] if isinstance(structured.get("objects", []), list) else [],
-                actions=[str(item) for item in structured.get("actions", [])] if isinstance(structured.get("actions", []), list) else [],
-                relations=[str(item) for item in structured.get("relations", [])] if isinstance(structured.get("relations", []), list) else [],
-                uncertainty=[str(item) for item in structured.get("uncertainty", [])] if isinstance(structured.get("uncertainty", []), list) else [],
-                model_id=settings.QWEN_VL_MODEL_ID, status="generated", vlm_backend=fallback.backend,
-                model_revision=settings.QWEN_VL_MODEL_REVISION, quantization="NF4", input_mode="frames",
-                artifact_version=settings.CAPTION_ARTIFACT_VERSION, json_valid=bool(text),
-            )
+            raise RuntimeError("CapRL Q6 caption requires the local inference worker")
 
         try:
             for index, scene in enumerate(scenes):
@@ -508,7 +500,7 @@ class ProgressiveIngestionManager:
                         raise RuntimeError("primary caption returned invalid JSON")
                 except Exception as first_error:
                     logger.warning("Primary caption failed for scene %s: %s", scene_id, first_error)
-                    if backend_used == primary.backend:
+                    if backend_used == primary.backend and fallback and fallback.backend != primary.backend:
                         try:
                             inference_client.vlm_unload(primary.backend)
                         except Exception:
@@ -563,7 +555,9 @@ class ProgressiveIngestionManager:
                 build_status="error",
             )
         finally:
-            for backend in {primary.backend, fallback.backend}:
+            for backend in {primary.backend, fallback.backend if fallback else ""}:
+                if not backend:
+                    continue
                 try:
                     if settings.INFERENCE_WORKER_ENABLED:
                         inference_client.vlm_unload(backend)

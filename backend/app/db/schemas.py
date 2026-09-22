@@ -267,6 +267,9 @@ class MomentItem(BaseModel):
     display_score: Optional[float] = None
     preview_frame_path: Optional[str] = None
     caption_preview: Optional[str] = None
+    # Full scene caption kept separately so the UI can reveal the complete
+    # VLM artifact without changing the compact card preview.
+    caption_full: Optional[str] = None
     modality_breakdown: Optional[Dict[str, float]] = None
     occurrence_index: int = 0
     context_t_start: Optional[float] = None
