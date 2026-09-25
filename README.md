@@ -11,7 +11,7 @@
 
 <p align="center">
   <b>Natural Language Video Moment Retrieval & Temporal Boundary Localization System</b><br />
-  Powered by <b>SigLIP 2 (NaFlex)</b>, precomputed <b>CapRL-Qwen3VL-4B Q6</b> captions, selective <b>Qwen3-VL-2B (4-bit)</b> verification, and <b>LanceDB</b>.<br />
+  Powered by <b>SigLIP 2 (NaFlex)</b>, precomputed <b>CapRL-Qwen3VL-4B Q6</b> captions, selective <b>CapRL Q6</b> verification, and <b>LanceDB</b>.<br />
   <i>100% Local On-Premise Execution on an RTX 5070 12GB with Zero Cloud API Costs.</i>
 </p>
 
@@ -20,7 +20,7 @@
 ## 🌟 จุดเด่นของระบบ (Key Highlights)
 
 * 🔒 **100% Local On-Premise & Complete Data Privacy:** ประมวลผลและจัดเก็บข้อมูลเวกเตอร์ภายในเครื่องทั้งหมด ข้อมูลวิดีโอไม่รั่วไหลสู่คลาวด์ภายนอก และไม่มีค่าใช้จ่าย API รายเดือน
-* ⚡ **Consumer GPU Optimized (RTX 5070 12GB):** ใช้ SigLIP2 เป็น retrieval หลัก และแยก Qwen3/SAM ไว้ใน local inference worker เพื่อควบคุม VRAM และป้องกัน OOM
+* ⚡ **Consumer GPU Optimized (RTX 5070 12GB):** ใช้ SigLIP2 เป็น retrieval หลัก และแยก CapRL Q6/SAM ไว้ใน local inference worker เพื่อควบคุม VRAM และป้องกัน OOM
 * 🚀 **Progressive Visual Ingestion:** เปิด Fast Search หลังสร้าง SigLIP2 index แล้วสร้าง CapRL Q6 captions แบบ background โดยไม่บล็อกการค้นหา
 * 📈 **Dynamic Relevance Density Heatmap:** แถบเรืองแสงแสดงระดับความเกี่ยวข้องของเนื้อหาตลอดทั้งวิดีโอแบบ 1-Hz Canvas Visualizer ช่วยให้ผู้ใช้เห็นภาพรวมของทั้งคลิปได้ในเสี้ยววินาที
 * ⏱️ **Calibrated Multi-scale Temporal Localization:** สกัดช่วงเวลาเริ่มต้น-สิ้นสุด $[t_{start}, t_{end}]$ ด้วย rolling proposals, boundary/transition refinement และ Gaussian Soft-NMS ก่อนจัดลำดับหลายเหตุการณ์
@@ -47,8 +47,8 @@
                    │
          ┌─────────┴──────────────────────┐
          ▼                                ▼
-  [ SigLIP 2 (NaFlex) ]       [ CapRL Q6 ]       [ Qwen3-VL-2B ]
-   (768-dim Retrieval)       (Offline Caption) (Selective Verify / VQA)
+  [ SigLIP 2 (NaFlex) ]       [ CapRL Q6 ]
+   (768-dim Retrieval)       (Caption + Accurate Verify)
          │                                │
          └────────────────┬───────────────┘
                           ▼
@@ -98,13 +98,17 @@
 | :--- | :--- | :--- |
 | **Visual-Text Backbone** | `google/siglip2-base-patch16-naflex` | สกัดเวกเตอร์ภาพ 768-dim โดยรักษา aspect ratio |
 | **Primary Captioner** | `CapRL-Qwen3VL-4B Q6_K` (llama.cpp CUDA) | สร้าง structured scene caption ล่วงหน้าหลัง upload |
-| **Online Verifier / VQA**| `Qwen/Qwen3-VL-2B-Instruct` (NF4 4-bit) | ตรวจ action/relation เมื่อ caption ยังไม่ชัด และ Video VQA |
+| **Online Verifier / VQA**| `CapRL-Qwen3VL-4B Q6_K` (llama.cpp CUDA) | ตรวจ action/relation เมื่อ caption ยังไม่ชัด และตอบ visual evidence |
 | **Object Grounding** | `facebook/sam3.1` (ปิดใน production flow) | เก็บโค้ดและ artifacts เดิมไว้สำหรับการทดลองภายหลัง |
 | **Video Decoding**        | `Decord` (NVDEC GPU Hardware Fallback) | ถอดรหัสเฟรมจริงพร้อมรักษา timestamp และ fallback บน CPU |
 | **Vector Storage**        | `LanceDB` (Apache Arrow Format) | Vector DB แบบ Serverless บน SSD พร้อมดัชนี IVF-PQ และ FTS |
 | **Temporal Algorithm**    | `1D Gaussian Convolution & RRF` | กรองสัญญาณรบกวนและสกัดช่วงเวลาต่อเนื่อง $[t_s, t_e]$ |
 | **Backend API**           | `FastAPI` + `Uvicorn` + `WebSockets` | REST API, HTTP 206 Byte-Range Streaming, Live Telemetry |
 | **Frontend UI**           | `Next.js 14` + `React 18` + `Tailwind CSS` | Dashboard สไตล์ Dark Glassmorphism พร้อม Canvas Heatmap |
+
+> **Production note:** Qwen3-VL-2B ยังมีชื่อใน compatibility code และ persisted-row metadata
+> บางส่วน แต่ไม่ถูกลงทะเบียนหรือโหลดใน production caption/verifier flow ปัจจุบัน
+> ซึ่งใช้ CapRL Q6 เพียงตัวเดียวสำหรับ VLM งานหลัก
 
 ---
 
@@ -140,10 +144,13 @@ pip install -r requirements.txt
 HF_TOKEN=hf_your_token_here
 
 SIGLIP2_MODEL_ID=google/siglip2-base-patch16-naflex
-QWEN_VL_MODEL_ID=Qwen/Qwen3-VL-2B-Instruct
+QWEN_VL_MODEL_ID=internlm/CapRL-Qwen3VL-4B-GGUF
+QWEN_VL_MODEL_REVISION=922d08bb6257875336aa138616c74902f736099c
 ENABLE_SAM_GROUNDING=false
 CAPTION_PRIMARY_BACKEND=caprl_qwen3vl_4b_q6
-CAPTION_FALLBACK_BACKEND=qwen3_vl_2b
+CAPTION_FALLBACK_BACKEND=
+VLM_VERIFIER_BACKEND=caprl_qwen3vl_4b_q6
+CAPTION_VERSION=q6-scene-caption-v1
 CAPTION_ARTIFACT_VERSION=q6-scene-caption-v1
 CAPTION_PROMPT_VERSION=pure-visual-caption-v1
 LLAMA_CPP_PATH=C:\\path\\to\\llama-server.exe
@@ -154,14 +161,17 @@ INFERENCE_WORKER_TOKEN=change-this-local-secret
 MODEL_VRAM_BUDGET_MB=11800
 ACCURATE_MAX_SECONDS=60
 INFERENCE_WARMUP_QWEN=false
+VLM_CAPTION_MAX_NEW_TOKENS=256
+VLM_JSON_REPAIR_MAX_NEW_TOKENS=256
 SAM_SEARCH_TOP_K=2
+SAM_ACCURATE_MAX_SECONDS=60
 QWEN_FALLBACK_TOP_K=1
 QWEN_MIN_REMAINING_SECONDS=12
 SAM_COMPILE=false
 ```
 
 โมเดลหนักจะทำงานใน process แยกที่ bind เฉพาะ `127.0.0.1` เพื่อให้ main API
-ไม่ต้องถือ SigLIP2, CapRL Q6 และ Qwen พร้อมกันเอง:
+ไม่ต้องถือ SigLIP2 และ CapRL Q6 พร้อมกันเอง:
 
 ```bash
 # terminal แยก: ใช้ environment ที่ติดตั้ง requirements-inference.txt
@@ -170,8 +180,8 @@ python -m inference_worker.main
 ```
 
 ถ้ายังไม่ได้ติดตั้ง worker หรือยังไม่มีไฟล์ Q6 ให้ตั้ง
-`INFERENCE_WORKER_ENABLED=false` ระบบยังค้น Fast ได้ และ Accurate จะ fallback ตาม
-warning ที่คืนใน API แทนการทำให้เซิร์ฟเวอร์ล้ม
+`INFERENCE_WORKER_ENABLED=false` ระบบยังค้น Fast ได้ และ Accurate จะคืนผล Fast
+พร้อม warning แทนการทำให้เซิร์ฟเวอร์ล้ม
 
 #### วอร์มโมเดล AI ล่วงหน้า (One-Click Preload):
 ```bash
@@ -209,7 +219,7 @@ cd frontend
 npm install
 
 # 3. รัน Next.js Dev Server
-npm run dev
+npm.cmd run dev
 ```
 * **Web Dashboard Application:** `http://localhost:3000`
 
@@ -220,15 +230,17 @@ npm run dev
 ชั่วคราวเพื่อให้ client เดิมไม่พัง แต่ server เป็นผู้กำหนดน้ำหนักและ threshold เอง
 
 `fast` ใช้ frame embeddings + stored scene-caption RRF; `accurate` ใช้ลำดับ
-SigLIP2 → stored CapRL Q6 captions → Qwen3-VL-2B เมื่อจำเป็น → unload
+SigLIP2 → stored CapRL Q6 captions → CapRL Q6 verifier เมื่อจำเป็น → unload
 ใน production flow นี้ SAM ถูกปิดไว้ (`ENABLE_SAM_GROUNDING=false`) ภายใต้งบเวลารวม 60 วินาที
-Accurate ใช้ SigLIP2 + caption artifact และโหลด Qwen3-VL-2B เฉพาะเมื่อ query ต้องตรวจ action/relation
+Accurate ใช้ SigLIP2 + caption artifact และโหลด CapRL Q6 เฉพาะเมื่อ query ต้องตรวจ action/relation
 หรือ caption ยังไม่ชัด หากเหลือเวลาน้อยกว่า 12 วินาที ระบบจะคืน partial result จาก Fast ที่เสร็จแล้ว
 (เมื่อมี artifact), `modality_breakdown`, `occurrence_index`, `profile`,
 `calibrated`, `index_version`, `strategy_used`, `models_used`, `models_attempted`,
 `cascade_path`, `stage_status`, `planner_version`, `stage_latency_ms`, `cache_hits`
 และ `warnings` โดยคืนได้หลาย occurrence หรือ `moments=[]` สำหรับ no-match.
 SAM code และ artifacts เดิมยังเก็บไว้ แต่ production UI จะไม่แสดง SAM evidence หรือ overlay ขณะ feature flag ปิด
+ใน Moment Card สามารถกด `Caption เต็ม` เพื่อดู structured caption ของซีน และกด
+`ผล Accurate verifier` เพื่อดู raw JSON, confidence, reason และ model provenance ที่ใช้ตรวจจริง
 
 ### Production CapRL Q6 caption flow
 
@@ -237,8 +249,8 @@ SAM code และ artifacts เดิมยังเก็บไว้ แต�
 ที่อยู่นอก Git จากนั้นเปิด `INFERENCE_WORKER_ENABLED=true` และรัน worker ที่ `127.0.0.1:8011`
 
 หลังอัปโหลด Phase 1 จะเปิด Fast Search ก่อน แล้ว worker จะสร้าง scene captions ด้วย Q6 แบบ background
-จน artifact เป็น `ready`. หาก Q6 สร้างบาง scene ไม่สำเร็จ ระบบจะ retry ด้วยเฟรมลดลงและใช้ Qwen3-VL-2B
-เป็น fallback เฉพาะ scene นั้น. สามารถสั่ง backfill ที่ resume ได้ด้วย:
+จน artifact เป็น `ready`. ระบบ production ไม่เปิด Qwen3-VL-2B เป็น fallback โดยอัตโนมัติ;
+หาก Q6 ล้มเหลวจะเก็บสถานะ error และยังให้ค้นด้วย SigLIP2/Fast ได้. สามารถสั่ง backfill ที่ resume ได้ด้วย:
 
 ```powershell
 python -m scripts.backfill_primary_captions --all-videos --resume
@@ -246,11 +258,12 @@ python -m scripts.backfill_primary_captions --video-id <ID> --resume
 ```
 
 CapRL Q6 ใช้เพื่อการวิจัย/เดโมตามเงื่อนไขของโมเดล upstream; ตรวจสอบ license ก่อนใช้เชิงพาณิชย์
+ดูรายละเอียด runtime, troubleshooting และ lifecycle ได้ที่ [docs/current-runtime.md](docs/current-runtime.md)
 
 ### Model / dataset attribution
 
 * [SAM 3 repository and checkpoint instructions](https://github.com/facebookresearch/sam3)
-* [Qwen3-VL-2B-Instruct](https://huggingface.co/Qwen/Qwen3-VL-2B-Instruct)
+* [CapRL-Qwen3VL-4B-GGUF](https://huggingface.co/internlm/CapRL-Qwen3VL-4B-GGUF)
 * [SigLIP2 NaFlex](https://huggingface.co/google/siglip2-base-patch16-naflex)
 * [AIRC-SMARTCLASS Part 2](https://data.mendeley.com/datasets/fw5hs57z78/1)
 
@@ -301,10 +314,10 @@ Video Event Retrieval/
 │   │   │   └── router.py
 │   │   ├── core/                        # Config, Logger, Device Maps
 │   │   ├── db/                          # LanceDB Schemas & Tables Init
-│   │   ├── pipeline/                    # Decord, SceneDetect, sampling, SigLIP 2, Qwen3
+│   │   ├── pipeline/                    # Decord, SceneDetect, sampling, SigLIP 2, CapRL Q6
 │   │   ├── retrieval/                   # RRF, router, SAM cache, temporal localization
 │   │   ├── inference/                   # Main API client/contracts for local worker
-│   │   └── ../inference_worker/         # Qwen3/SAM GPU process on 127.0.0.1:8011
+│   │   └── ../inference_worker/         # CapRL Q6/SAM GPU process on 127.0.0.1:8011
 │   │   └── utils/                       # HTTP 206 Byte-Range Video Streaming
 │   ├── tests/                           # Pytest Test Suite
 │   ├── preload_models.py                # Pre-warmer & Cache Script
@@ -332,6 +345,9 @@ Video Event Retrieval/
 │   ├── compare_benchmarks.py            # Paired bootstrap CI + ablation comparison
 │   └── run_real_video_benchmark.py      # Fast/Accurate real-video runner
 │
+├── docs/
+│   └── current-runtime.md               # เอกสารอ้างอิง production runtime ปัจจุบัน
+│
 ├── Proposal.md                          # ข้อเสนอโครงงาน pure-visual retrieval
 ├── README.md                            # คู่มือและเอกสารประกอบโครงงานฉบับสมบูรณ์
 └── .gitignore
@@ -357,7 +373,7 @@ python evaluation/tune_fusion.py --input dev_fusion.jsonl --output backend/data/
 python evaluation/run_real_video_benchmark.py --acceptance --profile fast --dataset evaluation/datasets/heldout.json --output fast.json
 python evaluation/run_real_video_benchmark.py --acceptance --profile accurate --dataset evaluation/datasets/heldout.json --output accurate.json
 python evaluation/compare_benchmarks.py --baseline baseline.json --candidate accurate.json --acceptance --output comparison.json
-# เพิ่ม --ablation name=report.json ซ้ำได้เพื่อเทียบ NaFlex/RRF/proposal/calibration/Qwen
+# เพิ่ม --ablation name=report.json ซ้ำได้เพื่อเทียบ NaFlex/RRF/proposal/calibration/CapRL-Q6
 
 # สร้าง manifest AIRC-SMARTCLASS แบบ video-disjoint 27/9/9
 python evaluation/build_airc_manifest.py --source-dir path/to/AIRC-SMARTCLASS --output evaluation/datasets/airc_manifest.json

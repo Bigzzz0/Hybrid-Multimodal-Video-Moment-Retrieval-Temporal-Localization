@@ -4,6 +4,8 @@
 **ชื่อโครงงาน (ภาษาอังกฤษ):** Pure-Visual Video Moment Retrieval and Temporal Localization System
 **สาขาวิชา:** วิทยาการคอมพิวเตอร์ / วิศวกรรมคอมพิวเตอร์ / ปัญญาประดิษฐ์และวิทยาศาสตร์ข้อมูล  
 
+> **สถานะเอกสาร:** เอกสารฉบับนี้เป็นข้อเสนอและภาพรวมแนวคิดเชิงประวัติศาสตร์ของโครงงาน ไม่ใช่คู่มือ runtime production ปัจจุบัน รายละเอียด implementation ล่าสุดให้ยึดภาคผนวก `Current Implementation Status` และ [docs/current-runtime.md](docs/current-runtime.md) เป็นหลัก
+
 ---
 
 ## 1. ที่มาและความสำคัญของโครงงาน (Rationale and Background)
@@ -368,3 +370,18 @@ erDiagram
 8. **Gao, J., Sun, C., Yang, Z., & Nevatia, R.** (2017). *TALL: Temporal activity localization via language query.* In Proceedings of the IEEE International Conference on Computer Vision (ICCV) (pp. 5267-5275).
 9. **Lei, J., Berg, T. L., & Bansal, M.** (2021). *QVHighlights: Detecting Moments and Highlights in Videos via Natural Language Queries.* In Advances in Neural Information Processing Systems (NeurIPS 2021) (Vol. 34, pp. 11846-11858).
 10. **Zhang, S., Peng, H., Fu, J., & Luo, J.** (2020). *Learning 2D Temporal Adjacent Networks for Moment Localization with Natural Language.* In Proceedings of the AAAI Conference on Artificial Intelligence (Vol. 34, No. 07, pp. 12870-12877).
+
+---
+
+## ภาคผนวก: Current Implementation Status (main @ `6de9468`)
+
+ภาคผนวกนี้บันทึกสถานะของ implementation ที่ใช้อ้างอิง ณ commit `6de9468` เพื่อแยกออกจากสมมติฐานและข้อเสนอในเนื้อหาหลักของเอกสาร
+
+- **Production stack:** `SigLIP2 NaFlex` สำหรับ retrieval และ `CapRL-Qwen3VL-4B Q6` สำหรับการสร้าง caption ล่วงหน้าและ Accurate verifier
+- **โมเดลที่ไม่อยู่ใน production flow:** SAM 3.1 ถูกปิดด้วย `ENABLE_SAM_GROUNDING=false`; Qwen3-VL-2B เป็นเพียง compatibility/legacy metadata และไม่ถูกโหลดใน production
+- **Hardware/runtime budget:** RTX 5070 12GB, physical VRAM budget ปัจจุบัน 11.8GB, Accurate budget 60 วินาที; CapRL Q6 รันผ่าน llama.cpp local worker และไฟล์ GGUF/mmproj อยู่นอก Git
+- **การใช้งาน:** Fast Search พร้อมใช้หลัง Phase 1 (scene detection, keyframes และ SigLIP2 index) ส่วน CapRL Q6 captioning ทำงานแบบ background และ resumable
+- **ข้อแตกต่างจาก proposal baseline:** โมเดล caption/verifier เปลี่ยนจาก Qwen2.5-VL ในข้อเสนอเป็น CapRL Q6, ตัวเลข VRAM/เวลา 7–8GB และ 15 วินาทีในเนื้อหาประวัติศาสตร์ไม่ใช่ production gate ปัจจุบัน และ production ไม่ใช้ SAM grounding
+- **การประเมินผล:** metric ในข้อเสนอและ historical report ยังต้องวัดใหม่ด้วย video-disjoint held-out benchmark ก่อนสรุปผล production ห้ามนำตัวเลขตั้งสมมติฐานหรือ smoke test ไปอ้างเป็นผลยืนยัน
+
+วิธีติดตั้ง การเริ่มบริการ สถานะ caption และข้อจำกัดปัจจุบันอยู่ที่ [docs/current-runtime.md](docs/current-runtime.md)

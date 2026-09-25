@@ -1,6 +1,8 @@
 # รายงานทางวิชาการ (Assignment 4)
 ## การศึกษาทฤษฎีและงานวิจัยที่เกี่ยวข้องเพื่อการพัฒนาโครงงาน
 
+> **สถานะเอกสาร:** รายงานนี้เป็น literature review และ academic snapshot ของช่วงก่อน production implementation ไม่ใช่คู่มือ runtime ปัจจุบัน ให้ดูภาคผนวก `Current Implementation Status` และ [docs/current-runtime.md](docs/current-runtime.md) สำหรับระบบที่ใช้งานจริง
+
 ---
 
 # [ปกนอก / ปกใน]
@@ -558,3 +560,18 @@ Zhang, S., Peng, H., Fu, J., & Luo, J. (2020). Learning 2D temporal adjacent net
   • ผลลัพธ์: occurrence_index แยกเหตุการณ์ที่ไม่ทับกัน และคืน moments=[] หากต่ำกว่า threshold
   • Accurate mode: Qwen เลือกเฉพาะ timestamp ของเฟรมที่ส่งเข้าโมเดล
 ```
+
+---
+
+## ภาคผนวก: Current Implementation Status (main @ `6de9468`)
+
+ภาคผนวกนี้แยกสถานะ implementation จริงออกจากทฤษฎี สมมติฐาน และ benchmark design ในรายงานฉบับเดิม
+
+- **Production stack:** `SigLIP2 NaFlex` เป็น retrieval หลัก และ `CapRL-Qwen3VL-4B Q6` เป็นทั้ง precomputed scene captioner และ Accurate verifier
+- **SAM/Qwen2B:** SAM 3.1 ปิดใน production ด้วย `ENABLE_SAM_GROUNDING=false`; Qwen3-VL-2B ไม่ถูกโหลดใน production flow และคงไว้เฉพาะ compatibility/ประวัติของระบบ
+- **Hardware/runtime:** ทดสอบบน RTX 5070 12GB ด้วย physical VRAM budget 11.8GB และ Accurate budget 60 วินาที โดย CapRL Q6 ใช้ llama.cpp local worker; checkpoint GGUF และ mmproj ไม่อยู่ใน repository
+- **Lifecycle:** หลัง Phase 1 ระบบเปิด Fast Search ได้ทันที จากนั้นสร้าง CapRL Q6 caption แบบ background, upsert แบบ resumable และ activate version แบบ atomic เมื่อ artifact ครบ
+- **ความแตกต่างจากเนื้อหาหลัก:** Qwen2.5-VL, budget 7–8GB/15 วินาที และ flow ที่อธิบาย SAM/Qwen เป็นระบบปัจจุบันในส่วนเดิม ให้ตีความเป็น proposal baseline หรือ historical design เท่านั้น ไม่ใช่ production contract
+- **สิ่งที่ยังต้องวัดใหม่:** R@K, temporal IoU/mIoU, verifier accuracy, latency, VRAM และ stability ต้องรายงานจาก video-disjoint held-out set; ตัวเลขในส่วนทฤษฎีหรือ smoke test ไม่ใช่ผล production ที่ยืนยันแล้ว
+
+ดูรายละเอียด endpoint, configuration, caption status/rebuild, provenance ของ caption/verifier และ troubleshooting ได้ที่ [docs/current-runtime.md](docs/current-runtime.md)
