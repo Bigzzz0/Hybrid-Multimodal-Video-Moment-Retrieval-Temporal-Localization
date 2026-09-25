@@ -70,6 +70,8 @@ frontend/.env*.local
 .DS_Store
 Thumbs.db
 Desktop.ini
+~$*
+*.tmp
 
 # graft's local graph cache
 graft/

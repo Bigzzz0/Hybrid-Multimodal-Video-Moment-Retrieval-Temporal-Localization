@@ -3,8 +3,8 @@ const path = require('path');
 const { execSync } = require('child_process');
 
 const rootDir = path.resolve(__dirname, '..');
-const mdPath = path.join(rootDir, 'Assignment4_Academic_Report.md');
-const outHtmlPath = path.join(rootDir, 'Assignment4_Academic_Report.html');
+const mdPath = path.join(rootDir, 'resources', 'documents', 'Assignment4_Academic_Report.md');
+const outHtmlPath = path.join(rootDir, 'resources', 'documents', 'Assignment4_Academic_Report.html');
 
 try {
   const htmlBody = execSync(`npx -y marked -i "${mdPath}"`, { encoding: 'utf-8' });
