@@ -2,6 +2,14 @@ import sys
 import os
 from pathlib import Path
 
+# Ensure standard streams use UTF-8 on Windows
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
 # Auto-register NVIDIA CUDA DLL directories on Windows
 if sys.platform == "win32":
     try:
@@ -32,7 +40,7 @@ def preload_all_models():
     Visual-only preload for the SigLIP2 index and optional visual captioner.
     """
     logger.info("==================================================================")
-    logger.info("🚀 PRELOADING PURE-VISUAL RETRIEVAL MODELS")
+    logger.info("[PRELOAD] PRELOADING PURE-VISUAL RETRIEVAL MODELS")
     logger.info(f"Target Device: {settings.DEVICE.upper()} (CUDA Available: {torch.cuda.is_available()})")
     if torch.cuda.is_available():
         logger.info(f"GPU: {torch.cuda.get_device_name(0)}")
@@ -46,9 +54,9 @@ def preload_all_models():
         siglip._lazy_load()
         # Test sample text encoding
         test_emb = siglip.encode_text("test moment query")
-        logger.info(f"✅ SigLIP 2 loaded successfully (Sample vector length: {len(test_emb)}).")
+        logger.info(f"[OK] SigLIP 2 loaded successfully (Sample vector length: {len(test_emb)}).")
     except Exception as e:
-        logger.error(f"❌ Failed to load SigLIP 2: {e}")
+        logger.error(f"[ERROR] Failed to load SigLIP 2: {e}")
 
     # 2. Qwen3-VL-2B-Instruct (4-bit Quantized)
     logger.info("2/2 [Dense Action Captioning] Preloading Qwen3-VL-2B (4-bit quantized)...")
@@ -56,18 +64,22 @@ def preload_all_models():
         captioner = QwenVLDenseCaptioner()
         captioner._lazy_load()
         if captioner.model is not None:
-            logger.info("✅ Qwen3-VL-2B 4-bit loaded successfully.")
+            logger.info("[OK] Qwen3-VL-2B 4-bit loaded successfully.")
         else:
-            logger.warning("⚠️ Qwen3-VL-2B unavailable; scene captions will be marked unavailable.")
+            logger.warning("[WARN] Qwen3-VL-2B unavailable; scene captions will be marked unavailable.")
     except Exception as e:
-        logger.error(f"❌ Failed to load Qwen3-VL-2B: {e}")
+        logger.error(f"[ERROR] Failed to load Qwen3-VL-2B: {e}")
 
     if torch.cuda.is_available():
         allocated = torch.cuda.memory_allocated() / (1024**2)
         reserved = torch.cuda.memory_reserved() / (1024**2)
         logger.info("==================================================================")
-        logger.info(f"🎉 ALL AI MODELS ARE PRELOADED & READY IN GPU MEMORY!")
+        logger.info(f"[READY] ALL AI MODELS ARE PRELOADED & READY IN GPU MEMORY!")
         logger.info(f"GPU VRAM Allocated: {allocated:.1f} MB | Reserved: {reserved:.1f} MB")
+        logger.info("==================================================================")
+    else:
+        logger.info("==================================================================")
+        logger.info("[READY] ALL AI MODELS ARE PRELOADED & READY (CPU Mode)!")
         logger.info("==================================================================")
 
 if __name__ == "__main__":

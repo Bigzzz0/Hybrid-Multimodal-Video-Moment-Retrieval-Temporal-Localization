@@ -4,6 +4,9 @@
   "description": "Pure-Visual Video Moment Retrieval & Temporal Localization with NanoNets Graft Context Layer",
   "private": true,
   "scripts": {
+    "start": "start_all.bat",
+    "dev": "start_all.bat",
+    "stop": "stop_all.bat",
     "graft:build": "graft build",
     "graft:check": "graft check",
     "graft:map": "graft map",

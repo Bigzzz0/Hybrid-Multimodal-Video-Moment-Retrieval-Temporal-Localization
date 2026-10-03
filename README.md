@@ -121,7 +121,33 @@
 
 ---
 
-### 2. ติดตั้งและตั้งค่า Backend Service (FastAPI)
+### ⚡ เริ่มรันทั้งระบบแบบอัตโนมัติในคลิกเดียว (One-Click Automated Launcher)
+> **สำหรับความสะดวกรวดเร็ว:** สามารถเริ่มระบบทั้งหมดได้ทันทีโดยไม่ต้องเปิด Terminal สองหน้าต่างและไม่ต้องเข้า `backend/` หรือ `frontend/` แยกกัน  
+> สคริปต์พิเศษจะทำการ:
+> 1. ตรวจสอบ Virtual Environment และ Node dependencies ให้อัตโนมัติ
+> 2. **Preload AI Models อัตโนมัติ:** โหลดและแคชโมเดล SigLIP 2 Vision Model เข้าสู่หน่วยความจำล่วงหน้าแบบ Zero Cold-Start
+> 3. เปิด Backend API Server (`http://localhost:8000`)
+> 4. เปิด AI Inference Worker (`http://localhost:8011`) (ถ้าเปิดใช้งาน)
+> 5. เปิด Frontend Web Server (`http://localhost:3000`)
+> 6. เปิดหน้าต่าง Web Browser เข้าใช้งานระบบทันที
+
+* **รันบน Windows (ดับเบิลคลิก):** ดับเบิลคลิกไฟล์ `start_all.bat` ที่โฟลเดอร์หลักของโปรเจกต์
+* **รันผ่าน Terminal / PowerShell:**
+  ```powershell
+  .\start_all.bat
+  # หรือ
+  .\start_all.ps1
+  ```
+* **รันผ่าน npm:**
+  ```bash
+  npm start
+  ```
+* **การสั่งหยุดการทำงานทั้งหมด (Stop All):**
+  ดับเบิลคลิก `stop_all.bat` หรือรัน `stop_all.ps1` หรือพิมพ์ `npm run stop`
+
+---
+
+### 2. ติดตั้งและตั้งค่า Backend Service (FastAPI) [วิธีแบบดั้งเดิม]
 
 ```bash
 # 1. เข้าสู่โฟลเดอร์ backend
