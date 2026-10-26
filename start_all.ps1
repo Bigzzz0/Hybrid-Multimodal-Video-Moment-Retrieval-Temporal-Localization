@@ -88,7 +88,24 @@ Write-Host "    - Run './stop_all.ps1' or 'stop_all.bat'"
 Write-Host "==============================================================================" -ForegroundColor Cyan
 Write-Host ""
 
-# 8. Wait 5 seconds and open browser automatically
-Write-Host "Opening browser in 5 seconds..." -ForegroundColor Gray
-Start-Sleep -Seconds 5
+# 8. Wait for Backend API to be ready before opening browser
+Write-Host "Waiting for Backend API (http://127.0.0.1:8000) to finish initializing..." -ForegroundColor Gray
+$BackendReady = $false
+for ($i = 0; $i -lt 35; $i++) {
+    try {
+        $resp = Invoke-WebRequest -Uri "http://127.0.0.1:8000/docs" -UseBasicParsing -TimeoutSec 2 -ErrorAction SilentlyContinue
+        if ($resp.StatusCode -eq 200) {
+            $BackendReady = $true
+            break
+        }
+    } catch {}
+    Start-Sleep -Seconds 1
+}
+
+if ($BackendReady) {
+    Write-Host "[OK] Backend API is ready and listening!" -ForegroundColor Green
+} else {
+    Write-Host "[INFO] Opening web browser..." -ForegroundColor Yellow
+}
+Start-Sleep -Seconds 1
 Start-Process "http://localhost:3000"

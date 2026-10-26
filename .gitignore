@@ -18,6 +18,8 @@ venv.bak/
 .venv-pe-core/
 models/
 backend/models/
+backend/bin/
+bin/
 *.gguf
 llama-server.exe
 

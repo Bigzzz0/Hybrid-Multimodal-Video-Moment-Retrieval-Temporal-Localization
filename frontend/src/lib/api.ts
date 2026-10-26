@@ -14,7 +14,7 @@ import {
 export type { VideoMetadata, VideoKeyframeItem, VideoQAResult, UploadResponse, ProgressStatus, ClipExportResponse, SystemTelemetry, CaptionStatus };
 
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
 
 const api = axios.create({
   baseURL: `${API_BASE_URL}/api/v1`,
@@ -36,7 +36,7 @@ export const apiClient = {
     formData.append("file", file);
     const res = await api.post<UploadResponse>("/videos/upload", formData, {
       headers: {
-        "Content-Type": "multipart/form-data",
+        "Content-Type": undefined,
       },
     });
     return res.data;
@@ -53,8 +53,16 @@ export const apiClient = {
     return res.data;
   },
 
-  async rebuildCaptions(videoId: string): Promise<void> {
-    await api.post(`/videos/${videoId}/captions/rebuild`);
+  async rebuildCaptions(videoId: string, maxFrames: number = 8, force: boolean = true): Promise<any> {
+    const res = await api.post(`/videos/${videoId}/captions/rebuild`, null, {
+      params: { max_frames: maxFrames, force },
+    });
+    return res.data;
+  },
+
+  async cancelCaptions(videoId: string): Promise<any> {
+    const res = await api.post(`/videos/${videoId}/captions/cancel`);
+    return res.data;
   },
 
   // 4. Moment Search

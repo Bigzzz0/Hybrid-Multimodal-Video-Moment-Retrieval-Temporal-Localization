@@ -94,10 +94,10 @@ class InferenceWorkerClient:
 
     def verify(self, request: VerifyRequest) -> VerifyResponse:
         request.vlm_backend = "caprl_qwen3vl_4b_q6"
-        return self._post("/v1/vlm/verify", request.model_dump(), VerifyResponse)
+        return self._post("/v1/vlm/verify", request.model_dump(), VerifyResponse, timeout_sec=60.0)
 
     def vlm_verify(self, request: VerifyRequest) -> VerifyResponse:
-        return self._post("/v1/vlm/verify", request.model_dump(), VerifyResponse)
+        return self._post("/v1/vlm/verify", request.model_dump(), VerifyResponse, timeout_sec=60.0)
 
     def vlm_unload(self, backend: str) -> VLMUnloadResponse:
         return self._post("/v1/vlm/unload", VLMUnloadRequest(vlm_backend=backend).model_dump(), VLMUnloadResponse)

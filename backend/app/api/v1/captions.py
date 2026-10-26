@@ -67,15 +67,16 @@ def caption_status(video_id: str) -> Dict[str, Any]:
 
 
 @router.post("/{video_id}/captions/rebuild")
-def rebuild_captions(video_id: str, force: bool = Query(default=False)) -> Dict[str, Any]:
+def rebuild_captions(
+    video_id: str,
+    max_frames: int = Query(default=8, ge=2, le=32),
+    force: bool = Query(default=True),
+) -> Dict[str, Any]:
     if not _video_exists(video_id):
         raise HTTPException(status_code=404, detail="video not found")
-    # Rebuild is resume-safe by default. force is accepted for API
-    # compatibility but still preserves the active artifact version until the
-    # new version is complete.
     thread = threading.Thread(
         target=ingestion_manager.process_video_primary_captions,
-        kwargs={"video_id": video_id},
+        kwargs={"video_id": video_id, "max_frames_per_scene": max_frames, "force": force},
         daemon=True,
     )
     thread.start()
@@ -83,5 +84,19 @@ def rebuild_captions(video_id: str, force: bool = Query(default=False)) -> Dict[
         "status": "started",
         "video_id": video_id,
         "resume": not force,
-        "message": "Primary Q6 caption rebuild started in background.",
+        "max_frames": max_frames,
+        "message": f"Primary Q6 caption rebuild started in background with {max_frames} frames/scene.",
     }
+
+
+@router.post("/{video_id}/captions/cancel")
+def cancel_captions(video_id: str) -> Dict[str, Any]:
+    if not _video_exists(video_id):
+        raise HTTPException(status_code=404, detail="video not found")
+    ingestion_manager.cancel_caption_job(video_id)
+    return {
+        "status": "cancelled",
+        "video_id": video_id,
+        "message": "Caption generation cancelled successfully.",
+    }
+

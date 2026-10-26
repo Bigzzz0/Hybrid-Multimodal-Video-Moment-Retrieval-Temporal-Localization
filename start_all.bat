@@ -5,7 +5,7 @@ title Pure-Visual Video Moment Retrieval Launcher
 
 echo ==============================================================================
 echo   Pure-Visual Video Moment Retrieval and Temporal Localization System
-echo   One-Click Unified Launcher (AI Preload + Backend + Worker + Frontend)
+echo   One-Click Unified Launcher [AI Preload + Backend + Worker + Frontend]
 echo ==============================================================================
 echo.
 
@@ -29,7 +29,7 @@ if not exist "%PYTHON_EXE%" (
 
 REM 2. Verify Frontend Dependencies
 if not exist "%FRONTEND_DIR%\node_modules" (
-    echo [INFO] Installing frontend dependencies (npm install)...
+    echo [INFO] Installing frontend dependencies [npm install]...
     cd /d "%FRONTEND_DIR%"
     call npm.cmd install
     if errorlevel 1 (
@@ -50,7 +50,7 @@ if not exist "%BACKEND_DIR%\.env" (
 
 REM 4. Automated AI Model Preloading (Zero Cold-Start)
 echo.
-echo [1/4] Preloading AI Models (SigLIP 2 Vision & Captioner)...
+echo [1/4] Preloading AI Models [SigLIP 2 Vision and Captioner]...
 cd /d "%BACKEND_DIR%"
 "%PYTHON_EXE%" preload_models.py
 if errorlevel 1 (
@@ -62,21 +62,21 @@ cd /d "%ROOT_DIR%"
 echo.
 
 REM 5. Launch Backend API Server (FastAPI on Port 8000)
-echo [2/4] Starting Backend API Server (http://localhost:8000)...
-start "Moment Retrieval - Backend API (:8000)" cmd /k "cd /d "%BACKEND_DIR%" && .\venv\Scripts\python.exe main.py"
+echo [2/4] Starting Backend API Server [http://localhost:8000]...
+start "Moment Retrieval - Backend API (:8000)" /D "%BACKEND_DIR%" cmd /k ".\venv\Scripts\python.exe main.py"
 
 REM 6. Launch Inference Worker (if enabled in .env)
 findstr /i "INFERENCE_WORKER_ENABLED=true" "%BACKEND_DIR%\.env" >nul 2>&1
 if not errorlevel 1 (
-    echo [3/4] Starting Inference Worker (http://localhost:8011)...
-    start "Moment Retrieval - AI Worker (:8011)" cmd /k "cd /d "%BACKEND_DIR%" && .\venv\Scripts\python.exe -m inference_worker.main"
+    echo [3/4] Starting Inference Worker [http://localhost:8011]...
+    start "Moment Retrieval - AI Worker (:8011)" /D "%BACKEND_DIR%" cmd /k ".\venv\Scripts\python.exe -m inference_worker.main"
 ) else (
-    echo [3/4] Inference worker disabled (INFERENCE_WORKER_ENABLED=false). Running Fast Retrieval.
+    echo [3/4] Inference worker disabled [INFERENCE_WORKER_ENABLED=false]. Running Fast Retrieval.
 )
 
 REM 7. Launch Frontend Server (Next.js on Port 3000)
-echo [4/4] Starting Frontend Web Server (http://localhost:3000)...
-start "Moment Retrieval - Frontend Web (:3000)" cmd /k "cd /d "%FRONTEND_DIR%" && npm.cmd run dev"
+echo [4/4] Starting Frontend Web Server [http://localhost:3000]...
+start "Moment Retrieval - Frontend Web (:3000)" /D "%FRONTEND_DIR%" cmd /k "npm.cmd run dev"
 
 echo.
 echo ==============================================================================
@@ -91,7 +91,23 @@ echo     - Double-click 'stop_all.bat' from this directory
 echo ==============================================================================
 echo.
 
-REM 8. Wait 5 seconds and open browser automatically
-echo Opening web browser at http://localhost:3000 in 5 seconds...
-timeout /t 5 /nobreak >nul
+REM 8. Wait for Backend API to be ready before opening browser
+echo Waiting for Backend API Server (http://127.0.0.1:8000) to finish initializing...
+set "BACKEND_READY=0"
+for /L %%i in (1,1,35) do (
+    curl.exe -s -o nul -w "%%{http_code}" http://127.0.0.1:8000/docs 2>nul | findstr "200" >nul
+    if not errorlevel 1 (
+        set "BACKEND_READY=1"
+        goto :backend_ready
+    )
+    timeout /t 1 /nobreak >nul 2>&1
+)
+:backend_ready
+if "%BACKEND_READY%"=="1" (
+    echo [OK] Backend API is ready and listening!
+) else (
+    echo [INFO] Opening web browser...
+)
+timeout /t 2 /nobreak >nul 2>&1
 start http://localhost:3000
+

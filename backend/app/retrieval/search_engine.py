@@ -299,16 +299,21 @@ class HybridMomentSearchEngine:
         # Caption BM25/FTS results are distributed only to their own scene.
         scenes = self._rows(db_manager.get_table("scenes_v2"), f"video_id = '{video_id}'", 10000)
         scene_by_id = {str(scene.get("id")): scene for scene in scenes}
+        try:
+            all_artifact_captions = vlm_artifact_store.caption_rows(video_id, settings.CAPTION_PRIMARY_BACKEND)
+        except Exception:
+            all_artifact_captions = []
+        all_caption_by_scene = {str(row.get("id")): str(row.get("caption", "") or "") for row in all_artifact_captions}
         caption_rows = self._caption_rows(" ".join(text for text, _ in variants), video_id)
         caption_text_by_scene = {str(row.get("id")): str(row.get("caption", "") or "") for row in caption_rows}
         try:
             caption_metadata = vlm_artifact_store.metadata(video_id, settings.CAPTION_PRIMARY_BACKEND)
         except Exception:
             caption_metadata = None
-        caption_status = str((caption_metadata or {}).get("build_status", (caption_metadata or {}).get("status", "legacy" if caption_rows else "unavailable")))
-        caption_model_id = (caption_metadata or {}).get("model_id") or (get_variant(settings.CAPTION_PRIMARY_BACKEND).model_id if caption_rows else None)
+        caption_status = str((caption_metadata or {}).get("build_status", (caption_metadata or {}).get("status", "legacy" if (caption_rows or all_artifact_captions) else "unavailable")))
+        caption_model_id = (caption_metadata or {}).get("model_id") or (get_variant(settings.CAPTION_PRIMARY_BACKEND).model_id if (caption_rows or all_artifact_captions) else None)
         caption_fallback_used = bool((caption_metadata or {}).get("fallback_count", 0))
-        if caption_rows and caption_status == "ready":
+        if (caption_rows or all_artifact_captions) and caption_status == "ready":
             if caption_model_id and caption_model_id not in models_used:
                 models_used.append(str(caption_model_id))
         if caption_status in {"pending", "running"}:
@@ -480,12 +485,30 @@ class HybridMomentSearchEngine:
             breakdown = {"visual": round(float(visual), 4), "caption": round(float(caption), 4),
                          "temporal": round(float(candidate.get("score", 0.0)), 4), "verifier": round(verifier, 4),
                          "sam": round(float(candidate.get("sam_score", 0.0)), 4)}
-            scene_caption = caption_text_by_scene.get(str(nearest.get("scene_id")), "")
+            scene_caption = (
+                caption_text_by_scene.get(str(nearest.get("scene_id")), "")
+                or all_caption_by_scene.get(str(nearest.get("scene_id")), "")
+            )
             if not scene_caption and nearest.get("scene_id") in scene_by_id:
                 scene_caption = str(scene_by_id[nearest["scene_id"]].get("caption", "") or "")
+            if not scene_caption and all_artifact_captions:
+                midpoint = (start + end) / 2.0
+                match = next((row for row in all_artifact_captions if float(row.get("t_start", 0.0)) <= midpoint <= float(row.get("t_end", duration))), None)
+                if match:
+                    scene_caption = str(match.get("caption", "") or "")
+
+            preview_text = scene_caption
+            if scene_caption:
+                try:
+                    cap_data = json.loads(scene_caption)
+                    if isinstance(cap_data, dict) and "summary" in cap_data and cap_data["summary"]:
+                        preview_text = str(cap_data["summary"])
+                except Exception:
+                    pass
+
             moments.append(MomentItem(t_start=start, t_end=end, score=round(float(probability), 4),
                                       raw_score=round(float(candidate.get("rank_score", candidate.get("score", 0.0))), 6), display_score=round(float(candidate.get("score", 0.0)), 4),
-                                      preview_frame_path=nearest.get("frame_path"), caption_preview=scene_caption or None,
+                                      preview_frame_path=nearest.get("frame_path"), caption_preview=preview_text or None,
                                       caption_full=scene_caption or None,
                                       modality_breakdown=breakdown,
                                       occurrence_index=occurrence_by_key.get((start, end), 0),

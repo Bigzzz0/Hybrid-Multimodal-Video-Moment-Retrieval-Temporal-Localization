@@ -3,7 +3,7 @@
 import React, { useRef, useEffect, useState, useCallback } from "react";
 import { MomentItem, VideoKeyframeItem, DragHandleState, TimelineZoomState } from "@/lib/types";
 import { apiClient } from "@/lib/api";
-import { Sparkles, ZoomIn, ZoomOut, Activity, Flame } from "lucide-react";
+import { Sparkles, Activity } from "lucide-react";
 
 interface TimelineHeatmapProps {
   heatmapData: number[]; // 1 value per second [0.0 - 1.0]
@@ -40,7 +40,22 @@ export const TimelineHeatmap: React.FC<TimelineHeatmapProps> = ({
   const containerRef = useRef<HTMLDivElement | null>(null);
 
   const [zoom, setZoom] = useState<TimelineZoomState>({ scale: 1.0, scrollOffsetSec: 0 });
-  const [showMotionLayer, setShowMotionLayer] = useState(true);
+  const [showMotionLayer, setShowMotionLayer] = useState(false);
+  const [isDarkMode, setIsDarkMode] = useState(false);
+
+  // Detect and observe theme switching (Light / Dark)
+  useEffect(() => {
+    const updateTheme = () => {
+      setIsDarkMode(document.documentElement.classList.contains("dark"));
+    };
+    updateTheme();
+
+    const observer = new MutationObserver(() => {
+      updateTheme();
+    });
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
+    return () => observer.disconnect();
+  }, []);
 
   const [hoverState, setHoverState] = useState<HoverState>({
     isActive: false,
@@ -79,7 +94,7 @@ export const TimelineHeatmap: React.FC<TimelineHeatmapProps> = ({
     [duration, zoom]
   );
 
-  // Render High-DPI Smooth Continuous Spline Waveform & Dual-Layers
+  // Render Theme-Adaptive Spline Waveform Heatmap
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
@@ -95,13 +110,20 @@ export const TimelineHeatmap: React.FC<TimelineHeatmapProps> = ({
     canvas.height = height * dpr;
     ctx.scale(dpr, dpr);
 
-    // 1. Clear background
+    // Color theme values
+    const canvasBg = isDarkMode ? "#141A22" : "#F4F6F9";
+    const gridLine = isDarkMode ? "rgba(255, 255, 255, 0.08)" : "rgba(0, 0, 0, 0.06)";
+    const splineColor = isDarkMode ? "#5CA9FF" : "#0A63C9";
+    const playheadColor = isDarkMode ? "#FFFFFF" : "#12171F";
+    const kfTickColor = isDarkMode ? "rgba(255, 255, 255, 0.25)" : "rgba(0, 0, 0, 0.2)";
+
+    // 1. Clear & fill background according to current theme
     ctx.clearRect(0, 0, width, height);
-    ctx.fillStyle = "#080c16";
+    ctx.fillStyle = canvasBg;
     ctx.fillRect(0, 0, width, height);
 
     // 2. Subtle Baseline Grid Rule
-    ctx.strokeStyle = "rgba(255, 255, 255, 0.06)";
+    ctx.strokeStyle = gridLine;
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(0, height - 1);
@@ -109,8 +131,7 @@ export const TimelineHeatmap: React.FC<TimelineHeatmapProps> = ({
     ctx.stroke();
 
     if (!heatmapData || heatmapData.length === 0 || duration <= 0) {
-      // Empty state guide
-      ctx.strokeStyle = "rgba(99, 102, 241, 0.25)";
+      ctx.strokeStyle = isDarkMode ? "rgba(92, 169, 255, 0.3)" : "rgba(10, 99, 201, 0.3)";
       ctx.setLineDash([4, 4]);
       ctx.beginPath();
       ctx.moveTo(0, height / 2);
@@ -123,7 +144,7 @@ export const TimelineHeatmap: React.FC<TimelineHeatmapProps> = ({
     const n = heatmapData.length;
     const stepX = width / Math.max(1, n - 1);
 
-    // 3. Layer 2: Optional Pixel Motion Energy Curve (Amber dashed stroke)
+    // 3. Optional Pixel Motion Energy Curve
     if (showMotionLayer && motionData && motionData.length > 0) {
       const motStep = width / Math.max(1, motionData.length - 1);
       ctx.beginPath();
@@ -134,14 +155,14 @@ export const TimelineHeatmap: React.FC<TimelineHeatmapProps> = ({
         if (i === 0) ctx.moveTo(mx, my);
         else ctx.lineTo(mx, my);
       }
-      ctx.strokeStyle = "rgba(245, 158, 11, 0.55)";
+      ctx.strokeStyle = "rgba(245, 158, 11, 0.7)";
       ctx.lineWidth = 1.5;
       ctx.setLineDash([3, 3]);
       ctx.stroke();
       ctx.setLineDash([]);
     }
 
-    // 4. Layer 1: Semantic Relevance Spline Points
+    // 4. Semantic Relevance Spline Points
     const points: { x: number; y: number; val: number }[] = [];
     for (let i = 0; i < n; i++) {
       const rawVal = heatmapData[i] || 0;
@@ -153,9 +174,15 @@ export const TimelineHeatmap: React.FC<TimelineHeatmapProps> = ({
 
     // 5. Draw Area Gradient with Cubic Bezier Spline
     const areaGradient = ctx.createLinearGradient(0, 0, 0, height);
-    areaGradient.addColorStop(0, "rgba(0, 240, 255, 0.50)");
-    areaGradient.addColorStop(0.5, "rgba(99, 102, 241, 0.20)");
-    areaGradient.addColorStop(1, "rgba(99, 102, 241, 0.01)");
+    if (isDarkMode) {
+      areaGradient.addColorStop(0, "rgba(92, 169, 255, 0.40)");
+      areaGradient.addColorStop(0.5, "rgba(92, 169, 255, 0.15)");
+      areaGradient.addColorStop(1, "rgba(92, 169, 255, 0.01)");
+    } else {
+      areaGradient.addColorStop(0, "rgba(10, 99, 201, 0.35)");
+      areaGradient.addColorStop(0.5, "rgba(10, 99, 201, 0.12)");
+      areaGradient.addColorStop(1, "rgba(10, 99, 201, 0.01)");
+    }
 
     ctx.beginPath();
     ctx.moveTo(0, height);
@@ -176,7 +203,7 @@ export const TimelineHeatmap: React.FC<TimelineHeatmapProps> = ({
     ctx.fillStyle = areaGradient;
     ctx.fill();
 
-    // 6. Draw Glowing Spline Stroke
+    // 6. Draw Spline Stroke
     ctx.beginPath();
     ctx.moveTo(points[0].x, points[0].y);
     for (let i = 0; i < points.length - 1; i++) {
@@ -188,16 +215,16 @@ export const TimelineHeatmap: React.FC<TimelineHeatmapProps> = ({
       const cpy2 = p1.y;
       ctx.bezierCurveTo(cpx1, cpy1, cpx2, cpy2, p1.x, p1.y);
     }
-    ctx.strokeStyle = "#00f0ff";
+    ctx.strokeStyle = splineColor;
     ctx.lineWidth = 2.2;
-    ctx.shadowColor = "#00f0ff";
-    ctx.shadowBlur = 6;
+    ctx.shadowColor = splineColor;
+    ctx.shadowBlur = isDarkMode ? 6 : 2;
     ctx.stroke();
     ctx.shadowBlur = 0; // reset glow
 
     // 7. Keyframe Position Ticks (Bottom Notch Marks)
     if (keyframeRecords && keyframeRecords.length > 0) {
-      ctx.fillStyle = "rgba(255, 255, 255, 0.25)";
+      ctx.fillStyle = kfTickColor;
       for (const kf of keyframeRecords) {
         const kx = timeToX(kf.timestamp, width);
         if (kx >= 0 && kx <= width) {
@@ -214,27 +241,25 @@ export const TimelineHeatmap: React.FC<TimelineHeatmapProps> = ({
       const w = Math.max(6, x2 - x1);
 
       // Translucent event fill
-      ctx.fillStyle = "rgba(0, 240, 255, 0.18)";
+      ctx.fillStyle = isDarkMode ? "rgba(92, 169, 255, 0.22)" : "rgba(10, 99, 201, 0.16)";
       ctx.fillRect(x1, 0, w, height);
 
       // Border outline
-      ctx.strokeStyle = "rgba(0, 240, 255, 0.95)";
+      ctx.strokeStyle = splineColor;
       ctx.lineWidth = 1.5;
       ctx.strokeRect(x1, 0, w, height);
 
       // Start Handle (Left Bracket)
-      ctx.fillStyle = "#00f0ff";
+      ctx.fillStyle = splineColor;
       ctx.fillRect(x1 - 2, 0, 4, height);
-      // Grip Handle Dot
       ctx.fillStyle = "#ffffff";
       ctx.beginPath();
       ctx.arc(x1, height / 2, 3, 0, Math.PI * 2);
       ctx.fill();
 
       // End Handle (Right Bracket)
-      ctx.fillStyle = "#00f0ff";
+      ctx.fillStyle = splineColor;
       ctx.fillRect(x2 - 2, 0, 4, height);
-      // Grip Handle Dot
       ctx.fillStyle = "#ffffff";
       ctx.beginPath();
       ctx.arc(x2, height / 2, 3, 0, Math.PI * 2);
@@ -244,10 +269,10 @@ export const TimelineHeatmap: React.FC<TimelineHeatmapProps> = ({
     // 9. Playhead Needle
     if (duration > 0) {
       const playheadX = timeToX(currentTime, width);
-      ctx.strokeStyle = "#ffffff";
+      ctx.strokeStyle = playheadColor;
       ctx.lineWidth = 2;
-      ctx.shadowColor = "rgba(255, 255, 255, 0.9)";
-      ctx.shadowBlur = 6;
+      ctx.shadowColor = isDarkMode ? "rgba(255, 255, 255, 0.8)" : "rgba(0, 0, 0, 0.3)";
+      ctx.shadowBlur = 4;
       ctx.beginPath();
       ctx.moveTo(playheadX, 0);
       ctx.lineTo(playheadX, height);
@@ -255,14 +280,25 @@ export const TimelineHeatmap: React.FC<TimelineHeatmapProps> = ({
       ctx.shadowBlur = 0;
 
       // Handle Head
-      ctx.fillStyle = "#ffffff";
+      ctx.fillStyle = playheadColor;
       ctx.beginPath();
       ctx.arc(playheadX, 3.5, 3.5, 0, Math.PI * 2);
       ctx.fill();
     }
-  }, [heatmapData, motionData, duration, currentTime, highlightInterval, zoom, showMotionLayer, keyframeRecords, timeToX]);
+  }, [
+    heatmapData,
+    motionData,
+    duration,
+    currentTime,
+    highlightInterval,
+    zoom,
+    showMotionLayer,
+    keyframeRecords,
+    timeToX,
+    isDarkMode,
+  ]);
 
-  // Mouse Move Listener (Hover tooltip + Drag execution)
+  // Mouse Move Listener
   const handleMouseMove = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
       const canvas = canvasRef.current;
@@ -272,9 +308,8 @@ export const TimelineHeatmap: React.FC<TimelineHeatmapProps> = ({
       const clientX = e.clientX - rect.left;
       const hoverTime = xToTime(clientX, rect.width);
 
-      // If actively dragging boundary handles
       if (dragState.isDragging && onBoundaryChange && highlightInterval) {
-        const deltaSec = (e.clientX - dragState.initialX) / rect.width * (duration / zoom.scale);
+        const deltaSec = ((e.clientX - dragState.initialX) / rect.width) * (duration / zoom.scale);
         const [initStart, initEnd] = dragState.initialInterval;
 
         let newStart = initStart;
@@ -290,7 +325,6 @@ export const TimelineHeatmap: React.FC<TimelineHeatmapProps> = ({
           newEnd = newStart + span;
         }
 
-        // Magnetic Snap to keyframes if within 0.3s
         for (const kf of keyframeRecords) {
           if (dragState.handleType === "start" && Math.abs(kf.timestamp - newStart) <= 0.3) {
             newStart = kf.timestamp;
@@ -304,7 +338,6 @@ export const TimelineHeatmap: React.FC<TimelineHeatmapProps> = ({
         return;
       }
 
-      // Update Cursor based on proximity to drag handles
       if (highlightInterval && containerRef.current) {
         const [ts, te] = highlightInterval;
         const x1 = timeToX(ts, rect.width);
@@ -319,11 +352,9 @@ export const TimelineHeatmap: React.FC<TimelineHeatmapProps> = ({
         }
       }
 
-      // Relevance score at hover time
       const secIdx = Math.floor(hoverTime);
       const score = heatmapData[secIdx] || 0;
 
-      // Find nearest keyframe image
       let nearestFrameUrl: string | null = null;
       if (keyframeRecords.length > 0) {
         let bestDiff = Infinity;
@@ -362,7 +393,6 @@ export const TimelineHeatmap: React.FC<TimelineHeatmapProps> = ({
     const x2 = timeToX(te, rect.width);
 
     if (Math.abs(clientX - x1) <= 7) {
-      // Dragging Start Handle
       setDragState({
         isDragging: true,
         handleType: "start",
@@ -370,7 +400,6 @@ export const TimelineHeatmap: React.FC<TimelineHeatmapProps> = ({
         initialInterval: [ts, te],
       });
     } else if (Math.abs(clientX - x2) <= 7) {
-      // Dragging End Handle
       setDragState({
         isDragging: true,
         handleType: "end",
@@ -378,7 +407,6 @@ export const TimelineHeatmap: React.FC<TimelineHeatmapProps> = ({
         initialInterval: [ts, te],
       });
     } else if (clientX > x1 + 7 && clientX < x2 - 7) {
-      // Sliding the entire interval
       setDragState({
         isDragging: true,
         handleType: "middle",
@@ -386,7 +414,6 @@ export const TimelineHeatmap: React.FC<TimelineHeatmapProps> = ({
         initialInterval: [ts, te],
       });
     } else {
-      // Simple seek click
       const clickTime = xToTime(clientX, rect.width);
       onSeek(clickTime);
     }
@@ -398,7 +425,6 @@ export const TimelineHeatmap: React.FC<TimelineHeatmapProps> = ({
     }
   };
 
-  // Window mouseup listener for drag release outside canvas
   useEffect(() => {
     const handleGlobalMouseUp = () => {
       if (dragState.isDragging) {
@@ -433,11 +459,11 @@ export const TimelineHeatmap: React.FC<TimelineHeatmapProps> = ({
   return (
     <div className="w-full space-y-1.5 select-none relative" ref={containerRef}>
       {/* Header Info Bar */}
-      <div className="flex items-center justify-between text-xs text-gray-400 font-medium px-1">
+      <div className="flex items-center justify-between text-xs font-medium px-1">
         <div className="flex items-center gap-2">
           <span className="flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
-            <span className="text-gray-200 font-semibold text-xs">Visual Relevance Heatmap</span>
+            <span className="w-2 h-2 rounded-full bg-[var(--accent)] animate-pulse" />
+            <span className="text-[var(--text)] font-semibold text-xs">Visual Relevance Heatmap</span>
           </span>
 
           {/* Toggle Pixel Motion Curve */}
@@ -446,10 +472,10 @@ export const TimelineHeatmap: React.FC<TimelineHeatmapProps> = ({
             onClick={() => setShowMotionLayer(!showMotionLayer)}
             aria-pressed={showMotionLayer}
             aria-label="Toggle motion energy layer"
-            className={`px-2 py-0.5 rounded text-[10px] font-mono flex items-center gap-1 border transition-colors ${
+            className={`px-2 py-0.5 rounded-lg text-[10px] font-mono flex items-center gap-1 border transition-colors ${
               showMotionLayer
-                ? "bg-amber-950/60 border-amber-600/50 text-amber-300"
-                : "bg-surface border-surfaceBorder text-gray-500 hover:text-gray-300"
+                ? "bg-amber-500/15 border-amber-500/40 text-amber-600 dark:text-amber-400 font-semibold"
+                : "bg-[var(--bg)] border-[var(--line)] text-[var(--muted)] hover:text-[var(--text)]"
             }`}
             title="Motion energy helps refine boundaries; it is not semantic relevance"
           >
@@ -458,49 +484,36 @@ export const TimelineHeatmap: React.FC<TimelineHeatmapProps> = ({
           </button>
 
           {/* Zoom Buttons */}
-          <div className="flex items-center gap-1 bg-surface border border-surfaceBorder rounded-lg p-0.5">
-            <button
-              type="button"
-              onClick={() => handleZoom(1.0)}
-              aria-label="Timeline zoom 1x"
-              className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold transition-colors ${
-                zoom.scale === 1.0 ? "bg-cyan-500/20 text-cyan-300 border border-cyan-500/40" : "text-gray-500 hover:text-gray-300"
-              }`}
-            >
-              1x
-            </button>
-            <button
-              type="button"
-              onClick={() => handleZoom(2.0)}
-              aria-label="Timeline zoom 2x"
-              className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold transition-colors ${
-                zoom.scale === 2.0 ? "bg-cyan-500/20 text-cyan-300 border border-cyan-500/40" : "text-gray-500 hover:text-gray-300"
-              }`}
-            >
-              2x
-            </button>
-            <button
-              type="button"
-              onClick={() => handleZoom(4.0)}
-              aria-label="Timeline zoom 4x"
-              className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold transition-colors ${
-                zoom.scale === 4.0 ? "bg-cyan-500/20 text-cyan-300 border border-cyan-500/40" : "text-gray-500 hover:text-gray-300"
-              }`}
-            >
-              4x
-            </button>
+          <div className="flex items-center gap-0.5 bg-[var(--bg)] border border-[var(--line)] rounded-lg p-0.5 font-mono">
+            {[1.0, 2.0, 4.0].map((lvl) => (
+              <button
+                key={lvl}
+                type="button"
+                onClick={() => handleZoom(lvl)}
+                aria-label={`Timeline zoom ${lvl}x`}
+                className={`px-2 py-0.5 rounded text-[10px] font-bold transition-all ${
+                  zoom.scale === lvl
+                    ? "bg-[var(--panel)] text-[var(--accent)] shadow-sm"
+                    : "text-[var(--muted)] hover:text-[var(--text)]"
+                }`}
+              >
+                {lvl}x
+              </button>
+            ))}
           </div>
         </div>
 
         <div className="flex items-center gap-2">
           {peakScore > 0 && (
-            <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-cyan-950 text-cyan-300 border border-cyan-800">
+            <span
               title="Display-normalized heatmap value, not calibrated confidence"
+              className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-[var(--accent)]/10 text-[var(--accent)] border border-[var(--accent)]/30"
+            >
               Normalized peak: {peakScore.toFixed(2)}
             </span>
           )}
-          <span className="font-mono text-gray-300 text-xs">
-            <b className="text-cyan-400 font-bold">{currentTime.toFixed(1)}s</b> / {duration.toFixed(1)}s
+          <span className="font-mono text-xs text-[var(--muted)]">
+            <b className="text-[var(--accent)] font-bold">{currentTime.toFixed(1)}s</b> / {duration.toFixed(1)}s
           </span>
         </div>
       </div>
@@ -519,18 +532,18 @@ export const TimelineHeatmap: React.FC<TimelineHeatmapProps> = ({
               <React.Fragment key={key}>
                 <span
                   aria-hidden="true"
-                  className="absolute top-3 h-1 rounded-full bg-cyan-400/60"
+                  className="absolute top-3 h-1 rounded-full bg-[var(--accent)]/60"
                   style={{ left: `${leftPct}%`, width: `${Math.max(0.5, rightPct - leftPct)}%` }}
                 />
                 <button
-                type="button"
-                onClick={() => onSeek(m.t_start)}
-                style={{ left: `${pct}%` }}
-                title={`Jump to event ${m.occurrence_index ?? idx + 1} (${m.t_start.toFixed(1)}s - ${m.t_end.toFixed(1)}s)`}
-                className="absolute -translate-x-1/2 top-0 px-2 py-0.5 rounded-full bg-cyan-950/90 hover:bg-cyan-900 border border-cyan-500/80 text-[10px] font-mono font-bold text-cyan-300 shadow-md shadow-cyan-500/20 hover:scale-110 transition-all flex items-center gap-1 z-20"
-              >
-                <Sparkles className="w-2.5 h-2.5 text-cyan-400" />
-                <span>#{idx + 1}</span>
+                  type="button"
+                  onClick={() => onSeek(m.t_start)}
+                  style={{ left: `${pct}%` }}
+                  title={`Jump to event ${m.occurrence_index ?? idx + 1} (${m.t_start.toFixed(1)}s - ${m.t_end.toFixed(1)}s)`}
+                  className="absolute -translate-x-1/2 top-0 px-2 py-0.5 rounded-full bg-[var(--panel)] hover:bg-[var(--bg)] border border-[var(--accent)] text-[10px] font-mono font-bold text-[var(--accent)] shadow-sm hover:scale-105 transition-all flex items-center gap-1 z-20"
+                >
+                  <Sparkles className="w-2.5 h-2.5 text-[var(--accent)]" />
+                  <span>#{idx + 1}</span>
                 </button>
               </React.Fragment>
             );
@@ -548,7 +561,7 @@ export const TimelineHeatmap: React.FC<TimelineHeatmapProps> = ({
       >
         <canvas
           ref={canvasRef}
-          className="w-full h-12 rounded-xl border border-surfaceBorder group-hover:border-cyan-500/50 transition-colors shadow-inner"
+          className="w-full h-12 rounded-xl border border-[var(--line)] shadow-inner transition-colors"
         />
 
         {/* Live Hover Scrubbing Tooltip with Frame Thumbnail Preview */}
@@ -560,9 +573,9 @@ export const TimelineHeatmap: React.FC<TimelineHeatmapProps> = ({
               transform: "translateX(-50%)",
             }}
           >
-            <div className="glass-tooltip p-1.5 rounded-xl flex flex-col items-center gap-1 shadow-2xl border border-cyan-500/40 w-28 text-center">
+            <div className="p-1.5 rounded-xl flex flex-col items-center gap-1 shadow-xl bg-[var(--panel)] border border-[var(--line)] w-28 text-center">
               {hoverState.frameUrl ? (
-                <div className="w-full h-14 rounded-lg overflow-hidden bg-black border border-white/10 relative">
+                <div className="w-full h-14 rounded-lg overflow-hidden bg-black border border-[var(--line)] relative">
                   <img
                     src={hoverState.frameUrl}
                     alt="Keyframe Preview"
@@ -570,33 +583,33 @@ export const TimelineHeatmap: React.FC<TimelineHeatmapProps> = ({
                     loading="eager"
                   />
                   {hoverState.score > 0 && (
-                    <span className="absolute bottom-0.5 right-0.5 text-[9px] font-mono font-bold bg-black/80 px-1 py-0.2 rounded text-cyan-300">
+                    <span className="absolute bottom-0.5 right-0.5 text-[9px] font-mono font-bold bg-black/80 px-1 py-0.2 rounded text-white">
                       {(hoverState.score * 100).toFixed(0)}%
                     </span>
                   )}
                 </div>
               ) : (
-                <div className="w-full h-14 rounded-lg bg-surface/80 flex items-center justify-center text-[10px] text-gray-500 font-mono">
+                <div className="w-full h-14 rounded-lg bg-[var(--bg)] flex items-center justify-center text-[10px] text-[var(--muted)] font-mono">
                   No Thumbnail
                 </div>
               )}
-              <span className="font-mono text-[11px] font-bold text-white tracking-wider">
+              <span className="font-mono text-[11px] font-bold text-[var(--text)] tracking-wider">
                 {formatSeconds(hoverState.hoverTime)}
               </span>
             </div>
             {/* Tooltip caret arrow */}
-            <div className="w-2.5 h-2.5 bg-[#060911] border-r border-b border-cyan-500/40 rotate-45 mx-auto -mt-1" />
+            <div className="w-2.5 h-2.5 bg-[var(--panel)] border-r border-b border-[var(--line)] rotate-45 mx-auto -mt-1" />
           </div>
         )}
       </div>
 
       {/* Drag Instruction Cue */}
       {highlightInterval && (
-        <div className="flex items-center justify-between text-[10px] font-mono text-gray-500 px-1">
+        <div className="flex items-center justify-between text-[10px] font-mono text-[var(--muted)] px-1">
           <span className="flex items-center gap-1">
-            <span className="text-cyan-400">◄ Drag Brackets ►</span> to fine-tune event boundary
+            <span className="text-[var(--accent)] font-semibold">◄ Drag Brackets ►</span> to fine-tune event boundary
           </span>
-          <span className="text-gray-400 font-medium">
+          <span className="text-[var(--text)] font-medium">
             Active Event: {highlightInterval[0].toFixed(1)}s - {highlightInterval[1].toFixed(1)}s ({(highlightInterval[1] - highlightInterval[0]).toFixed(1)}s)
           </span>
         </div>

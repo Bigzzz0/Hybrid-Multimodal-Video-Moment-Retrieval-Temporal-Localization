@@ -13,6 +13,7 @@ import {
   Layers
 } from "lucide-react";
 import { apiClient } from "@/lib/api";
+import { useLanguage } from "@/lib/language";
 
 interface DropzoneProps {
   onUploadSuccess: (videoId: string) => void;
@@ -34,6 +35,7 @@ const PIPELINE_STAGES: PipelineStage[] = [
 ];
 
 export const Dropzone: React.FC<DropzoneProps> = ({ onUploadSuccess }) => {
+  const { language, t } = useLanguage();
   const [isDragging, setIsDragging] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -120,7 +122,7 @@ export const Dropzone: React.FC<DropzoneProps> = ({ onUploadSuccess }) => {
       }, 600);
 
       // 2. Connect WebSocket for Real-time Push
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
       const wsProtocol = apiUrl.startsWith("https") ? "wss" : "ws";
       const wsUrl = `${wsProtocol}://${apiUrl.replace(/^https?:\/\//, "")}/api/v1/ws/progress/${videoId}`;
       const ws = new WebSocket(wsUrl);
@@ -141,19 +143,26 @@ export const Dropzone: React.FC<DropzoneProps> = ({ onUploadSuccess }) => {
 
     } catch (err: any) {
       cleanUpListeners();
-      setError(err?.response?.data?.detail || "Upload failed. Please check backend connection.");
+      const serverMsg = err?.response?.data?.detail;
+      const isConnectionIssue = !err?.response || err?.code === "ERR_NETWORK" || err?.message?.includes("Network Error");
+      setError(
+        serverMsg ||
+        (isConnectionIssue
+          ? "Backend is still initializing or unreachable. Please wait a few seconds and try uploading again."
+          : "Upload failed. Please check backend connection.")
+      );
       setIsUploading(false);
     }
   };
 
   return (
-    <div className="w-full glass-panel rounded-2xl p-6 space-y-5">
+    <div className="w-full bg-[var(--panel)] border border-[var(--line)] rounded-2xl p-6 space-y-5 text-[var(--text)]">
       <div className="flex items-center justify-between">
-        <h3 className="text-base font-semibold text-white flex items-center gap-2">
-          <UploadCloud className="w-5 h-5 text-indigo-400" />
-          Upload & Ingest Video
+        <h3 className="text-base font-semibold text-[var(--text)] flex items-center gap-2">
+          <UploadCloud className="w-5 h-5 text-[var(--accent)]" />
+          {t("modal.uploadTitle")}
         </h3>
-        <span className="text-xs text-gray-400 font-mono">Progressive Two-Phase Engine</span>
+        <span className="text-xs text-[var(--muted)] font-mono">Progressive Two-Phase Engine</span>
       </div>
 
       {!isUploading ? (
@@ -171,10 +180,10 @@ export const Dropzone: React.FC<DropzoneProps> = ({ onUploadSuccess }) => {
             }
           }}
           onClick={() => fileInputRef.current?.click()}
-          className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition-all duration-200 ${
+          className={`border-2 border-dashed rounded-2xl p-8 text-center cursor-pointer transition-all duration-200 ${
             isDragging
-              ? "border-cyan-500 bg-cyan-500/10 scale-[0.99]"
-              : "border-surfaceBorder hover:border-indigo-500 hover:bg-surface/50"
+              ? "border-[var(--accent)] bg-[var(--accent)]/10 scale-[0.99]"
+              : "border-[var(--line)] hover:border-[var(--accent)] hover:bg-[var(--line)]/30"
           }`}
         >
           <input
@@ -190,46 +199,56 @@ export const Dropzone: React.FC<DropzoneProps> = ({ onUploadSuccess }) => {
           />
 
           <div className="space-y-2">
-            <UploadCloud className="w-10 h-10 mx-auto text-gray-400 group-hover:text-indigo-400 transition-colors" />
-            <p className="text-sm font-medium text-gray-200">
-              Drag & Drop your video file here, or <span className="text-cyan-400 underline">browse files</span>
+            <UploadCloud className="w-10 h-10 mx-auto text-[var(--muted)] group-hover:text-[var(--accent)] transition-colors" />
+            <p className="text-sm font-semibold text-[var(--text)]">
+              {language === "th" ? (
+                <>ลากและวางไฟล์วิดีโอที่นี่ หรือ <span className="text-[var(--accent)] underline">เลือกไฟล์จากเครื่อง</span></>
+              ) : (
+                <>Drag and drop video file here, or <span className="text-[var(--accent)] underline">browse files</span></>
+              )}
             </p>
-            <p className="text-xs text-gray-500">Supports .mp4, .mkv, .mov, .webm (Full HD / 4K)</p>
+            <p className="text-xs text-[var(--muted)]">
+              {language === "th" ? "รองรับ .mp4, .mkv, .mov, .webm (Full HD / 4K)" : "Supports .mp4, .mkv, .mov, .webm (Full HD / 4K)"}
+            </p>
           </div>
         </div>
       ) : (
         /* Real-Time Live Pipeline Tracker */
-        <div className="space-y-4 rounded-xl bg-surface/90 border border-surfaceBorder p-5">
+        <div className="space-y-4 rounded-2xl bg-[var(--panel)] border border-[var(--line)] p-5">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <Loader2 className="w-5 h-5 text-cyan-400 animate-spin" />
-              <span className="text-sm font-bold text-white">Live Ingestion Pipeline</span>
+              <Loader2 className="w-5 h-5 text-[var(--accent)] animate-spin" />
+              <span className="text-sm font-bold text-[var(--text)]">Live Ingestion Pipeline</span>
             </div>
-            <span className="text-xs font-mono font-bold px-2.5 py-1 rounded-full bg-cyan-950/80 border border-cyan-800 text-cyan-300">
+            <span className="text-xs font-mono font-bold px-2.5 py-1 rounded-full bg-[var(--accent)]/10 border border-[var(--accent)]/30 text-[var(--accent)]">
               {progress}% Completed
             </span>
           </div>
 
           {/* Master Progress Bar */}
-          <div className="w-full bg-surfaceBorder rounded-full h-2.5 overflow-hidden">
+          <div className="w-full bg-[var(--line)] rounded-full h-2.5 overflow-hidden">
             <div
-              className="bg-gradient-to-r from-indigo-500 via-cyan-400 to-emerald-400 h-2.5 rounded-full transition-all duration-300 shadow-lg shadow-cyan-500/20"
+              className="bg-[var(--accent)] h-2.5 rounded-full transition-all duration-300 shadow-sm"
               style={{ width: `${Math.max(8, progress)}%` }}
             />
           </div>
 
           {/* Current Action Banner */}
-          <div className="p-3 rounded-lg bg-background/80 border border-surfaceBorder text-xs text-gray-300 flex items-start gap-2.5">
-            <span className="w-2 h-2 rounded-full bg-cyan-400 mt-1 animate-ping flex-shrink-0" />
+          <div className="p-3 rounded-xl bg-[var(--bg)] border border-[var(--line)] text-xs text-[var(--text)] flex items-start gap-2.5">
+            <span className="w-2 h-2 rounded-full bg-[var(--accent)] mt-1 animate-pulse flex-shrink-0" />
             <div className="space-y-0.5 flex-1">
-              <span className="font-semibold text-white">Current Action: </span>
-              <span className="text-cyan-300 font-medium">{statusMessage || "Processing video pipeline..."}</span>
+              <span className="font-semibold text-[var(--muted)]">
+                {language === "th" ? "ขั้นตอนปัจจุบัน: " : "Current Step: "}
+              </span>
+              <span className="text-[var(--accent)] font-medium">
+                {statusMessage || (language === "th" ? "กำลังประมวลผลไฟล์วิดีโอ..." : "Processing video file...")}
+              </span>
             </div>
           </div>
 
           {/* Multi-Stage Pipeline Step Checklist */}
           <div className="space-y-2 pt-1">
-            <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Pipeline Steps</p>
+            <p className="text-xs font-semibold text-[var(--muted)] uppercase tracking-wider">Pipeline Steps</p>
             <div className="grid grid-cols-1 gap-2.5">
               {PIPELINE_STAGES.map((stg) => {
                 const isDone = completedStages.includes(stg.id) || progress >= 100;
@@ -242,10 +261,10 @@ export const Dropzone: React.FC<DropzoneProps> = ({ onUploadSuccess }) => {
                     key={stg.id}
                     className={`flex flex-col p-3 rounded-xl border text-xs transition-all ${
                       isDone
-                        ? "bg-emerald-950/20 border-emerald-800/40 text-emerald-300"
+                        ? "bg-emerald-500/10 border-emerald-500/30 text-emerald-700 dark:text-emerald-300"
                         : isRunning
-                        ? "bg-cyan-950/40 border-cyan-500/60 text-white shadow-lg shadow-cyan-950/50 ring-1 ring-cyan-500/30"
-                        : "bg-surface/40 border-surfaceBorder/60 text-gray-500"
+                        ? "bg-[var(--accent)]/10 border-[var(--accent)] text-[var(--text)] shadow-sm"
+                        : "bg-[var(--bg)] border-[var(--line)] text-[var(--muted)]"
                     }`}
                   >
                     <div className="flex items-center justify-between">

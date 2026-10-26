@@ -7,7 +7,7 @@ Write-Host "  Stopping Pure-Visual Video Moment Retrieval Services..." -Foregrou
 Write-Host "==============================================================================" -ForegroundColor Yellow
 Write-Host ""
 
-$Ports = @(8000, 8011, 3000)
+$Ports = @(8000, 8011, 3000, 18100, 18101)
 
 foreach ($Port in $Ports) {
     $Lines = netstat -aon | Select-String ":$Port\s+.*LISTENING"
@@ -24,6 +24,8 @@ foreach ($Port in $Ports) {
         }
     }
 }
+
+Get-Process -Name "llama-server" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 
 Write-Host ""
 Write-Host "==============================================================================" -ForegroundColor Green

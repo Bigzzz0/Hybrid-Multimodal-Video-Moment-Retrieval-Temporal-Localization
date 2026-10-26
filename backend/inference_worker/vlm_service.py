@@ -187,6 +187,12 @@ class VariantVLMService:
         source = (text or "").strip()
         candidates = [source]
         candidates.extend(match.group(1).strip() for match in re.finditer(r"```(?:json)?\s*([\s\S]*?)```", source, flags=re.IGNORECASE))
+        for candidate in list(candidates):
+            trimmed = candidate.strip().rstrip(",")
+            open_braces = trimmed.count("{") - trimmed.count("}")
+            open_brackets = trimmed.count("[") - trimmed.count("]")
+            if open_braces > 0 or open_brackets > 0:
+                candidates.append(trimmed + ("]" * max(0, open_brackets)) + ("}" * max(0, open_braces)))
         for candidate in candidates:
             for match in re.finditer(r"\{", candidate):
                 try:
@@ -381,7 +387,7 @@ class VariantVLMService:
             people_count=data.get("people_count") if isinstance(data.get("people_count"), int) else None,
             model_id=meta["model_id"], status="generated", **{k: meta[k] for k in ("vlm_backend", "model_revision", "quantization", "input_mode", "artifact_version")},
             inference_ms=round((time.perf_counter() - started) * 1000, 1),
-            json_valid=bool(self._extract_json(raw)),
+            json_valid=bool(self._extract_json(raw) or data.get("summary")),
             json_repaired=json_repaired,
         )
 

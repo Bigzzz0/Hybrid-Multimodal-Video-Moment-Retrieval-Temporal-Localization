@@ -27,6 +27,40 @@ class ProgressiveIngestionManager:
         self.keyframe_filter = SSIMKeyframeFilter()
         self.visual_encoder = SigLIP2VisualEncoder()
         self.dense_captioner = QwenVLDenseCaptioner()
+        self.cancelled_caption_jobs: set[str] = set()
+
+    def cancel_caption_job(self, video_id: str) -> bool:
+        """Cancel an in-progress caption job for video_id and unload the worker model."""
+        vid = str(video_id)
+        self.cancelled_caption_jobs.add(vid)
+        primary = get_variant(settings.CAPTION_PRIMARY_BACKEND)
+        previous_metadata = vlm_artifact_store.metadata(vid, primary.backend) or {}
+        active_version = str(previous_metadata.get("active_artifact_version") or "")
+        expected_count = int(previous_metadata.get("expected_count", 0) or 0)
+        completed_count = int(previous_metadata.get("completed_count", 0) or 0)
+        fallback_count = int(previous_metadata.get("fallback_count", 0) or 0)
+        started_at = str(previous_metadata.get("started_at") or "")
+
+        vlm_artifact_store.set_metadata(
+            vid,
+            primary,
+            expected_count,
+            completed_count,
+            "ready" if active_version else "cancelled",
+            error_message="User cancelled caption generation",
+            started_at=started_at,
+            fallback_count=fallback_count,
+            active_artifact_version=active_version,
+            pending_artifact_version="",
+            build_status="cancelled",
+        )
+        if settings.INFERENCE_WORKER_ENABLED:
+            try:
+                from app.inference.client import inference_client
+                inference_client.vlm_unload(primary.backend)
+            except Exception:
+                pass
+        return True
 
     def process_video_phase1(
         self,
@@ -388,6 +422,9 @@ class ProgressiveIngestionManager:
         self,
         video_id: str,
         progress_callback: Optional[Callable[[str, int, str, str, Dict[str, Any]], None]] = None,
+        job_version: Optional[str] = None,
+        max_frames_per_scene: Optional[int] = None,
+        force: bool = False,
     ):
         """Create the active Q6 scene-caption version after Phase 1.
 
@@ -420,23 +457,30 @@ class ProgressiveIngestionManager:
         if not active_version and previous_metadata.get("status") == "ready":
             active_version = settings.VLM_ARTIFACT_VERSION
         pending_version = str(previous_metadata.get("pending_artifact_version") or "")
-        if pending_version and previous_metadata.get("build_status", previous_metadata.get("status")) in {"running", "error"}:
+        if force:
+            job_version = f"{settings.VLM_ARTIFACT_VERSION}:{uuid.uuid4().hex[:10]}"
+            existing = []
+            existing_ids = set()
+        elif pending_version and previous_metadata.get("build_status", previous_metadata.get("status")) in {"running", "error"}:
             job_version = pending_version
+            existing = vlm_artifact_store.caption_rows(
+                video_id, settings.CAPTION_PRIMARY_BACKEND, require_ready=False, artifact_version=job_version
+            )
+            existing_ids = {str(row.get("id")) for row in existing}
         elif active_version:
             # Never overwrite the active scene rows while rebuilding.  The
             # active pointer changes only after every scene in this version
             # has a valid Q6/fallback artifact.
             job_version = f"{settings.VLM_ARTIFACT_VERSION}:{uuid.uuid4().hex[:10]}"
+            existing = []
+            existing_ids = set()
         else:
             job_version = settings.VLM_ARTIFACT_VERSION
+            existing = vlm_artifact_store.caption_rows(
+                video_id, settings.CAPTION_PRIMARY_BACKEND, require_ready=False, artifact_version=job_version
+            )
+            existing_ids = {str(row.get("id")) for row in existing}
 
-        # Ingestion may resume from a metadata row still marked running/error;
-        # retrieval uses the default require_ready=True and never exposes this
-        # partial set to Fast Search.
-        existing = vlm_artifact_store.caption_rows(
-            video_id, settings.CAPTION_PRIMARY_BACKEND, require_ready=False, artifact_version=job_version
-        )
-        existing_ids = {str(row.get("id")) for row in existing}
         started_at = datetime.datetime.now().isoformat()
         vlm_artifact_store.set_metadata(
             video_id, primary, len(scenes), len(existing_ids),
@@ -447,6 +491,8 @@ class ProgressiveIngestionManager:
         active_backend = ""
         fallback_count = sum(1 for row in existing if fallback and row.get("vlm_backend") == fallback.backend)
 
+        effective_frame_limit = int(max_frames_per_scene or settings.CAPTION_MAX_FRAMES_PER_SCENE)
+
         def choose_frames(scene_id: str):
             group = sorted(
                 [row for row in frames if str(row.get("scene_id")) == str(scene_id) and os.path.exists(str(row.get("frame_path", "")))],
@@ -454,7 +500,7 @@ class ProgressiveIngestionManager:
             )
             if not group:
                 return [], []
-            count = min(len(group), max(1, int(settings.CAPTION_MAX_FRAMES_PER_SCENE)))
+            count = min(len(group), max(1, effective_frame_limit))
             indexes = np.linspace(0, len(group) - 1, count).round().astype(int).tolist()
             selected = [group[index] for index in indexes]
             return [str(row["frame_path"]) for row in selected], [float(row.get("timestamp", 0.0)) for row in selected]
@@ -465,15 +511,17 @@ class ProgressiveIngestionManager:
                 frame_paths=paths[:max_frames],
                 timestamps=timestamps[:max_frames],
                 prompt=(
-                    "Analyze only visible visual content in these chronological CCTV frames. "
+                    "Analyze visible visual content in these chronological CCTV/surveillance video frames. "
+                    "Describe specifically what happens across time: count exact number of persons/animals/vehicles, "
+                    "their distinct clothing or colors, entries/exits, interactions, and specific physical motions (such as running, walking, carrying items). "
                     "Return exactly one compact JSON object with keys summary, objects, attributes, "
                     "actions, relations, temporal_events, uncertainty. Do not use OCR, subtitles, "
-                    "audio, names, identities or face recognition. Keep summary under 20 words, "
-                    "each array to at most 4 short items, and use empty arrays when absent. "
-                    "Do not include timestamps, long explanations, markdown or extra keys."
+                    "audio, names, or face recognition. Keep summary informative and concise (under 40 words). "
+                    "List short items in each array, and use empty arrays when absent. "
+                    "Do not include markdown or extra keys."
                 ),
                 prompt_version=settings.CAPTION_PROMPT_VERSION,
-                max_new_tokens=settings.CAPTION_MAX_NEW_TOKENS,
+                max_new_tokens=max(512, int(settings.CAPTION_MAX_NEW_TOKENS)),
                 vlm_backend=backend,
                 release_after=False,
                 max_frames=max_frames,
@@ -482,8 +530,31 @@ class ProgressiveIngestionManager:
                 return inference_client.vlm_caption(request, timeout_sec=240.0)
             raise RuntimeError("CapRL Q6 caption requires the local inference worker")
 
+        if settings.INFERENCE_WORKER_ENABLED:
+            health = inference_client.health()
+            if health.get("status") != "healthy":
+                err_msg = health.get("error", "offline")
+                logger.error(
+                    f"Inference Worker (:8011) is not running or unreachable ({err_msg}). "
+                    "Cannot process captions. Please start the worker: python -m inference_worker.main"
+                )
+                vlm_artifact_store.set_metadata(
+                    video_id, primary, len(scenes), len(existing_ids),
+                    "ready" if active_version else "error",
+                    error_message=f"Inference Worker (:8011) unreachable: {err_msg}",
+                    started_at=started_at, fallback_count=fallback_count,
+                    active_artifact_version=active_version,
+                    pending_artifact_version=job_version,
+                    build_status="error",
+                )
+                return
+
         try:
             for index, scene in enumerate(scenes):
+                if str(video_id) in self.cancelled_caption_jobs:
+                    logger.info(f"Caption generation for {video_id} cancelled by user at scene {index + 1}/{len(scenes)}.")
+                    self.cancelled_caption_jobs.discard(str(video_id))
+                    return
                 scene_id = str(scene.get("id"))
                 if scene_id in existing_ids:
                     continue
@@ -497,9 +568,10 @@ class ProgressiveIngestionManager:
                     if not getattr(response, "summary", "") and not getattr(response, "text", ""):
                         raise RuntimeError("empty caption response")
                     if backend_used == primary.backend and not bool(getattr(response, "json_valid", False)):
-                        raise RuntimeError("primary caption returned invalid JSON")
+                        if not getattr(response, "summary", ""):
+                            raise RuntimeError("primary caption returned invalid JSON")
                 except Exception as first_error:
-                    logger.warning("Primary caption failed for scene %s: %s", scene_id, first_error)
+                    logger.warning(f"Primary caption failed for scene {scene_id}: {first_error}")
                     if backend_used == primary.backend and fallback and fallback.backend != primary.backend:
                         try:
                             inference_client.vlm_unload(primary.backend)
@@ -510,7 +582,7 @@ class ProgressiveIngestionManager:
                             response = caption_with_backend(fallback.backend, paths, timestamps, min(len(paths), settings.CAPTION_RETRY_FRAMES))
                             fallback_count += 1
                         except Exception as fallback_error:
-                            logger.error("Fallback caption failed for scene %s: %s", scene_id, fallback_error)
+                            logger.error(f"Fallback caption failed for scene {scene_id}: {fallback_error}")
                             response = None
                     else:
                         response = None

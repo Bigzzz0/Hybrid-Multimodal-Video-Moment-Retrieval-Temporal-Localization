@@ -1,7 +1,8 @@
 # Pure-Visual Video Moment Retrieval & Temporal Localization
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Python-3.12-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python" />
+  <img src="https://img.shields.io/badge/Platform-Windows_10%2F11-0078D6?style=for-the-badge&logo=windows&logoColor=white" alt="Windows" />
+  <img src="https://img.shields.io/badge/Python-3.11%20%7C%203.12-3776AB?style=for-the-badge&logo=python&logoColor=white" alt="Python" />
   <img src="https://img.shields.io/badge/Next.js_14-App_Router-000000?style=for-the-badge&logo=nextdotjs&logoColor=white" alt="Next.js" />
   <img src="https://img.shields.io/badge/PyTorch-2.4+-EE4C2C?style=for-the-badge&logo=pytorch&logoColor=white" alt="PyTorch" />
   <img src="https://img.shields.io/badge/CUDA-12.x-76B900?style=for-the-badge&logo=nvidia&logoColor=white" alt="CUDA" />
@@ -10,20 +11,145 @@
 </p>
 
 <p align="center">
-  <b>Natural Language Video Moment Retrieval & Temporal Boundary Localization System</b><br />
-  Powered by <b>SigLIP 2 (NaFlex)</b>, precomputed <b>CapRL-Qwen3VL-4B Q6</b> captions, selective <b>CapRL Q6</b> verification, and <b>LanceDB</b>.<br />
-  <i>100% Local On-Premise Execution on an RTX 5070 12GB with Zero Cloud API Costs.</i>
+  <b>ระบบค้นหาช่วงเวลาและเหตุการณ์ในวิดีโอด้วยภาษาธรรมชาติ (Natural Language Video Moment Retrieval & Temporal Boundary Localization)</b><br />
+  ขับเคลื่อนด้วย <b>SigLIP 2 (NaFlex)</b>, แคปชันล่วงหน้าด้วย <b>CapRL-Qwen3VL-4B Q6</b>, ระบบคัดกรอง <b>Accurate Verifier</b> และ <b>LanceDB Vector Database</b><br />
+  <i>ทำงานแบบ Local On-Premise 100% บนเครื่องของคุณ ไม่ส่งข้อมูลออกภายนอก และไม่มีค่าใช้จ่าย Cloud API</i>
 </p>
 
 ---
 
 ## 🌟 จุดเด่นของระบบ (Key Highlights)
 
-* 🔒 **100% Local On-Premise & Complete Data Privacy:** ประมวลผลและจัดเก็บข้อมูลเวกเตอร์ภายในเครื่องทั้งหมด ข้อมูลวิดีโอไม่รั่วไหลสู่คลาวด์ภายนอก และไม่มีค่าใช้จ่าย API รายเดือน
-* ⚡ **Consumer GPU Optimized (RTX 5070 12GB):** ใช้ SigLIP2 เป็น retrieval หลัก และแยก CapRL Q6/SAM ไว้ใน local inference worker เพื่อควบคุม VRAM และป้องกัน OOM
-* 🚀 **Progressive Visual Ingestion:** เปิด Fast Search หลังสร้าง SigLIP2 index แล้วสร้าง CapRL Q6 captions แบบ background โดยไม่บล็อกการค้นหา
-* 📈 **Dynamic Relevance Density Heatmap:** แถบเรืองแสงแสดงระดับความเกี่ยวข้องของเนื้อหาตลอดทั้งวิดีโอแบบ 1-Hz Canvas Visualizer ช่วยให้ผู้ใช้เห็นภาพรวมของทั้งคลิปได้ในเสี้ยววินาที
-* ⏱️ **Calibrated Multi-scale Temporal Localization:** สกัดช่วงเวลาเริ่มต้น-สิ้นสุด $[t_{start}, t_{end}]$ ด้วย rolling proposals, boundary/transition refinement และ Gaussian Soft-NMS ก่อนจัดลำดับหลายเหตุการณ์
+* 🔒 **100% Local On-Premise & Complete Privacy:** ประมวลผลและจัดเก็บฐานข้อมูลเวกเตอร์ทั้งหมดในเครื่อง วิดีโอไม่รั่วไหลสู่ภายนอก
+* ⚡ **Consumer Hardware Optimized:** ออกแบบมาสำหรับเครื่องคอมพิวเตอร์ทั่วไปและ GPU สำหรับผู้ใช้ทั่วไป (เช่น RTX 3060, 4070, 5070 หรือ CPU Mode) พร้อมระบบจัดการ VRAM ป้องกัน Out-of-Memory
+* 🚀 **Progressive Visual Ingestion:** เมื่ออัปโหลดวิดีโอ ระบบจะสร้างเวกเตอร์ SigLIP 2 และเปิดให้ค้นหาแบบ **Fast Search ได้ทันที** ในช่วงไม่กี่สิบวินาทีแรก จากนั้นระบบจะสร้างแคปชันละเอียด (CapRL Q6) ในเบื้องหลังโดยไม่บล็อกการใช้งาน
+* 📈 **Dynamic Relevance Density Heatmap:** แถบเรืองแสงแสดงความเข้มข้นของเหตุการณ์ที่ตรงกับคำค้นหาตลอดทั้งวิดีโอแบบ 1-Hz Canvas ช่วยให้เห็นจุดสำคัญได้ทันที
+* ⏱️ **Calibrated Multi-scale Temporal Localization:** สกัดช่วงเวลาเริ่มต้น-สิ้นสุด $[t_{start}, t_{end}]$ อย่างแม่นยำด้วย Gaussian Convolution, Soft-NMS และ Dynamic Thresholding
+
+---
+
+## 🚀 วิธีการติดตั้งและเริ่มใช้งานบน Windows (Quick Start Guide)
+
+### 💻 ข้อกำหนดของระบบ (System Requirements)
+1. **Windows 10 หรือ Windows 11** (64-bit)
+2. **Python 3.11 หรือ 3.12** ([ดาวน์โหลดจาก python.org](https://www.python.org/downloads/))  
+   *(⚠️ สำคัญ: ตอนติดตั้งต้องติ๊กเลือก **"Add python.exe to PATH"** ด้วย)*
+3. **Node.js 18+ หรือ 20+** ([ดาวน์โหลดจาก nodejs.org](https://nodejs.org/))
+4. **NVIDIA GPU** (แนะนำ VRAM 8GB–12GB+ เช่น RTX 3060, 4070, 5070) หรือสามารถรันบน **CPU** ได้โดยตรง
+
+---
+
+### 📦 ขั้นตอนที่ 1: ติดตั้งครั้งแรก (First-Time Setup)
+
+เปิดโปรแกรม **PowerShell** หรือ **Command Prompt** แล้วรันคำสั่งตามลำดับ (ทำเพียงครั้งแรกครั้งเดียว):
+
+#### 1. ติดตั้ง Backend (Python)
+```powershell
+# 1. เข้าสู่โฟลเดอร์ backend
+cd backend
+
+# 2. สร้าง Virtual Environment
+python -m venv venv
+
+# 3. เปิดใช้งาน Virtual Environment
+.\venv\Scripts\activate
+
+# 4. ติดตั้ง dependencies ทั้งหมด
+pip install -r requirements.txt
+
+# 5. สร้างไฟล์ตั้งค่า .env จากตัวอย่าง
+copy .env.example .env
+
+# 6. กลับมาที่โฟลเดอร์หลัก
+cd ..
+```
+
+#### 2. ติดตั้ง Frontend (Next.js)
+```powershell
+# 1. เข้าสู่โฟลเดอร์ frontend
+cd frontend
+
+# 2. ติดตั้งแพ็กเกจ Node.js
+npm install
+
+# 3. กลับมาที่โฟลเดอร์หลัก
+cd ..
+```
+
+---
+
+### ⚡ ขั้นตอนที่ 2: วิธีสั่งรันระบบ (How to Run)
+
+เลือกใช้งานได้ **2 วิธี** ตามความสะดวก:
+
+---
+
+### 🌟 วิธีที่ 1: รันคำสั่งเดียวจบ (One-Click Launcher - แนะนำที่สุด)
+
+เพียงเปิด PowerShell ที่โฟลเดอร์หลัก แล้วพิมพ์คำสั่งเดียว:
+
+```powershell
+npm start
+```
+
+*(หรือสามารถใช้เมาส์ **ดับเบิลคลิกไฟล์ `start_all.bat`** ใน File Explorer ได้เลย)*
+
+> 💡 **สคริปต์นี้จัดการทุกอย่างให้แบบอัตโนมัติในคลิกเดียว:**
+> 1. **Auto Preload AI Models:** โหลดและวอร์มโมเดล SigLIP 2 Vision และตรวจสอบไฟล์ CapRL Q6 ให้ทันที (ไม่ต้องสั่ง preload แยกเอง)
+> 2. **เปิด Backend API Server:** รันที่ `http://localhost:8000`
+> 3. **เปิด AI Inference Worker:** รันที่ `http://localhost:8011`
+> 4. **เปิด Frontend Web App:** รันที่ `http://localhost:3000`
+> 5. **Auto Wait & Open Browser:** มีระบบตรวจเช็คสถานะจนกระทั่ง Backend พร้อมใช้งาน 100% แล้วจะเปิดเว็บเบราว์เซอร์ให้ทันที หมดปัญหาเปิดเว็บแล้วกดอัปโหลดไม่ติด!
+
+🛑 **วิธีสั่งหยุดการทำงานทั้งหมด (Stop All):**
+```powershell
+npm run stop
+```
+*(หรือดับเบิลคลิกไฟล์ `stop_all.bat` หรือกดปิดหน้าต่าง Command Prompt แต่ละบาน)*
+
+---
+
+### 🛠️ วิธีที่ 2: รันแยกหน้าต่างด้วยตัวเอง (Manual Mode สำหรับ Developer / Debug)
+
+หากต้องการแก้ไขโค้ด หรือต้องการดูข้อความ Log แยกหน้าต่างแบบละเอียด ให้เปิด **3 หน้าต่าง PowerShell**:
+
+* **หน้าต่างที่ 1 — Backend API Server (`:8000`):**
+  ```powershell
+  cd backend
+  .\venv\Scripts\activate
+  python preload_models.py    # (ทางเลือก) วอร์มโมเดลเข้าหน่วยความจำล่วงหน้า
+  python main.py              # เริ่มต้น Backend Server
+  ```
+  * ตรวจสอบ API Documentation ได้ที่: `http://localhost:8000/docs`
+
+* **หน้าต่างที่ 2 — AI Inference Worker (`:8011`):**
+  ```powershell
+  cd backend
+  .\venv\Scripts\activate
+  python -m inference_worker.main
+  ```
+
+* **หน้าต่างที่ 3 — Frontend Web UI (`:3000`):**
+  ```powershell
+  cd frontend
+  npm run dev
+  ```
+  * เข้าใช้งานหน้าเว็บที่: `http://localhost:3000`
+
+---
+
+## ⚙️ การตั้งค่าที่สำคัญ (Configuration: `backend/.env`)
+
+ไฟล์ `backend/.env` เก็บค่าคอนฟิกหลักของระบบ สามารถเปิดแก้ไขได้ด้วย Notepad หรือ VS Code:
+
+| ตัวแปร | ค่าที่แนะนำ | คำอธิบาย |
+| :--- | :--- | :--- |
+| `DEVICE` | `cuda` หรือ `cpu` | เลือกรันโมเดลบน GPU (`cuda`) หรือ CPU (`cpu`). หากใช้การ์ดรุ่นใหม่มากที่ PyTorch ตัวปัจจุบันยังไม่รองรับ ให้ตั้งเป็น `cpu` ระบบจะรันได้ตามปกติ |
+| `HF_TOKEN` | `hf_xxx...` | Hugging Face Token (ใส่เมื่อต้องการดาวน์โหลดโมเดลครั้งแรก) |
+| `INFERENCE_WORKER_ENABLED` | `true` | เปิด/ปิด AI Worker สำหรับสร้าง Dense Action Captions ในพื้นหลัง |
+| `SIGLIP2_MODEL_ID` | `google/siglip2-base-patch16-naflex` | โมเดล Vision-Text ตัวหลักสำหรับค้นหาภาพและเหตุการณ์ |
+| `LLAMA_CPP_PATH` | `backend\bin\llama\llama-server.exe` | Path ไฟล์รัน llama-server สำหรับโมเดล CapRL Q6 GGUF |
+| `VLM_GGUF_DIR` | `backend\models\gguf` | โฟลเดอร์เก็บไฟล์ weights ของโมเดล CapRL Q6 GGUF |
 
 ---
 
@@ -85,242 +211,66 @@
 │                           NEXT.JS 14 INTERACTIVE VIDEO DASHBOARD                        │
 ├─────────────────────────────────────────────────────────────────────────────────────────┤
 │  • Dynamic Relevance Density Heatmap Canvas Bar                                         │
-│  • Timeline Auto-Seek Video Player (measured in benchmark)                             │
+│  • Timeline Auto-Seek Video Player                                                      │
 │  • Ranked Moment Cards with Timestamp Badges & Previews                                 │
 └─────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 🛠️ รายการเทคโนโลยีที่เลือกใช้ (Tech Stack)
+## 🛠️ รายการเทคโนโลยีหลัก (Tech Stack)
 
-| ส่วนประกอบ | เทคโนโลยีที่เลือกใช้ | บทบาทและจุดเด่น |
+| ส่วนประกอบ | เทคโนโลยีที่เลือกใช้ | บทบาทและหน้าที่ |
 | :--- | :--- | :--- |
-| **Visual-Text Backbone** | `google/siglip2-base-patch16-naflex` | สกัดเวกเตอร์ภาพ 768-dim โดยรักษา aspect ratio |
-| **Primary Captioner** | `CapRL-Qwen3VL-4B Q6_K` (llama.cpp CUDA) | สร้าง structured scene caption ล่วงหน้าหลัง upload |
-| **Online Verifier / VQA**| `CapRL-Qwen3VL-4B Q6_K` (llama.cpp CUDA) | ตรวจ action/relation เมื่อ caption ยังไม่ชัด และตอบ visual evidence |
-| **Object Grounding** | `facebook/sam3.1` (ปิดใน production flow) | เก็บโค้ดและ artifacts เดิมไว้สำหรับการทดลองภายหลัง |
-| **Video Decoding**        | `Decord` (NVDEC GPU Hardware Fallback) | ถอดรหัสเฟรมจริงพร้อมรักษา timestamp และ fallback บน CPU |
-| **Vector Storage**        | `LanceDB` (Apache Arrow Format) | Vector DB แบบ Serverless บน SSD พร้อมดัชนี IVF-PQ และ FTS |
+| **Visual-Text Backbone** | `google/siglip2-base-patch16-naflex` | สกัดเวกเตอร์ภาพ 768 มิติ โดยรักษา Aspect Ratio เดิมของวิดีโอ |
+| **Dense Scene Captioner** | `CapRL-Qwen3VL-4B Q6_K` (llama.cpp) | สรุปเนื้อหาการกระทำและวัตถุในแต่ละซีนล่วงหน้าแบบเบื้องหลัง |
+| **Online Verifier / VQA** | `CapRL-Qwen3VL-4B Q6_K` (llama.cpp) | ตรวจสอบความถูกต้องของเหตุการณ์และตอบคำถาม Visual Evidence |
+| **Video Decoding**        | `Decord` (Hardware/Software) | ถอดรหัสเฟรมวิดีโออย่างแม่นยำและรวดเร็ว |
+| **Vector Storage**        | `LanceDB` (Apache Arrow Format) | ฐานข้อมูลเวกเตอร์แบบ Serverless ประสิทธิภาพสูง ไม่เปลือง RAM |
 | **Temporal Algorithm**    | `1D Gaussian Convolution & RRF` | กรองสัญญาณรบกวนและสกัดช่วงเวลาต่อเนื่อง $[t_s, t_e]$ |
-| **Backend API**           | `FastAPI` + `Uvicorn` + `WebSockets` | REST API, HTTP 206 Byte-Range Streaming, Live Telemetry |
-| **Frontend UI**           | `Next.js 14` + `React 18` + `Tailwind CSS` | Dashboard สไตล์ Dark Glassmorphism พร้อม Canvas Heatmap |
-
-> **Production note:** Qwen3-VL-2B ยังมีชื่อใน compatibility code และ persisted-row metadata
-> บางส่วน แต่ไม่ถูกลงทะเบียนหรือโหลดใน production caption/verifier flow ปัจจุบัน
-> ซึ่งใช้ CapRL Q6 เพียงตัวเดียวสำหรับ VLM งานหลัก
+| **Backend API**           | `FastAPI` + `Uvicorn` + `WebSockets` | REST API รองรับ Video Streaming (HTTP 206) และ Live Progress |
+| **Frontend UI**           | `Next.js 14` + `React 18` + `Tailwind` | หน้าเว็บแบบ Responsive Dark Modern พร้อม Canvas Heatmap |
 
 ---
 
-## 🚀 วิธีการติดตั้งและเริ่มใช้งาน (Quick Start Guide)
+## 📖 ข้อมูลเชิงลึกสำหรับนักพัฒนา (Developer Deep Dive)
 
-### 1. ข้อกำหนดขั้นต่ำของระบบ (System Requirements)
-* **OS:** Windows 10/11, Ubuntu 22.04+ หรือ macOS (Apple Silicon)
-* **GPU:** NVIDIA GPU พร้อม VRAM 12GB แนะนำ RTX 5070 หรือสูงกว่า
-* **Software:** Python 3.12 สำหรับ inference worker, Python 3.11+ สำหรับ API, Node.js 18+, FFmpeg
+### 1. Progressive Two-Phase Ingestion
+1. **Phase 1: Fast Ingestion (~30–45 วินาที)**  
+   ถอดรหัสวิดีโอ, ตัดแบ่งซีนด้วย PySceneDetect, สุ่มคีย์เฟรมด้วย SSIM, สกัดเวกเตอร์ด้วย SigLIP 2 และบันทึกลง LanceDB เมื่อขั้นตอนนี้เสร็จ วิดีโอจะเข้าสู่สถานะ `phase1_ready` และสามารถค้นหาแบบ Fast Search ได้ทันที
+2. **Phase 2: Background Dense Captioning**  
+   AI Inference Worker จะนำซีนต่าง ๆ ไปสร้างแคปชันการกระทำ (Dense Captions) ด้วย CapRL Q6 ในพื้นหลัง เมื่อเสร็จสิ้นวิดีโอจะเปลี่ยนสถานะเป็น `caption_ready` เพื่อรองรับการค้นหาแบบข้อความเต็มรูปแบบ (Full-Text Search)
 
----
+### 2. Search Profiles: Fast vs. Accurate
+* **Fast Profile:** ค้นหาเวกเตอร์ภาพจาก SigLIP 2 ร่วมกับ BM25 แคปชันที่มีอยู่ผ่าน Reciprocal Rank Fusion (RRF) ตอบสนองอย่างรวดเร็วในระดับไม่กี่ร้อยมิลลิวินาที
+* **Accurate Profile:** เสริมการวิเคราะห์ด้วย CapRL Q6 Verifier เพื่อยืนยันความสัมพันธ์ของการกระทำและตำแหน่งวัตถุที่ซับซ้อน พร้อมแสดงเหตุผลประกอบ (Visual Evidence)
 
-### ⚡ เริ่มรันทั้งระบบแบบอัตโนมัติในคลิกเดียว (One-Click Automated Launcher)
-> **สำหรับความสะดวกรวดเร็ว:** สามารถเริ่มระบบทั้งหมดได้ทันทีโดยไม่ต้องเปิด Terminal สองหน้าต่างและไม่ต้องเข้า `backend/` หรือ `frontend/` แยกกัน  
-> สคริปต์พิเศษจะทำการ:
-> 1. ตรวจสอบ Virtual Environment และ Node dependencies ให้อัตโนมัติ
-> 2. **Preload AI Models อัตโนมัติ:** โหลดและแคชโมเดล SigLIP 2 Vision Model เข้าสู่หน่วยความจำล่วงหน้าแบบ Zero Cold-Start
-> 3. เปิด Backend API Server (`http://localhost:8000`)
-> 4. เปิด AI Inference Worker (`http://localhost:8011`) (ถ้าเปิดใช้งาน)
-> 5. เปิด Frontend Web Server (`http://localhost:3000`)
-> 6. เปิดหน้าต่าง Web Browser เข้าใช้งานระบบทันที
-
-* **รันบน Windows (ดับเบิลคลิก):** ดับเบิลคลิกไฟล์ `start_all.bat` ที่โฟลเดอร์หลักของโปรเจกต์
-* **รันผ่าน Terminal / PowerShell:**
-  ```powershell
-  .\start_all.bat
-  # หรือ
-  .\start_all.ps1
-  ```
-* **รันผ่าน npm:**
-  ```bash
-  npm start
-  ```
-* **การสั่งหยุดการทำงานทั้งหมด (Stop All):**
-  ดับเบิลคลิก `stop_all.bat` หรือรัน `stop_all.ps1` หรือพิมพ์ `npm run stop`
-
----
-
-### 2. ติดตั้งและตั้งค่า Backend Service (FastAPI) [วิธีแบบดั้งเดิม]
-
-```bash
-# 1. เข้าสู่โฟลเดอร์ backend
-cd backend
-
-# 2. สร้าง Virtual Environment และติดตั้ง Dependencies
-python -m venv venv
-
-# บน Windows:
-.\venv\Scripts\activate
-# บน Linux/macOS:
-source venv/bin/activate
-
-pip install -r requirements.txt
-```
-
-#### การตั้งค่า `.env`:
-สร้างไฟล์ `backend/.env` (หรือแก้ไขจาก `.env.example`):
-```env
-HF_TOKEN=hf_your_token_here
-
-SIGLIP2_MODEL_ID=google/siglip2-base-patch16-naflex
-QWEN_VL_MODEL_ID=internlm/CapRL-Qwen3VL-4B-GGUF
-QWEN_VL_MODEL_REVISION=922d08bb6257875336aa138616c74902f736099c
-ENABLE_SAM_GROUNDING=false
-CAPTION_PRIMARY_BACKEND=caprl_qwen3vl_4b_q6
-CAPTION_FALLBACK_BACKEND=
-VLM_VERIFIER_BACKEND=caprl_qwen3vl_4b_q6
-CAPTION_VERSION=q6-scene-caption-v1
-CAPTION_ARTIFACT_VERSION=q6-scene-caption-v1
-CAPTION_PROMPT_VERSION=pure-visual-caption-v1
-LLAMA_CPP_PATH=C:\\path\\to\\llama-server.exe
-VLM_GGUF_DIR=C:\\path\\to\\caprl-qwen3vl-4b-q6
-INFERENCE_WORKER_ENABLED=true
-INFERENCE_WORKER_URL=http://127.0.0.1:8011
-INFERENCE_WORKER_TOKEN=change-this-local-secret
-MODEL_VRAM_BUDGET_MB=11800
-ACCURATE_MAX_SECONDS=60
-INFERENCE_WARMUP_QWEN=false
-VLM_CAPTION_MAX_NEW_TOKENS=256
-VLM_JSON_REPAIR_MAX_NEW_TOKENS=256
-SAM_SEARCH_TOP_K=2
-SAM_ACCURATE_MAX_SECONDS=60
-QWEN_FALLBACK_TOP_K=1
-QWEN_MIN_REMAINING_SECONDS=12
-SAM_COMPILE=false
-```
-
-โมเดลหนักจะทำงานใน process แยกที่ bind เฉพาะ `127.0.0.1` เพื่อให้ main API
-ไม่ต้องถือ SigLIP2 และ CapRL Q6 พร้อมกันเอง:
-
-```bash
-# terminal แยก: ใช้ environment ที่ติดตั้ง requirements-inference.txt
-cd backend
-python -m inference_worker.main
-```
-
-ถ้ายังไม่ได้ติดตั้ง worker หรือยังไม่มีไฟล์ Q6 ให้ตั้ง
-`INFERENCE_WORKER_ENABLED=false` ระบบยังค้น Fast ได้ และ Accurate จะคืนผล Fast
-พร้อม warning แทนการทำให้เซิร์ฟเวอร์ล้ม
-
-#### วอร์มโมเดล AI ล่วงหน้า (One-Click Preload):
-```bash
- # โหลดและแคชโมเดลภาพขึ้น GPU Memory ทันที (Zero Cold-Start)
-python preload_models.py
-```
-
-#### เริ่มรันเซิร์ฟเวอร์ Backend:
-```bash
-python main.py
-```
-* **Swagger API Documentation:** `http://localhost:8000/docs`
-
-วิดีโอที่ถูกสร้างด้วยดัชนี v1 จะตอบ HTTP `409 reindex_required` จนกว่าจะ ingest ใหม่เป็น
-`video_frames_v2`/`scenes_v2` โดยจะไม่ผสมเวกเตอร์คนละรุ่นระหว่างค้นหา
-
-หากฐานข้อมูลเดิมมีตารางข้อความที่ต้องเก็บไว้ ให้สำรองก่อนลบ (คำสั่งนี้ไม่ถูกเรียกจาก runtime):
-
-```bash
-python backend/scripts/migrate_legacy_index.py --db backend/data/lancedb \
-  --output backend/data/backups/legacy-text.jsonl
-# เมื่อตรวจสอบไฟล์ backup แล้วจึงค่อยเพิ่ม --drop-legacy
-```
-
----
-
-### 3. ติดตั้งและรัน Frontend Web Application (Next.js 14)
-
-เปิด Terminal ใหม่:
-```bash
-# 1. เข้าสู่โฟลเดอร์ frontend
-cd frontend
-
-# 2. ติดตั้ง Node Dependencies
-npm install
-
-# 3. รัน Next.js Dev Server
-npm.cmd run dev
-```
-* **Web Dashboard Application:** `http://localhost:3000`
-
-### สัญญา Search API (v2)
-
-`POST /api/v1/search/moment` รับ `query`, `video_id` (บังคับ), `top_k` 1–20 และ
-`profile` เป็น `fast` หรือ `accurate` ค่า tuning รุ่นเก่าที่ส่งมาเกินจะถูก ignore
-ชั่วคราวเพื่อให้ client เดิมไม่พัง แต่ server เป็นผู้กำหนดน้ำหนักและ threshold เอง
-
-`fast` ใช้ frame embeddings + stored scene-caption RRF; `accurate` ใช้ลำดับ
-SigLIP2 → stored CapRL Q6 captions → CapRL Q6 verifier เมื่อจำเป็น → unload
-ใน production flow นี้ SAM ถูกปิดไว้ (`ENABLE_SAM_GROUNDING=false`) ภายใต้งบเวลารวม 60 วินาที
-Accurate ใช้ SigLIP2 + caption artifact และโหลด CapRL Q6 เฉพาะเมื่อ query ต้องตรวจ action/relation
-หรือ caption ยังไม่ชัด หากเหลือเวลาน้อยกว่า 12 วินาที ระบบจะคืน partial result จาก Fast ที่เสร็จแล้ว
-(เมื่อมี artifact), `modality_breakdown`, `occurrence_index`, `profile`,
-`calibrated`, `index_version`, `strategy_used`, `models_used`, `models_attempted`,
-`cascade_path`, `stage_status`, `planner_version`, `stage_latency_ms`, `cache_hits`
-และ `warnings` โดยคืนได้หลาย occurrence หรือ `moments=[]` สำหรับ no-match.
-SAM code และ artifacts เดิมยังเก็บไว้ แต่ production UI จะไม่แสดง SAM evidence หรือ overlay ขณะ feature flag ปิด
-ใน Moment Card สามารถกด `Caption เต็ม` เพื่อดู structured caption ของซีน และกด
-`ผล Accurate verifier` เพื่อดู raw JSON, confidence, reason และ model provenance ที่ใช้ตรวจจริง
-
-### Production CapRL Q6 caption flow
-
-ตั้งค่า `LLAMA_CPP_PATH` และ `VLM_GGUF_DIR` ใน `backend/.env` ให้ชี้ไปยัง
-`llama-server.exe`, `CapRL-Qwen3VL-4B-q6_k.gguf` และ `CapRL-Qwen3VL-4B-mmproj-Q8_0.gguf`
-ที่อยู่นอก Git จากนั้นเปิด `INFERENCE_WORKER_ENABLED=true` และรัน worker ที่ `127.0.0.1:8011`
-
-หลังอัปโหลด Phase 1 จะเปิด Fast Search ก่อน แล้ว worker จะสร้าง scene captions ด้วย Q6 แบบ background
-จน artifact เป็น `ready`. ระบบ production ไม่เปิด Qwen3-VL-2B เป็น fallback โดยอัตโนมัติ;
-หาก Q6 ล้มเหลวจะเก็บสถานะ error และยังให้ค้นด้วย SigLIP2/Fast ได้. สามารถสั่ง backfill ที่ resume ได้ด้วย:
-
+### 3. สคริปต์จัดการแคปชันย้อนหลัง (Backfill Captions)
+หากต้องการสั่งสร้างแคปชันสำหรับวิดีโอเดิมที่เคยอัปโหลดไว้:
 ```powershell
+cd backend
+.\venv\Scripts\activate
+# สร้างแคปชันให้ทุกวิดีโอที่ยังไม่มี
 python -m scripts.backfill_primary_captions --all-videos --resume
-python -m scripts.backfill_primary_captions --video-id <ID> --resume
+
+# สร้างแคปชันเฉพาะวิดีโอที่ระบุ
+python -m scripts.backfill_primary_captions --video-id <VIDEO_ID> --resume
 ```
 
-CapRL Q6 ใช้เพื่อการวิจัย/เดโมตามเงื่อนไขของโมเดล upstream; ตรวจสอบ license ก่อนใช้เชิงพาณิชย์
-ดูรายละเอียด runtime, troubleshooting และ lifecycle ได้ที่ [docs/current-runtime.md](docs/current-runtime.md)
-
-### Model / dataset attribution
-
-* [SAM 3 repository and checkpoint instructions](https://github.com/facebookresearch/sam3)
-* [CapRL-Qwen3VL-4B-GGUF](https://huggingface.co/internlm/CapRL-Qwen3VL-4B-GGUF)
-* [SigLIP2 NaFlex](https://huggingface.co/google/siglip2-base-patch16-naflex)
-* [AIRC-SMARTCLASS Part 2](https://data.mendeley.com/datasets/fw5hs57z78/1)
-
-ตรวจ license และเงื่อนไขการเข้าถึง checkpoint ก่อนใช้งานจริง ระบบรอบนี้เก็บเฉพาะ
-full-body/object evidence และไม่ทำ face recognition, Identity หรือ Re-ID
-
 ---
 
-## 📊 ตัวชี้วัดประสิทธิภาพและผลการประเมิน (Benchmark Results)
+## 🧮 สูตรทางคณิตศาสตร์หลัก (Mathematical Formulations)
 
-| ตัวชี้วัด (Evaluation Metric) | Baseline snapshot (28 queries) | สถานะ |
-| :--- | :---: | :---: | :---: |
-| **$R@1@\text{IoU}=0.5$** | **46.43%** | ต้องวัดใหม่หลังปรับปรุง |
-| **Mean IoU (mIoU)** | **0.4419** | ต้องวัดใหม่หลังปรับปรุง |
-| **Mean Delta ($\Delta t_{start}$)** | **12.10 s** | ต้องวัดใหม่หลังปรับปรุง |
-| **Query Latency** | **458.72 ms avg** | ต้องรายงาน p50/p95 |
-
----
-
-## 🧮 สูตรทางคณิตศาสตร์หลักของระบบ (Mathematical Formulations)
-
-### 1. การคำนวณเวกเตอร์ความคล้ายคลึง (SigLIP 2 Cosine Similarity)
+### 1. การคำนวณความคล้ายคลึงของเวกเตอร์ (Cosine Similarity)
 $$S_{\text{vis}}(t) = \frac{\mathbf{e}_Q \cdot \mathbf{e}_{f_t}}{\|\mathbf{e}_Q\|_2 \|\mathbf{e}_{f_t}\|_2}$$
 
 ### 2. การรวมคะแนนหลายมิติ (Reciprocal Rank Fusion - RRF)
 $$\text{RRF}(d) = \sum_{m \in \{\text{visual}, \text{caption}\}} \frac{w_m}{k + \text{rank}_m(d)}$$
 
-### 3. การกรองสัญญาณรบกวนบนเส้นเวลา (1D Gaussian Temporal Convolution)
+### 3. การกรองสัญญาณบนเส้นเวลา (1D Gaussian Temporal Convolution)
 $$\tilde{\mathcal{S}}(t) = \mathcal{S}(t) * G_\sigma(t) = \int_{-\infty}^{\infty} \mathcal{S}(\tau) \frac{1}{\sqrt{2\pi}\sigma} \exp\left(-\frac{(t-\tau)^2}{2\sigma^2}\right) d\tau$$
 
-### 4. การตัดแบ่งช่วงเวลาเหตุการณ์ (Dynamic Threshold Boundary Extraction)
+### 4. การสกัดช่วงเวลาเหตุการณ์ (Dynamic Threshold Boundary Extraction)
 $$[t_{\text{start}}, t_{\text{end}}] = \arg\max_{[t_s, t_e]} \int_{t_s}^{t_e} (\tilde{\mathcal{S}}(t) - \theta_{\text{dyn}}) \, dt \quad \text{where} \quad \theta_{\text{dyn}} = \mu_{\mathcal{S}} + \lambda \cdot \sigma_{\mathcal{S}}$$
 
 ---
@@ -328,124 +278,63 @@ $$[t_{\text{start}}, t_{\text{end}}] = \arg\max_{[t_s, t_e]} \int_{t_s}^{t_e} (\
 ## 📁 ผังโครงสร้างโปรเจกต์ (Project Tree)
 
 ```text
-Video Event Retrieval/
+Hybrid-Multimodal-Video-Moment-Retrieval/
 ├── backend/
 │   ├── app/
-│   │   ├── api/
-│   │   │   ├── v1/
-│   │   │   │   ├── upload.py            # Video Upload & Worker Ingestion
-│   │   │   │   ├── search.py            # Hybrid Moment Search Endpoint
-│   │   │   │   ├── video.py             # Stream, Frame Preview, Clip Cut
-│   │   │   │   └── websocket.py         # Real-time WebSocket Telemetry
-│   │   │   └── router.py
-│   │   ├── core/                        # Config, Logger, Device Maps
-│   │   ├── db/                          # LanceDB Schemas & Tables Init
-│   │   ├── pipeline/                    # Decord, SceneDetect, sampling, SigLIP 2, CapRL Q6
-│   │   ├── retrieval/                   # RRF, router, SAM cache, temporal localization
-│   │   ├── inference/                   # Main API client/contracts for local worker
-│   │   └── ../inference_worker/         # CapRL Q6/SAM GPU process on 127.0.0.1:8011
-│   │   └── utils/                       # HTTP 206 Byte-Range Video Streaming
+│   │   ├── api/v1/                      # Upload, Search, Video Streaming, WebSocket
+│   │   ├── core/                        # Configuration (.env), Logger
+│   │   ├── db/                          # LanceDB Vector Database schemas
+│   │   ├── pipeline/                    # Decord, SceneDetect, SigLIP 2, CapRL Q6
+│   │   └── retrieval/                   # RRF Fusion, Temporal Localization
+│   ├── inference_worker/                # Local Worker รัน CapRL Q6 GGUF (:8011)
 │   ├── tests/                           # Pytest Test Suite
-│   ├── preload_models.py                # Pre-warmer & Cache Script
-│   ├── requirements.txt
-│   └── main.py                          # FastAPI Server Entrypoint
+│   ├── preload_models.py                # สคริปต์โหลดและแคชโมเดลล่วงหน้า
+│   ├── main.py                          # FastAPI Server Entrypoint (:8000)
+│   └── requirements.txt
 │
 ├── frontend/
 │   ├── src/
 │   │   ├── app/                         # Next.js 14 App Router
 │   │   ├── components/
-│   │   │   ├── player/                  # VideoPlayer, TimelineHeatmap Canvas
-│   │   │   ├── search/                  # MomentCards, SearchBar
-│   │   │   └── upload/                  # Live Pipeline Tracker Dropzone
-│   │   └── lib/                         # Axios Client & TypeScript Types
-│   ├── package.json
-│   └── tailwind.config.js
+│   │   │   ├── player/                  # VideoPlayer, Timeline Heatmap Canvas
+│   │   │   ├── search/                  # SearchBar, Moment Cards
+│   │   │   └── upload/                  # Dropzone & Live Pipeline Tracker
+│   │   └── lib/                         # API Client & Data Types
+│   └── package.json
 │
-├── evaluation/
-│   ├── build_airc_manifest.py         # deterministic 27/9/9 video split
-│   ├── airc_annotations.schema.json   # temporal/VQA/mask annotation contract
-│   ├── compute_metrics.py               # R@K@IoU, tF1, count/no-match metrics
-│   ├── validate_dataset.py              # Held-out split/language/query contract
-│   ├── calibrate.py                     # Platt calibration + no-match threshold
-│   ├── tune_fusion.py                   # Dev-set RRF grid search
-│   ├── compare_benchmarks.py            # Paired bootstrap CI + ablation comparison
-│   └── run_real_video_benchmark.py      # Fast/Accurate real-video runner
-│
-├── docs/
-│   └── current-runtime.md               # เอกสารอ้างอิง production runtime ปัจจุบัน
-│
-├── Proposal.md                          # ข้อเสนอโครงงาน pure-visual retrieval
-├── README.md                            # คู่มือและเอกสารประกอบโครงงานฉบับสมบูรณ์
-└── .gitignore
+├── start_all.bat                        # สคริปต์เปิดทั้งระบบในคลิกเดียว (Windows CMD)
+├── start_all.ps1                        # สคริปต์เปิดทั้งระบบในคลิกเดียว (PowerShell)
+├── stop_all.bat                         # สคริปต์ปิดทุกเซอร์วิส
+├── package.json                         # npm start / npm run stop
+└── README.md
 ```
 
 ---
 
-## 🧪 การรันชุดทดสอบ (Unit Testing & Benchmarking)
+## 🧪 การรันชุดทดสอบ (Unit Testing)
 
-```bash
-# รัน Unit Tests สำหรับอัลกอริทึม RRF, Gaussian Convolution และ IoU
+ทดสอบการทำงานของฟังก์ชันสำคัญ เช่น RRF, Gaussian Convolution และ IoU:
+```powershell
 cd backend
+.\venv\Scripts\activate
 pytest tests/
-
-# ตรวจสัญญา held-out set (ต้อง >=100 queries, >=10 วิดีโอ, video-disjoint splits)
-python evaluation/validate_dataset.py --dataset evaluation/datasets/heldout.json
-
-# สร้าง calibration/fusion artifacts จาก dev split เท่านั้น
-python evaluation/calibrate.py --input dev_predictions.jsonl --output backend/data/calibration_v2.json --model-id google/siglip2-base-patch16-naflex
-python evaluation/tune_fusion.py --input dev_fusion.jsonl --output backend/data/fusion_v2.json
-
-# รัน benchmark แยก Fast/Accurate และเปรียบเทียบด้วย paired bootstrap 95% CI
-python evaluation/run_real_video_benchmark.py --acceptance --profile fast --dataset evaluation/datasets/heldout.json --output fast.json
-python evaluation/run_real_video_benchmark.py --acceptance --profile accurate --dataset evaluation/datasets/heldout.json --output accurate.json
-python evaluation/compare_benchmarks.py --baseline baseline.json --candidate accurate.json --acceptance --output comparison.json
-# เพิ่ม --ablation name=report.json ซ้ำได้เพื่อเทียบ NaFlex/RRF/proposal/calibration/CapRL-Q6
-
-# สร้าง manifest AIRC-SMARTCLASS แบบ video-disjoint 27/9/9
-python evaluation/build_airc_manifest.py --source-dir path/to/AIRC-SMARTCLASS --output evaluation/datasets/airc_manifest.json
 ```
-
-ไฟล์ `evaluation/datasets/real_video_benchmark.json` และค่าที่อยู่ใน
-`evaluation/baseline_manifest.json` เป็น smoke/regression fixture เท่านั้น ไม่ใช่
-ผล held-out หรือหลักฐาน SOTA ต้องใช้ชุด video-disjoint เดียวกันสำหรับ acceptance gate
 
 ---
 
 ## 🧠 AI Agent Context Layer (NanoNets Graft)
 
-โปรเจกต์นี้ได้รับการผสานเข้ากับ **[NanoNets Graft](https://github.com/nanonets/graft)** ซึ่งเป็นระบบ Context Layer & Code Graph สำหรับ AI Coding Agents (Gemini, Antigravity, Claude Code, Cursor, Copilot, Codex, Windsurf) ช่วยให้โมเดลเข้าใจแผนผังซอร์สโค้ด ฟังก์ชัน และ Call Graph ของทั้งโปรเจกต์ได้อย่างแม่นยำโดยไม่ต้องอ่านไฟล์ทั้งหมด
+โปรเจกต์นี้รองรับ **[NanoNets Graft](https://github.com/nanonets/graft)** ช่วยให้ AI Coding Assistants เข้าใจโครงสร้างและ Call Graph ของโค้ดได้อย่างแม่นยำ:
 
-### คำสั่งใช้งาน Graft CLI:
-
-```bash
-# สร้าง/อัปเดต Code Graph ทันที ($0, No API Key required)
+```powershell
+# อัปเดต Code Graph ของโปรเจกต์
 npx @nanonets/graft build
 
-# แสดงแผนภาพสรุป Cluster และ Hubs สำคัญในระบบ
+# แสดงแผนภาพสรุป Modules สำคัญ
 npx @nanonets/graft map
 
-# ค้นหาตำแหน่งฟังก์ชันหรือโค้ดตามความหมาย
+# ค้นหาตำแหน่งฟังก์ชันตามความหมาย
 npx @nanonets/graft ask "ingestion pipeline"
-
-# ตรวจสอบว่ามีฟังก์ชันไหนเรียกใช้งาน symbol นี้บ้าง (Call Graph Blast Radius)
-npx @nanonets/graft callers ProgressiveIngestionManager
-
-# เปิดหน้าต่าง Interactive Web Visualizer แผนผังโค้ด
-npx @nanonets/graft viz
-```
-
-
----
-
-## 📜 การอ้างอิงทางวิชาการ (Academic Citation)
-
-```bibtex
-@article{videomoment2026,
-  title   = {Pure-Visual Video Moment Retrieval and Temporal Localization using SigLIP 2 and Local Dense Captioning},
-  author  = {Senior Project Research Group},
-  year    = {2026},
-  journal = {Computer Science Senior Capstone Project}
-}
 ```
 
 ---

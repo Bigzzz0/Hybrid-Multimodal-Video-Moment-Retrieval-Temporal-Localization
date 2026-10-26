@@ -72,6 +72,22 @@ class VisualQueryDecomposer:
             "cat": {"visual": ["cat", "kitten", "domestic cat"]},
             "dog": {"visual": ["dog", "puppy", "domestic dog"]},
 
+            # Wildlife & Animals (Trail camera and outdoor nature)
+            "เสือ": {"visual": ["bobcat", "wildcat", "tiger", "leopard", "feline", "big cat", "lynx", "cougar", "animal"]},
+            "เสือดาว": {"visual": ["leopard", "cheetah", "spotted cat", "wildcat"]},
+            "แมวป่า": {"visual": ["wildcat", "bobcat", "lynx", "feline", "animal"]},
+            "กวาง": {"visual": ["deer", "stag", "antlers", "buck", "fawn", "doe", "animal"]},
+            "หมูป่า": {"visual": ["wild boar", "boar", "feral hog", "pig", "animal"]},
+            "หมู": {"visual": ["pig", "boar", "swine"]},
+            "หมาป่า": {"visual": ["wolf", "coyote", "wild canine", "animal"]},
+            "โคโยตี้": {"visual": ["coyote", "wolf", "wild dog", "animal"]},
+            "สัตว์": {"visual": ["animal", "wildlife", "creature", "beast"]},
+            "สัตว์ป่า": {"visual": ["wildlife", "wild animal", "forest creature", "animal"]},
+            "นก": {"visual": ["bird", "wild bird", "woodpecker"]},
+            "แรคคูน": {"visual": ["raccoon", "animal"]},
+            "กระรอก": {"visual": ["squirrel", "rodent", "animal"]},
+            "หมี": {"visual": ["bear", "black bear", "brown bear", "animal"]},
+
             # Physical Actions & Dynamic Body Movements
             "ใส่": {"visual": ["wearing", "dressed in", "putting on clothing"]},
             "สวม": {"visual": ["wearing", "dressed in", "putting on"]},
