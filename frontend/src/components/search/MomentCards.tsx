@@ -417,7 +417,7 @@ export const MomentCards: React.FC<MomentCardsProps> = ({
 
                     {/* Dense visual caption preview */}
                     <p className="text-xs text-gray-300 line-clamp-2 leading-relaxed">
-                      {m.caption_preview || "Caption unavailable — ranking uses frame embeddings only."}
+                      {m.caption_preview || "Caption ของซีนนี้ยังไม่พร้อมแสดง"}
                     </p>
 
                     {/* Action Micro-Tags */}
@@ -546,7 +546,7 @@ export const MomentCards: React.FC<MomentCardsProps> = ({
                 </div>
 
                 <p className="text-[11px] text-gray-400 line-clamp-1 leading-snug">
-                  {m.caption_preview || "Caption unavailable — frame embeddings only"}
+                  {m.caption_preview || "Caption ของซีนนี้ยังไม่พร้อมแสดง"}
                 </p>
                 {renderEvidencePanel(m)}
                 {onExpandContext && m.context_t_start != null && m.context_t_end != null && (m.context_t_start < m.t_start - 0.01 || m.context_t_end > m.t_end + 0.01) && (
