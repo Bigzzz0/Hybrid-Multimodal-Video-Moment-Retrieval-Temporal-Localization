@@ -40,6 +40,9 @@ export interface ActionSuggestionCategory {
 
 
 export interface MomentItem {
+  backend?: "gemma2" | "siglip2";
+  modalities?: string[];
+  evidence?: Record<string, unknown>;
   t_start: number;
   t_end: number;
   score: number;
@@ -91,6 +94,10 @@ export interface FilterCriteria {
 }
 
 export interface SearchResponse {
+  backend?: string;
+  model_revision?: string;
+  dimension?: number;
+  accurate_checked?: number;
   query: string;
   video_id: string;
   moments: MomentItem[];

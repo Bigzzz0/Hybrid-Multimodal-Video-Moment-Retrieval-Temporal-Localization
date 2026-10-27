@@ -31,6 +31,7 @@ except Exception:
     _DEFAULT_DEVICE = "cpu"
 
 class Settings(BaseSettings):
+    RETRIEVAL_BACKEND: str = os.environ.get("RETRIEVAL_BACKEND", "siglip2")
     # App Settings
     PROJECT_NAME: str = "Pure-Visual Video Moment Retrieval"
     API_V1_STR: str = "/api/v1"

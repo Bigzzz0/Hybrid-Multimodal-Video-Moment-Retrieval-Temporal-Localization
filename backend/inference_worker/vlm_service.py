@@ -252,19 +252,21 @@ class VariantVLMService:
         data["reason"] = reason.group(1).strip() if reason else ""
         return data
 
-    def _generate_frames(self, paths: List[str], prompt: str, max_new_tokens: int) -> str:
+    def _generate_frames(self, paths: List[str], prompt: str, max_new_tokens: int, frame_labels: Optional[List[str]] = None) -> str:
         if self.variant.runtime == "llama_cpp":
             if not self.server_process or self.server_process.poll() is not None:
                 raise VLMBackendError("llama.cpp server is not running")
             try:
                 import httpx
                 content: List[Dict[str, Any]] = []
-                for path in paths:
+                for index, path in enumerate(paths):
                     if not path or not os.path.exists(path):
                         continue
                     mime = mimetypes.guess_type(path)[0] or "image/jpeg"
                     with open(path, "rb") as image_file:
                         encoded = base64.b64encode(image_file.read()).decode("ascii")
+                    if frame_labels is not None and index < len(frame_labels):
+                        content.append({"type": "text", "text": frame_labels[index]})
                     content.append({"type": "image_url", "image_url": {"url": f"data:{mime};base64,{encoded}"}})
                 content.append({"type": "text", "text": prompt})
                 response = None
@@ -293,10 +295,13 @@ class VariantVLMService:
         images = [Image.open(path).convert("RGB") for path in paths if path and os.path.exists(path)]
         if not images:
             raise VLMBackendError("VLM request contains no readable frame paths")
-        messages = [{"role": "user", "content": [
-            *[{"type": "image", "image": image} for image in images],
-            {"type": "text", "text": prompt},
-        ]}]
+        content = []
+        for index, image in enumerate(images):
+            if frame_labels is not None and index < len(frame_labels):
+                content.append({"type": "text", "text": frame_labels[index]})
+            content.append({"type": "image", "image": image})
+        content.append({"type": "text", "text": prompt})
+        messages = [{"role": "user", "content": content}]
         try:
             text = self.processor.apply_chat_template(
                 messages, tokenize=False, add_generation_prompt=True, enable_thinking=False,
@@ -313,6 +318,20 @@ class VariantVLMService:
         return self.processor.batch_decode(trimmed, skip_special_tokens=True, clean_up_tokenization_spaces=False)[0].strip()
 
     def _generate(self, request: Any, prompt: str, max_new_tokens: int) -> str:
+        if getattr(request, "verification_mode", "legacy") in ("temporal-v1", "behavior-v2", "open-anomaly-v1"):
+            import math
+            paths, stamps = list(request.frame_paths), list(request.timestamps)
+            if (len(paths) != len(stamps) or len(paths) < 2 or
+                    not all(math.isfinite(value) for value in stamps) or
+                    any(a >= b for a, b in zip(stamps, stamps[1:]))):
+                raise VLMBackendError("Temporal verification needs aligned chronological frames")
+            labels = [f"Frame index {i} (zero-based), timestamp {stamp:.3f} seconds:"
+                      for i, stamp in enumerate(stamps)]
+            if getattr(request, "verification_mode", "legacy") == "open-anomaly-v1":
+                refs = getattr(request, "reference_frames", [])[:2]
+                paths += [r["path"] for r in refs]
+                labels += [f"Verified NORMAL reference {i}; separate recording, not part of event chronology:" for i in range(len(refs))]
+            return self._generate_frames(paths, prompt, max_new_tokens, frame_labels=labels)
         # The ingestion/search pipeline samples local frames for all variants.
         # E keeps its video_chunk identity in the contract and can additionally
         # receive video_path; frame paths remain the deterministic fallback for
@@ -401,16 +420,59 @@ class VariantVLMService:
         )
         if request.caption_hint:
             prompt += f" Caption hint to verify visually: {request.caption_hint}"
+        if request.verification_mode in ("temporal-v1", "behavior-v2", "open-anomaly-v1"):
+            prompt += (
+                f" The images are in chronological order, numbered 0 through {len(mapping)-1}. "
+                "Compare body and arm positions before, during and after the action. "
+                "In reason, cite frame indices and describe the visible transition and any ambiguity. "
+                "A positive requires two distinct evidence frames, start_frame_index < end_frame_index. "
+                "Do not assume an event from proximity or a single pose. "
+                "Apply all semantic requirements above; do not invent an unseen contact."
+            )
+        if request.verification_mode == "behavior-v2":
+            prompt += (
+                " Classify the observable action pattern, not intent, injury, hostility or whether it is staged/playful. "
+                "A punch motion is a rapid directed arm/fist thrust or swing toward another person with a visible "
+                "before/during/after transition. A push motion is directed arm/body extension into another person "
+                "with visible transfer of movement or displacement. Proximity or one extended-arm pose alone is insufficient. "
+                "Distinguish pointing, handshakes, hugs, helping, and striking an object. "
+                "Contact and force are separate observations: do not require contact to last across multiple frames. "
+                "Do not invent contact when occluded or between sampled frames. "
+                "Also return action_motion (punch, push, none, uncertain), contact_observed (yes, no, unclear), "
+                "receiver_response (brief visible reaction or 'not visible'), and uncertainty (brief string). "
+                "event_present means an observed punch/push motion; set it false for none or uncertain. "
+                "If the action cannot be distinguished, use uncertain, not a definitive normal judgment."
+                " Keep reason under 30 words; receiver_response and uncertainty under 8 words each."
+            )
+        if request.verification_mode == "open-anomaly-v1":
+            prompt = (
+                f"Review the chronological surveillance event and its before/after context. Scene: {request.scene_context}. "
+                "Separate NORMAL reference images, if provided, are comparisons, never evidence of the current event. "
+                "Find any observable unusual activity or environmental disruption, without restricting action categories. "
+                "Novel appearance alone is not dangerous; consider routine explanations and scene context. "
+                "Do not infer sound, speech, identity, medical diagnosis or intent from these images. "
+                "Return compact JSON: assessment (normal, suspicious, uncertain), event_present (true only for suspicious), "
+                "start_frame_index, end_frame_index (indices of current event images only), confidence (0 to 1), "
+                "reason, observations, deviation, alternative_explanation, uncertainty (all short strings). "
+                "Use uncertain when occlusion, sparse frames or missing context prevent a decision; do not default to normal. "
+                "A suspicious decision must cite at least two distinct current-event frames. Keep every string under 25 words."
+            )
         raw = self._generate(request, prompt, request.max_new_tokens)
         data = self._extract_json(raw)
         required = {"event_present", "start_frame_index", "end_frame_index", "confidence"}
+        if request.verification_mode == "open-anomaly-v1":
+            required |= {"assessment", "reason", "observations", "deviation", "alternative_explanation", "uncertainty"}
+        if request.verification_mode == "behavior-v2":
+            required |= {"action_motion", "contact_observed", "receiver_response", "uncertainty"}
         if not required.issubset(data):
             data = self._extract_partial_verify(raw)
         if not required.issubset(data):
             repaired = self._generate(
                 request,
-                "Return one compact JSON object only with event_present, start_frame_index, end_frame_index, confidence, reason.",
-                max(64, min(128, request.max_new_tokens)),
+                (prompt + " Return the complete compact JSON object only."
+                 if request.verification_mode in ("temporal-v1", "behavior-v2", "open-anomaly-v1") else
+                 "Return one compact JSON object only with event_present, start_frame_index, end_frame_index, confidence, reason."),
+                max(64, min(512 if request.verification_mode == "open-anomaly-v1" else 256 if request.verification_mode == "behavior-v2" else 128, request.max_new_tokens)),
             )
             repaired_data = self._extract_json(repaired) or self._extract_partial_verify(repaired)
             if repaired_data:

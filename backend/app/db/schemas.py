@@ -260,6 +260,9 @@ class VideoFrameItem(BaseModel):
     transition_energy: float = 0.0
 
 class MomentItem(BaseModel):
+    backend: str = "siglip2"
+    modalities: List[str] = Field(default_factory=list)
+    evidence: Dict[str, Any] = Field(default_factory=dict)
     t_start: float
     t_end: float
     score: float
@@ -278,6 +281,10 @@ class MomentItem(BaseModel):
     verifier_evidence: Optional[Dict[str, Any]] = None
 
 class SearchResponse(BaseModel):
+    backend: str = "siglip2"
+    model_revision: Optional[str] = None
+    dimension: int = 768
+    accurate_checked: int = 0
     query: str
     video_id: str
     moments: List[MomentItem]
@@ -305,6 +312,7 @@ class SearchResponse(BaseModel):
     online_verifier_model_id: Optional[str] = None
 
 class SearchQueryRequest(BaseModel):
+    backend: Optional[Literal["gemma2", "siglip2"]] = None
     query: str
     video_id: str
     top_k: int = Field(default=5, ge=1, le=20)

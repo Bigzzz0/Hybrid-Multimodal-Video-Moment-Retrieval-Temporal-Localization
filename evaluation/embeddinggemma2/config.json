@@ -1,0 +1,24 @@
+{
+  "baseline": {
+    "model_id": "google/siglip2-base-patch16-naflex",
+    "revision": "b53b807d3a2d5e2b3911292f2d69e5341cdc064c",
+    "local_dir": "scratch/embeddinggemma2/models/siglip2"
+  },
+  "candidate": {
+    "model_id": "google/embeddinggemma-2",
+    "revision": "914f7f89142e33e77833254d9c9b90c3cef7303b",
+    "local_dir": "scratch/embeddinggemma2/models/embeddinggemma2"
+  },
+  "dataset": "evaluation/datasets/real_video_benchmark.json",
+  "media_dir": "backend/data/raw_videos",
+  "output_dir": "scratch/embeddinggemma2/results",
+  "device": "cuda",
+  "sample_hz": 1.0,
+  "image_batch_size": 4,
+  "embedding_dim": 768,
+  "smoothing_sigma_sec": 1.5,
+  "timeline_hz": 2,
+  "rrf_k": 60,
+  "top_k": 5,
+  "seed": 7
+}

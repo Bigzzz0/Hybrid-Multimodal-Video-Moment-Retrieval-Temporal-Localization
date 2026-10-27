@@ -1,7 +1,9 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { Video, Sun, Moon, Sliders, Command, Tv, Globe } from "lucide-react";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { Video, Sun, Moon, Sliders, Command, Tv, Globe, AlertTriangle, Search } from "lucide-react";
 import { useLanguage } from "@/lib/language";
 
 interface AppHeaderProps {
@@ -17,6 +19,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
   onOpenHotkeys,
   onOpenSettings,
 }) => {
+  const pathname = usePathname() || "/";
   const [isDark, setIsDark] = useState<boolean>(true);
   const { language, setLanguage, t } = useLanguage();
 
@@ -54,6 +57,32 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
               {t("header.subtitle")}
             </p>
           </div>
+        </div>
+
+        {/* Navigation Tabs (Moment Search vs Anomaly Screening) */}
+        <div className="flex items-center gap-1.5 rounded-xl border border-[var(--line)] bg-[var(--bg)] p-1">
+          <Link
+            href="/"
+            className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-all ${
+              pathname === "/"
+                ? "bg-[var(--panel)] text-[var(--accent)] shadow-sm font-semibold"
+                : "text-[var(--text-muted)] hover:text-[var(--text)]"
+            }`}
+          >
+            <Search className="h-3.5 w-3.5" />
+            <span>{language === "th" ? "ค้นหาโมเมนต์" : "Moment Search"}</span>
+          </Link>
+          <Link
+            href="/events"
+            className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-all ${
+              pathname.startsWith("/events")
+                ? "bg-[var(--panel)] text-[var(--accent)] shadow-sm font-semibold"
+                : "text-[var(--text-muted)] hover:text-[var(--text)]"
+            }`}
+          >
+            <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
+            <span>{language === "th" ? "ตรวจสิ่งไม่ปกติ" : "Anomaly Screening"}</span>
+          </Link>
         </div>
 
         {/* Header Right Actions */}

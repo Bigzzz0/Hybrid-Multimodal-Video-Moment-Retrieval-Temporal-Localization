@@ -1,0 +1,16 @@
+{
+  "annotation_method": "Manual visual review of all 198 six-second window center frames before model rankings. Labels refer to visible center-frame content, not exact event boundaries or audio correctness.",
+  "scope": "One user-selected travel video; exploratory bilingual retrieval, not held-out acceptance. Native AV profiles receive video and audio only; annotation text is never model input.",
+  "events": [
+    {"id":"green_train","positive_windows":[11,15,16,29,30,54,55,56],"queries":["รถไฟสีเขียววิ่งหรือจอดที่สถานี","a green train at a station or on the railway"]},
+    {"id":"train_driver_view","positive_windows":[4,5,6,7,8,9,10,11,12,13,14,17,18,19,20,24,25,26,27],"queries":["มองทางรถไฟจากด้านหน้าภายในรถไฟ","view of the railway tracks from the front of a moving train"]},
+    {"id":"seaside","positive_windows":[2,18,19,20,21,22,23,31,32,33,34,35,36,49,50,51,52,53,59],"queries":["ชายหาดริมทะเลและคลื่นซัดชายฝั่ง","the seaside beach and ocean waves on the coast"]},
+    {"id":"pancakes","positive_windows":[43,44,45,46,47,48],"queries":["แพนเค้กฟูนุ่มราดครีมบนจาน","fluffy souffle pancakes topped with whipped cream on a plate"]},
+    {"id":"small_stone_statues","positive_windows":[0,70,75,76,77,95,182],"queries":["รูปปั้นหินขนาดเล็กในสวนของวัด","small stone statues in a temple garden"]},
+    {"id":"cave_walk","positive_windows":[99,100,101,102,103,104,105,106],"queries":["เดินภายในถ้ำมืดที่มีรูปปั้นและทางเดินแคบ","walking through a dark cave with statues and narrow passages"]},
+    {"id":"giant_buddha","positive_windows":[118,119,120,121,122,125,126],"queries":["พระพุทธรูปองค์ใหญ่กลางแจ้ง","a giant outdoor Buddha statue"]},
+    {"id":"shopping_street","positive_windows":[146,147,148,149,150,151,152,156,157,158,159,163,167],"queries":["เดินเที่ยวถนนร้านค้าและร้านอาหารที่มีผู้คน","walking along a busy shopping street with food and souvenir shops"]},
+    {"id":"matcha","positive_windows":[1,170,171,172,173,174,175,176],"queries":["ชาเขียวมัทฉะในแก้วและไอศกรีมสีเขียว","a cup of green matcha drink and green soft serve ice cream"]},
+    {"id":"bamboo","positive_windows":[78,79,183,186,187,188,189,192,193,194,195,196],"queries":["ทางเดินในป่าไผ่สูง","a walking path through tall bamboo trees"]}
+  ]
+}

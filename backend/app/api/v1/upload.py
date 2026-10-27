@@ -25,6 +25,32 @@ def sync_progress_adapter(video_id: str, percent: int, msg: str, stage: str = "d
 def run_progressive_pipeline(video_id: str, file_path: str, filename: str):
     """Dedicated Background Worker Thread for Progressive Video Ingestion."""
     try:
+        if settings.RETRIEVAL_BACKEND == "gemma2":
+            from app.gemma2.service import get_service
+            from app.db.connection import db_manager
+            from datetime import datetime
+            import time
+            service = get_service()
+            record = service.register(file_path, video_id, name=filename)
+            db_manager.get_table("videos").add([{
+                "id": video_id, "filename": filename, "filepath": file_path,
+                "duration_sec": record["duration"], "fps": record["fps"], "resolution": "",
+                "total_frames": round(record["duration"] * record["fps"]), "ingestion_phase": "indexing",
+                "visual_index_version": "gemma2-events-v1", "embedding_model": service.config.model_id,
+                "created_at": datetime.now().isoformat()}])
+            job = service.submit("index", video_id)
+            while True:
+                progress = service.store.get("jobs", job["id"])
+                percent = round(100 * progress["completed"] / max(1, progress["total"]))
+                sync_progress_adapter(video_id, percent, progress["phase"], "embedding", "phase1", progress)
+                if progress["status"] in ("complete", "failed", "cancelled", "interrupted"):
+                    break
+                time.sleep(1)
+            if progress["status"] != "complete":
+                raise RuntimeError(progress["error"] or progress["status"])
+            db_manager.get_table("videos").update(where=f"id = '{video_id}'", values={"ingestion_phase": "phase1_ready"})
+            sync_progress_adapter(video_id, 100, "Gemma multimodal index ready; event review is available", "complete", "phase1")
+            return
         # Initial broadcast
         sync_progress_adapter(video_id, 10, "Starting Video Decoding & Scene Analysis...", "decoding", "phase1")
 

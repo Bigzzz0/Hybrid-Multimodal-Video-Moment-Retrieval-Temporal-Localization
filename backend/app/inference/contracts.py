@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Literal
 
 from pydantic import BaseModel, Field
 
@@ -70,6 +70,9 @@ class VerifyRequest(BaseModel):
     semantic_requirements: List[str] = Field(default_factory=list)
     release_after: bool = False
     vlm_backend: str = "caprl_qwen3vl_4b_q6"
+    reference_frames: List[Dict[str, Any]] = Field(default_factory=list)
+    scene_context: str = ""
+    verification_mode: Literal["legacy", "temporal-v1", "behavior-v2", "open-anomaly-v1"] = "legacy"
 
 
 class VerifyResponse(BaseModel):

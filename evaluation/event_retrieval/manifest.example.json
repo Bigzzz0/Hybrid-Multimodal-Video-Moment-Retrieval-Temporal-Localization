@@ -1,0 +1,6 @@
+{
+  "schema_version": 1,
+  "description": "Replace with real consented/public source clips and human annotations. Empty by design; no fabricated events.",
+  "seed": 7,
+  "videos": []
+}

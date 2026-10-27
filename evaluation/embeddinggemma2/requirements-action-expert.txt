@@ -1,0 +1,8 @@
+# Optional prototype only. Install --no-deps --target scratch/action-expert-tools.
+# Existing tested runtime: torch 2.10.0+cu128, torchvision 0.25.0+cu128;
+# iopath 0.1.10 and portalocker already installed. Do not upgrade worker envs.
+pytorchvideo==0.1.5
+fvcore==0.1.5.post20221221
+yacs==0.1.8
+termcolor==2.5.0
+tabulate==0.9.0

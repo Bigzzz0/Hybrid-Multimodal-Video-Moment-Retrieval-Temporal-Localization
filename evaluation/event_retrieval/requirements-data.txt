@@ -1,0 +1,3 @@
+# Optional acquisition tools, installed only in the Gemma environment.
+xlrd==2.0.2
+yt-dlp==2026.8.19

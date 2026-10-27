@@ -130,6 +130,7 @@ export const apiClient = {
 
   // 8. Keyframe Preview URL helper
   getFramePreviewUrl(framePath: string): string {
+    if (framePath.startsWith("/api/v1/events/")) return `${API_BASE_URL}${framePath}`;
     return `${API_BASE_URL}/api/v1/videos/frame-preview?path=${encodeURIComponent(
       framePath
     )}`;

@@ -1,7 +1,9 @@
 from fastapi import APIRouter
-from app.api.v1 import upload, search, video, websocket, rag, system, grounding, captions
+from app.api.v1 import upload, search, video, websocket, rag, system, grounding, captions, events
 
 api_router = APIRouter()
+
+api_router.include_router(events.router, prefix="/events", tags=["Offline Event Screening"])
 
 api_router.include_router(upload.router, prefix="/videos", tags=["Upload & Ingestion"])
 api_router.include_router(search.router, prefix="/search", tags=["Moment Search"])

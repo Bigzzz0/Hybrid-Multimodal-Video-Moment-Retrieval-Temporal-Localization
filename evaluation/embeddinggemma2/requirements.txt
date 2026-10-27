@@ -1,0 +1,12 @@
+# Dedicated experiment environment; do not upgrade the production worker.
+# Local setup reuses CUDA PyTorch from .venv-inference through a read-only .pth.
+sentence-transformers==6.1.0
+transformers==5.19.0
+tokenizers==0.23.1
+scikit-learn==1.7.2
+joblib==1.5.2
+threadpoolctl==3.6.0
+soundfile==0.14.0
+psutil==7.2.2
+# The inherited environment supplies torch 2.10.0+cu128, numpy 1.26.4,
+# scipy 1.14.1, Pillow 12.3.0, huggingface-hub 1.32.0, and OpenCV.

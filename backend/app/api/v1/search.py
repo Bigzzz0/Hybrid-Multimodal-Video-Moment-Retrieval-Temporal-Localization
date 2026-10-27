@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException, status
 from app.db.schemas import SearchQueryRequest, SearchResponse
 from app.retrieval.search_engine import search_engine
+from app.core.config import settings
 
 router = APIRouter()
 
@@ -16,8 +17,20 @@ async def search_moments(req: SearchQueryRequest):
             detail="Query string cannot be empty."
         )
 
+    backend = req.backend or settings.RETRIEVAL_BACKEND
+    if backend == "gemma2":
+        from app.gemma2.service import get_service
+        from app.api.v1.events import translate
+        from starlette.concurrency import run_in_threadpool
+        result = await run_in_threadpool(lambda: translate(lambda: get_service().search(
+            req.video_id, req.query, req.top_k, req.profile)))
+        return SearchResponse(**result)
+    if backend != "siglip2":
+        raise HTTPException(422, "Unknown retrieval backend")
+
     response = search_engine.search_moments(query=req.query, video_id=req.video_id,
                                              top_k=req.top_k, profile=req.profile)
+    response.backend = "siglip2"
 
     if "reindex_required" in response.warnings:
         raise HTTPException(
