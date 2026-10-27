@@ -186,5 +186,63 @@ class VLMArtifactStore:
             })
         return output
 
+    @classmethod
+    def reconcile_orphan_jobs(cls) -> int:
+        """
+        Scans metadata table for orphan 'running' or 'pending' jobs left by
+        previous server crashes or restarts, and self-heals them.
+        Returns the number of jobs reconciled.
+        """
+        try:
+            rows = cls._rows("vlm_artifact_metadata_v1", "build_status IN ('running', 'pending')", 1000)
+        except Exception as e:
+            logger.debug(f"reconcile_orphan_jobs query notice: {e}")
+            return 0
+
+        reconciled = 0
+        for row in rows:
+            video_id = str(row.get("video_id", ""))
+            backend = str(row.get("vlm_backend", ""))
+            expected = int(row.get("expected_count", 0) or 0)
+            pending_ver = str(row.get("pending_artifact_version", "") or "")
+            active_ver = str(row.get("active_artifact_version", "") or "")
+            ver = pending_ver or active_ver or settings.VLM_ARTIFACT_VERSION
+
+            cap_rows = cls.caption_rows(video_id, backend, require_ready=False, artifact_version=ver)
+            actual_count = len({str(r.get("id")) for r in cap_rows if r.get("id")})
+
+            variant = get_variant(backend)
+            if expected > 0 and actual_count >= expected:
+                logger.info(f"Self-healed completed orphan caption job for video {video_id} ({actual_count}/{expected}) -> ready")
+                cls.set_metadata(
+                    video_id=video_id,
+                    variant=variant,
+                    expected_count=expected,
+                    completed_count=actual_count,
+                    status="ready",
+                    build_status="ready",
+                    active_artifact_version=ver,
+                    pending_artifact_version="",
+                    started_at=str(row.get("started_at", "")),
+                    completed_at=str(row.get("completed_at", "") or _now()),
+                )
+            else:
+                logger.info(f"Self-healed interrupted orphan caption job for video {video_id} ({actual_count}/{expected}) -> interrupted")
+                cls.set_metadata(
+                    video_id=video_id,
+                    variant=variant,
+                    expected_count=expected,
+                    completed_count=actual_count,
+                    status="interrupted" if not active_ver else "ready",
+                    build_status="interrupted",
+                    error_message=f"Processing was interrupted at scene {actual_count}/{expected}. Click Rebuild to resume.",
+                    active_artifact_version=active_ver,
+                    pending_artifact_version=ver,
+                    started_at=str(row.get("started_at", "")),
+                )
+            reconciled += 1
+
+        return reconciled
+
 
 vlm_artifact_store = VLMArtifactStore()

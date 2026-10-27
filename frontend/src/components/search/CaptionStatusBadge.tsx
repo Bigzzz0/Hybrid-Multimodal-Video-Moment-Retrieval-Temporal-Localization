@@ -41,19 +41,19 @@ export const CaptionStatusBadge: React.FC<CaptionStatusBadgeProps> = ({ videoId,
     };
   }, [videoId, loadStatus]);
 
-  const handleRebuild = async () => {
+  const handleRebuild = async (force: boolean = true) => {
     if (!videoId || isSubmitting) return;
     setIsSubmitting(true);
-    setFeedbackMsg("กำลังส่งคำขอ...");
+    setFeedbackMsg(force ? "กำลังส่งคำขอ..." : "กำลังดำเนินการต่อ (Resume)...");
     try {
-      await apiClient.rebuildCaptions(videoId, selectedDensity, true);
-      setFeedbackMsg(`เริ่มวิเคราะห์ใหม่ด้วย ${selectedDensity} เฟรม/ฉาก`);
+      await apiClient.rebuildCaptions(videoId, selectedDensity, force);
+      setFeedbackMsg(force ? `เริ่มวิเคราะห์ใหม่ด้วย ${selectedDensity} เฟรม/ฉาก` : `กำลังทำต่อจากจุดเดิม (${completed}/${expected} ฉาก)`);
       if (status) {
         setStatus({
           ...status,
           status: "running",
-          progress_percent: 0,
-          completed_count: 0,
+          progress_percent: force ? 0 : status.progress_percent,
+          completed_count: force ? 0 : status.completed_count,
         });
       }
       if (onRebuildTriggered) onRebuildTriggered();
@@ -96,6 +96,7 @@ export const CaptionStatusBadge: React.FC<CaptionStatusBadgeProps> = ({ videoId,
   const cancelled = currentStatusStr === "cancelled";
   const unavailable = currentStatusStr === "unavailable";
   const running = currentStatusStr === "running" || currentStatusStr === "pending";
+  const interrupted = currentStatusStr === "interrupted";
 
   const expected = Number(status?.expected_count ?? 0);
   const completed = Number(status?.completed_count ?? 0);
@@ -115,6 +116,8 @@ export const CaptionStatusBadge: React.FC<CaptionStatusBadgeProps> = ({ videoId,
             ? "border-emerald-700/60 bg-emerald-950/30 text-emerald-300"
             : cancelled
             ? "border-slate-700/70 bg-slate-900/80 text-slate-300"
+            : interrupted
+            ? "border-amber-600/70 bg-amber-950/40 text-amber-200 shadow-sm"
             : error
             ? "border-amber-700/60 bg-amber-950/30 text-amber-300"
             : running
@@ -129,6 +132,8 @@ export const CaptionStatusBadge: React.FC<CaptionStatusBadgeProps> = ({ videoId,
             <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
           ) : cancelled ? (
             <XCircle className="h-3.5 w-3.5 text-slate-400" />
+          ) : interrupted ? (
+            <AlertTriangle className="h-3.5 w-3.5 text-amber-400" />
           ) : error ? (
             <AlertTriangle className="h-3.5 w-3.5 text-amber-400" />
           ) : running ? (
@@ -142,6 +147,8 @@ export const CaptionStatusBadge: React.FC<CaptionStatusBadgeProps> = ({ videoId,
               ? `Caption CapRL Q6 พร้อม (${expected} ฉาก · ${selectedDensity} เฟรม/ฉาก)`
               : cancelled
               ? `ยกเลิกการคำนวณแล้ว — ใช้ Fast Search ได้`
+              : interrupted
+              ? `การทำงานถูกขัดจังหวะ (${completed}/${expected} ฉาก) — กดทำต่อได้`
               : error
               ? "Caption error — สลับใช้ Fast Search ได้"
               : unavailable
@@ -186,16 +193,30 @@ export const CaptionStatusBadge: React.FC<CaptionStatusBadgeProps> = ({ videoId,
           <option value={16}>16 เฟรม (หนาแน่นสูงสุด)</option>
         </select>
 
+        {/* Resume Button if Interrupted */}
+        {interrupted && (
+          <button
+            type="button"
+            onClick={() => handleRebuild(false)}
+            disabled={running || isSubmitting}
+            className="inline-flex items-center gap-1 rounded bg-amber-600/30 px-2 py-0.5 text-[10px] font-semibold text-amber-300 transition-colors hover:bg-amber-600/50 hover:text-amber-100 focus:outline-none focus:ring-1 focus:ring-amber-400 disabled:cursor-not-allowed disabled:opacity-40"
+            title="ดำเนินการวิเคราะห์ต่อจากฉากที่ค้างไว้โดยไม่ต้องเริ่มใหม่ทั้งหมด"
+          >
+            <RefreshCw className={`h-2.5 w-2.5 ${isSubmitting ? "animate-spin" : ""}`} />
+            <span>ทำต่อ (Resume)</span>
+          </button>
+        )}
+
         {/* Recompute Button */}
         <button
           type="button"
-          onClick={handleRebuild}
+          onClick={() => handleRebuild(true)}
           disabled={running || isSubmitting}
           className="inline-flex items-center gap-1 rounded bg-cyan-600/20 px-2 py-0.5 text-[10px] font-semibold text-cyan-300 transition-colors hover:bg-cyan-600/30 hover:text-cyan-100 focus:outline-none focus:ring-1 focus:ring-cyan-400 disabled:cursor-not-allowed disabled:opacity-40"
           title="ประมวลผลโมเดล CapRL Q6 ใหม่ด้วยระดับความละเอียดที่เลือก"
         >
           <RefreshCw className={`h-2.5 w-2.5 ${running || isSubmitting ? "animate-spin" : ""}`} />
-          <span>{running ? "กำลังคำนวณ..." : "คำนวณแคปชันใหม่"}</span>
+          <span>{running ? "กำลังคำนวณ..." : interrupted ? "เริ่มใหม่ทั้งหมด" : "คำนวณแคปชันใหม่"}</span>
         </button>
 
         {/* Cancel Button (appears when calculating) */}
@@ -212,6 +233,7 @@ export const CaptionStatusBadge: React.FC<CaptionStatusBadgeProps> = ({ videoId,
           </button>
         )}
       </div>
+
 
       {feedbackMsg && (
         <span className="text-[10px] text-cyan-400 animate-pulse">

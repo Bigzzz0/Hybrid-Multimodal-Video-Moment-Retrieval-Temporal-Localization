@@ -214,3 +214,25 @@ export interface SystemTelemetry {
   recent_logs: string[];
 }
 
+export interface SceneCaptionItem {
+  scene_id: string;
+  scene_index: number;
+  t_start: number;
+  t_end: number;
+  duration_sec: number;
+  keyframe_count: number;
+  frame_path?: string;
+  thumbnail_url: string;
+  summary: string;
+  structured?: {
+    summary?: string;
+    objects?: string[];
+    attributes?: string[];
+    actions?: string[];
+    relations?: string[];
+    temporal_events?: string[];
+    uncertainty?: any;
+  };
+  caption_status: "ready" | "pending";
+}
+

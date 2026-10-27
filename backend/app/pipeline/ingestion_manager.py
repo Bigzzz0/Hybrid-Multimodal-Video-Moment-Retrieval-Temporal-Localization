@@ -23,16 +23,25 @@ class ProgressiveIngestionManager:
     """Orchestrates Progressive Two-Phase Video Ingestion and Visual-Centric Feature Extraction."""
 
     def __init__(self):
-        self.scene_detector = AdaptiveSceneDetector()
+        self.scene_detector = AdaptiveSceneDetector(
+            min_scene_len_sec=getattr(settings, "MIN_SCENE_LEN_SEC", 1.5),
+            max_scene_len_sec=getattr(settings, "MAX_SCENE_LEN_SEC", 30.0),
+        )
         self.keyframe_filter = SSIMKeyframeFilter()
         self.visual_encoder = SigLIP2VisualEncoder()
         self.dense_captioner = QwenVLDenseCaptioner()
         self.cancelled_caption_jobs: set[str] = set()
+        self.active_caption_jobs: set[str] = set()
+
+    def is_caption_job_running(self, video_id: str) -> bool:
+        """Check whether a caption generation thread is actively running for this video."""
+        return str(video_id) in self.active_caption_jobs
 
     def cancel_caption_job(self, video_id: str) -> bool:
         """Cancel an in-progress caption job for video_id and unload the worker model."""
         vid = str(video_id)
         self.cancelled_caption_jobs.add(vid)
+        self.active_caption_jobs.discard(vid)
         primary = get_variant(settings.CAPTION_PRIMARY_BACKEND)
         previous_metadata = vlm_artifact_store.metadata(vid, primary.backend) or {}
         active_version = str(previous_metadata.get("active_artifact_version") or "")
@@ -86,14 +95,50 @@ class ProgressiveIngestionManager:
         logger.info(f"Video specs: {duration:.2f}s, {fps:.1f} fps, {resolution}, {total_frames} frames")
 
         # 2. Scene Detection
+        formatted_res = f"{resolution[0]}x{resolution[1]}" if isinstance(resolution, (tuple, list)) else str(resolution)
         if progress_callback:
             progress_callback(
                 video_id, 20,
-                f"Detecting Scene Cuts (Adaptive Content Detection)...",
+                "Detecting Scene Cuts (Adaptive Content Detection)...",
                 "scene_detect",
-                {"duration_sec": duration, "fps": fps, "resolution": resolution, "sub_percent": 30}
+                {
+                    "duration_sec": duration,
+                    "fps": fps,
+                    "resolution": formatted_res,
+                    "sub_percent": 0,
+                    "current_frame": 0,
+                    "total_frames": total_frames,
+                    "current_sec": 0.0,
+                    "cuts_found": 0,
+                    "speed_fps": 0.0,
+                }
             )
-        scenes = self.scene_detector.detect_scenes(video_path)
+
+        def on_scene_detect_progress(metrics: Dict[str, Any]):
+            if not progress_callback:
+                return
+            sub_pct = int(metrics.get("sub_percent", 0))
+            master_pct = 20 + int((sub_pct / 100.0) * 15)
+            curr_s = metrics.get("current_sec", 0.0)
+            dur_s = metrics.get("duration_sec", duration)
+            speed = metrics.get("speed_fps", 0.0)
+            cuts = metrics.get("cuts_found", 0)
+            curr_f = metrics.get("current_frame", 0)
+            tot_f = metrics.get("total_frames", total_frames)
+            msg = (
+                f"Detecting Scene Cuts ({sub_pct}% • {curr_s:.0f}s/{dur_s:.0f}s "
+                f"• {curr_f:,}/{tot_f:,} frames • {cuts} cuts • {speed:.0f} fps)"
+            )
+            progress_callback(video_id, master_pct, msg, "scene_detect", metrics)
+
+        scenes = self.scene_detector.detect_scenes(
+            video_path,
+            on_progress=on_scene_detect_progress,
+            resolution=formatted_res,
+            fps=fps,
+            duration_sec=duration,
+            total_frames=total_frames,
+        )
 
         if progress_callback:
             progress_callback(
@@ -452,6 +497,8 @@ class ProgressiveIngestionManager:
         if not scenes:
             return
 
+        vid_str = str(video_id)
+        self.active_caption_jobs.add(vid_str)
         previous_metadata = vlm_artifact_store.metadata(video_id, primary.backend) or {}
         active_version = str(previous_metadata.get("active_artifact_version") or "")
         if not active_version and previous_metadata.get("status") == "ready":
@@ -461,7 +508,7 @@ class ProgressiveIngestionManager:
             job_version = f"{settings.VLM_ARTIFACT_VERSION}:{uuid.uuid4().hex[:10]}"
             existing = []
             existing_ids = set()
-        elif pending_version and previous_metadata.get("build_status", previous_metadata.get("status")) in {"running", "error"}:
+        elif pending_version and previous_metadata.get("build_status", previous_metadata.get("status")) in {"running", "error", "interrupted"}:
             job_version = pending_version
             existing = vlm_artifact_store.caption_rows(
                 video_id, settings.CAPTION_PRIMARY_BACKEND, require_ready=False, artifact_version=job_version
@@ -488,6 +535,7 @@ class ProgressiveIngestionManager:
             started_at=started_at, active_artifact_version=active_version,
             pending_artifact_version=job_version, build_status="running",
         )
+
         active_backend = ""
         fallback_count = sum(1 for row in existing if fallback and row.get("vlm_backend") == fallback.backend)
 
@@ -627,6 +675,7 @@ class ProgressiveIngestionManager:
                 build_status="error",
             )
         finally:
+            self.active_caption_jobs.discard(vid_str)
             for backend in {primary.backend, fallback.backend if fallback else ""}:
                 if not backend:
                     continue

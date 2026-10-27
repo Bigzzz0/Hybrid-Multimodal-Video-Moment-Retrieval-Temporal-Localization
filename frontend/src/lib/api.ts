@@ -9,9 +9,10 @@ import {
   ClipExportResponse,
   SystemTelemetry,
   CaptionStatus,
+  SceneCaptionItem,
 } from "./types";
 
-export type { VideoMetadata, VideoKeyframeItem, VideoQAResult, UploadResponse, ProgressStatus, ClipExportResponse, SystemTelemetry, CaptionStatus };
+export type { VideoMetadata, VideoKeyframeItem, VideoQAResult, UploadResponse, ProgressStatus, ClipExportResponse, SystemTelemetry, CaptionStatus, SceneCaptionItem };
 
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
@@ -62,6 +63,11 @@ export const apiClient = {
 
   async cancelCaptions(videoId: string): Promise<any> {
     const res = await api.post(`/videos/${videoId}/captions/cancel`);
+    return res.data;
+  },
+
+  async getVideoScenes(videoId: string): Promise<SceneCaptionItem[]> {
+    const res = await api.get<SceneCaptionItem[]>(`/videos/${videoId}/scenes`);
     return res.data;
   },
 

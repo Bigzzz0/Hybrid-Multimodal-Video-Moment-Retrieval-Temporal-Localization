@@ -29,6 +29,7 @@ from app.core.config import settings
 from app.core.logger import logger
 from app.api.router import api_router
 from app.api.v1.websocket import ws_manager
+from app.retrieval.vlm_artifacts import vlm_artifact_store
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -37,6 +38,15 @@ async def lifespan(app: FastAPI):
     logger.info(f"=== Starting {settings.PROJECT_NAME} ===")
     logger.info(f"Compute Device: {settings.DEVICE.upper()}")
     logger.info(f"Storage Directories: {settings.DATA_DIR}")
+    
+    # Auto self-healing: Reconcile any orphan/stuck jobs from previous runs or crashes
+    try:
+        healed_count = vlm_artifact_store.reconcile_orphan_jobs()
+        if healed_count > 0:
+            logger.info(f"Self-healing: Reconciled {healed_count} orphan/interrupted caption job(s).")
+    except Exception as heal_err:
+        logger.warning(f"Self-healing notice during startup: {heal_err}")
+
     yield
     logger.info("Shutting down Video Event Retrieval Server...")
 

@@ -24,7 +24,7 @@ class GPUVideoDecoder:
     def _init_reader(self):
         try:
             import decord
-            # Use num_threads=1 to prevent C++ threaded decoder race condition on Windows
+            num_threads = min(4, max(1, os.cpu_count() or 2))
             if self.use_gpu:
                 try:
                     self.ctx = decord.gpu(0)
@@ -33,10 +33,10 @@ class GPUVideoDecoder:
                 except Exception as e:
                     logger.debug(f"Decord GPU init notice ({e}), falling back to CPU.")
                     self.ctx = decord.cpu(0)
-                    self.vr = decord.VideoReader(self.video_path, ctx=self.ctx, num_threads=1)
+                    self.vr = decord.VideoReader(self.video_path, ctx=self.ctx, num_threads=num_threads)
             else:
                 self.ctx = decord.cpu(0)
-                self.vr = decord.VideoReader(self.video_path, ctx=self.ctx, num_threads=1)
+                self.vr = decord.VideoReader(self.video_path, ctx=self.ctx, num_threads=num_threads)
 
             self._fps = float(self.vr.get_avg_fps())
             self._total_frames = len(self.vr)

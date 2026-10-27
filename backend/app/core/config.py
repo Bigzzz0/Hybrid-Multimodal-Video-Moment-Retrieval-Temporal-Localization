@@ -114,6 +114,8 @@ class Settings(BaseSettings):
     KEYFRAME_SAMPLE_INTERVAL_SEC: float = 1.0
     SSIM_THRESHOLD: float = 0.65
     MAX_FRAMES_PER_SCENE: int = 60
+    MAX_SCENE_LEN_SEC: float = float(os.environ.get("MAX_SCENE_LEN_SEC", "30.0"))
+    MIN_SCENE_LEN_SEC: float = float(os.environ.get("MIN_SCENE_LEN_SEC", "1.5"))
     
     # Retrieval & Temporal Localization Parameters
     DEFAULT_RRF_K: int = 60

@@ -45,6 +45,36 @@ def caption_status(video_id: str) -> Dict[str, Any]:
     expected_count = int(metadata.get("expected_count", 0) or 0)
     completed_count = max(int(metadata.get("completed_count", 0) or 0), observed_count)
     progress_percent = int((completed_count / expected_count) * 100) if expected_count else 0
+
+    # Auto self-healing for ghost/orphan jobs left behind by reloads/crashes
+    is_actively_running = ingestion_manager.is_caption_job_running(video_id)
+    if status in {"running", "pending"} and not is_actively_running:
+        if expected_count > 0 and completed_count >= expected_count:
+            status = "ready"
+            vlm_artifact_store.set_metadata(
+                video_id=video_id,
+                variant=primary,
+                expected_count=expected_count,
+                completed_count=completed_count,
+                status="ready",
+                build_status="ready",
+                active_artifact_version=observed_version or settings.VLM_ARTIFACT_VERSION,
+                pending_artifact_version="",
+            )
+        else:
+            status = "interrupted"
+            vlm_artifact_store.set_metadata(
+                video_id=video_id,
+                variant=primary,
+                expected_count=expected_count,
+                completed_count=completed_count,
+                status="interrupted" if not active_version else "ready",
+                build_status="interrupted",
+                error_message=f"Processing was interrupted at scene {completed_count}/{expected_count}. Click Rebuild to resume.",
+                active_artifact_version=active_version,
+                pending_artifact_version=observed_version,
+            )
+
     worker = inference_client.health()
     worker_models = worker.get("models", {}) if isinstance(worker, dict) else {}
     return {

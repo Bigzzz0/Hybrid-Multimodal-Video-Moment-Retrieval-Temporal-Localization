@@ -4,6 +4,18 @@ import React, { useRef, useEffect, useState, useCallback } from "react";
 import { MomentItem, VideoKeyframeItem, DragHandleState, TimelineZoomState } from "@/lib/types";
 import { apiClient } from "@/lib/api";
 import { Sparkles, Activity } from "lucide-react";
+import { useLanguage } from "@/lib/language";
+
+function drawRoundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+  if (w <= 0 || h <= 0) return;
+  const radius = Math.min(r, w / 2, h / 2);
+  ctx.beginPath();
+  if (typeof ctx.roundRect === "function") {
+    ctx.roundRect(x, y, w, h, radius);
+  } else {
+    ctx.rect(x, y, w, h);
+  }
+}
 
 interface TimelineHeatmapProps {
   heatmapData: number[]; // 1 value per second [0.0 - 1.0]
@@ -36,6 +48,7 @@ export const TimelineHeatmap: React.FC<TimelineHeatmapProps> = ({
   onSeek,
   onBoundaryChange,
 }) => {
+  const { language } = useLanguage();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
 
@@ -64,6 +77,8 @@ export const TimelineHeatmap: React.FC<TimelineHeatmapProps> = ({
     score: 0,
     frameUrl: null,
   });
+
+  const [brokenHoverUrls, setBrokenHoverUrls] = useState<Set<string>>(new Set());
 
   const [dragState, setDragState] = useState<DragHandleState>({
     isDragging: false,
@@ -130,105 +145,151 @@ export const TimelineHeatmap: React.FC<TimelineHeatmapProps> = ({
     ctx.lineTo(width, height - 1);
     ctx.stroke();
 
-    if (!heatmapData || heatmapData.length === 0 || duration <= 0) {
-      ctx.strokeStyle = isDarkMode ? "rgba(92, 169, 255, 0.3)" : "rgba(10, 99, 201, 0.3)";
+    const hasHeatmap = Boolean(heatmapData && heatmapData.length > 0 && duration > 0);
+
+    if (!hasHeatmap) {
+      // 1. Sleek Video Playback Scrubber Track (visible when not searched yet)
+      const trackY = 18;
+      const trackHeight = 10;
+      const playheadX = duration > 0 ? Math.max(0, Math.min(width, timeToX(currentTime, width))) : 0;
+
+      // Track background
+      ctx.fillStyle = isDarkMode ? "rgba(255, 255, 255, 0.08)" : "rgba(0, 0, 0, 0.06)";
+      drawRoundRect(ctx, 0, trackY, width, trackHeight, 5);
+      ctx.fill();
+
+      // Played progress fill bar with vibrant cyan/blue gradient
+      if (playheadX > 0) {
+        const progGradient = ctx.createLinearGradient(0, 0, Math.max(width, 1), 0);
+        progGradient.addColorStop(0, "#00D2B4");
+        progGradient.addColorStop(0.5, "#38bdf8");
+        progGradient.addColorStop(1, "#2563eb");
+        ctx.fillStyle = progGradient;
+        drawRoundRect(ctx, 0, trackY, playheadX, trackHeight, 5);
+        ctx.fill();
+      }
+
+      // Subtle dashed guide line at the top
+      ctx.strokeStyle = isDarkMode ? "rgba(92, 169, 255, 0.25)" : "rgba(10, 99, 201, 0.2)";
       ctx.setLineDash([4, 4]);
       ctx.beginPath();
-      ctx.moveTo(0, height / 2);
-      ctx.lineTo(width, height / 2);
+      ctx.moveTo(0, 8);
+      ctx.lineTo(width, 8);
       ctx.stroke();
       ctx.setLineDash([]);
-      return;
-    }
 
-    const n = heatmapData.length;
-    const stepX = width / Math.max(1, n - 1);
-
-    // 3. Optional Pixel Motion Energy Curve
-    if (showMotionLayer && motionData && motionData.length > 0) {
-      const motStep = width / Math.max(1, motionData.length - 1);
-      ctx.beginPath();
-      for (let i = 0; i < motionData.length; i++) {
-        const motVal = Math.max(0, Math.min(1.0, motionData[i] || 0));
-        const mx = i * motStep;
-        const my = height - (motVal * (height - 8));
-        if (i === 0) ctx.moveTo(mx, my);
-        else ctx.lineTo(mx, my);
+      // Keyframe tick marks along the track
+      if (keyframeRecords && keyframeRecords.length > 0) {
+        ctx.fillStyle = isDarkMode ? "rgba(255, 255, 255, 0.45)" : "rgba(0, 0, 0, 0.35)";
+        for (const kf of keyframeRecords) {
+          const kx = timeToX(kf.timestamp, width);
+          if (kx >= 0 && kx <= width) {
+            ctx.fillRect(kx - 0.5, trackY - 2, 1, trackHeight + 4);
+          }
+        }
       }
-      ctx.strokeStyle = "rgba(245, 158, 11, 0.7)";
-      ctx.lineWidth = 1.5;
-      ctx.setLineDash([3, 3]);
-      ctx.stroke();
-      ctx.setLineDash([]);
-    }
 
-    // 4. Semantic Relevance Spline Points
-    const points: { x: number; y: number; val: number }[] = [];
-    for (let i = 0; i < n; i++) {
-      const rawVal = heatmapData[i] || 0;
-      const val = Math.max(0.04, Math.min(1.0, rawVal));
-      const x = i * stepX;
-      const y = height - (val * (height - 8));
-      points.push({ x, y, val });
-    }
-
-    // 5. Draw Area Gradient with Cubic Bezier Spline
-    const areaGradient = ctx.createLinearGradient(0, 0, 0, height);
-    if (isDarkMode) {
-      areaGradient.addColorStop(0, "rgba(92, 169, 255, 0.40)");
-      areaGradient.addColorStop(0.5, "rgba(92, 169, 255, 0.15)");
-      areaGradient.addColorStop(1, "rgba(92, 169, 255, 0.01)");
+      // Friendly timeline hint text
+      ctx.fillStyle = isDarkMode ? "rgba(255, 255, 255, 0.45)" : "rgba(0, 0, 0, 0.45)";
+      ctx.font = "10px -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+      ctx.textAlign = "center";
+      ctx.fillText(
+        language === "th"
+          ? "แถบเวลาเล่นวิดีโอ (คลิกเพื่อเลื่อนดูช่วงต่างๆ) • พิมพ์ค้นหาเพื่อแสดง Heatmap ความเกี่ยวข้อง"
+          : "Playback Timeline (click to seek) • Search a query to display relevance heatmap",
+        width / 2,
+        42
+      );
     } else {
-      areaGradient.addColorStop(0, "rgba(10, 99, 201, 0.35)");
-      areaGradient.addColorStop(0.5, "rgba(10, 99, 201, 0.12)");
-      areaGradient.addColorStop(1, "rgba(10, 99, 201, 0.01)");
-    }
+      const n = heatmapData.length;
+      const stepX = width / Math.max(1, n - 1);
 
-    ctx.beginPath();
-    ctx.moveTo(0, height);
-    ctx.lineTo(points[0].x, points[0].y);
+      // 3. Optional Pixel Motion Energy Curve
+      if (showMotionLayer && motionData && motionData.length > 0) {
+        const motStep = width / Math.max(1, motionData.length - 1);
+        ctx.beginPath();
+        for (let i = 0; i < motionData.length; i++) {
+          const motVal = Math.max(0, Math.min(1.0, motionData[i] || 0));
+          const mx = i * motStep;
+          const my = height - (motVal * (height - 8));
+          if (i === 0) ctx.moveTo(mx, my);
+          else ctx.lineTo(mx, my);
+        }
+        ctx.strokeStyle = "rgba(245, 158, 11, 0.7)";
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([3, 3]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
 
-    for (let i = 0; i < points.length - 1; i++) {
-      const p0 = points[i];
-      const p1 = points[i + 1];
-      const cpx1 = p0.x + (p1.x - p0.x) / 2.2;
-      const cpy1 = p0.y;
-      const cpx2 = p0.x + (p1.x - p0.x) / 2.2;
-      const cpy2 = p1.y;
-      ctx.bezierCurveTo(cpx1, cpy1, cpx2, cpy2, p1.x, p1.y);
-    }
+      // 4. Semantic Relevance Spline Points
+      const points: { x: number; y: number; val: number }[] = [];
+      for (let i = 0; i < n; i++) {
+        const rawVal = heatmapData[i] || 0;
+        const val = Math.max(0.04, Math.min(1.0, rawVal));
+        const x = i * stepX;
+        const y = height - (val * (height - 8));
+        points.push({ x, y, val });
+      }
 
-    ctx.lineTo(width, height);
-    ctx.closePath();
-    ctx.fillStyle = areaGradient;
-    ctx.fill();
+      // 5. Draw Area Gradient with Cubic Bezier Spline
+      const areaGradient = ctx.createLinearGradient(0, 0, 0, height);
+      if (isDarkMode) {
+        areaGradient.addColorStop(0, "rgba(92, 169, 255, 0.40)");
+        areaGradient.addColorStop(0.5, "rgba(92, 169, 255, 0.15)");
+        areaGradient.addColorStop(1, "rgba(92, 169, 255, 0.01)");
+      } else {
+        areaGradient.addColorStop(0, "rgba(10, 99, 201, 0.35)");
+        areaGradient.addColorStop(0.5, "rgba(10, 99, 201, 0.12)");
+        areaGradient.addColorStop(1, "rgba(10, 99, 201, 0.01)");
+      }
 
-    // 6. Draw Spline Stroke
-    ctx.beginPath();
-    ctx.moveTo(points[0].x, points[0].y);
-    for (let i = 0; i < points.length - 1; i++) {
-      const p0 = points[i];
-      const p1 = points[i + 1];
-      const cpx1 = p0.x + (p1.x - p0.x) / 2.2;
-      const cpy1 = p0.y;
-      const cpx2 = p0.x + (p1.x - p0.x) / 2.2;
-      const cpy2 = p1.y;
-      ctx.bezierCurveTo(cpx1, cpy1, cpx2, cpy2, p1.x, p1.y);
-    }
-    ctx.strokeStyle = splineColor;
-    ctx.lineWidth = 2.2;
-    ctx.shadowColor = splineColor;
-    ctx.shadowBlur = isDarkMode ? 6 : 2;
-    ctx.stroke();
-    ctx.shadowBlur = 0; // reset glow
+      ctx.beginPath();
+      ctx.moveTo(0, height);
+      ctx.lineTo(points[0].x, points[0].y);
 
-    // 7. Keyframe Position Ticks (Bottom Notch Marks)
-    if (keyframeRecords && keyframeRecords.length > 0) {
-      ctx.fillStyle = kfTickColor;
-      for (const kf of keyframeRecords) {
-        const kx = timeToX(kf.timestamp, width);
-        if (kx >= 0 && kx <= width) {
-          ctx.fillRect(kx - 0.5, height - 4, 1, 4);
+      for (let i = 0; i < points.length - 1; i++) {
+        const p0 = points[i];
+        const p1 = points[i + 1];
+        const cpx1 = p0.x + (p1.x - p0.x) / 2.2;
+        const cpy1 = p0.y;
+        const cpx2 = p0.x + (p1.x - p0.x) / 2.2;
+        const cpy2 = p1.y;
+        ctx.bezierCurveTo(cpx1, cpy1, cpx2, cpy2, p1.x, p1.y);
+      }
+
+      ctx.lineTo(width, height);
+      ctx.closePath();
+      ctx.fillStyle = areaGradient;
+      ctx.fill();
+
+      // 6. Draw Spline Stroke
+      ctx.beginPath();
+      ctx.moveTo(points[0].x, points[0].y);
+      for (let i = 0; i < points.length - 1; i++) {
+        const p0 = points[i];
+        const p1 = points[i + 1];
+        const cpx1 = p0.x + (p1.x - p0.x) / 2.2;
+        const cpy1 = p0.y;
+        const cpx2 = p0.x + (p1.x - p0.x) / 2.2;
+        const cpy2 = p1.y;
+        ctx.bezierCurveTo(cpx1, cpy1, cpx2, cpy2, p1.x, p1.y);
+      }
+      ctx.strokeStyle = splineColor;
+      ctx.lineWidth = 2.2;
+      ctx.shadowColor = splineColor;
+      ctx.shadowBlur = isDarkMode ? 6 : 2;
+      ctx.stroke();
+      ctx.shadowBlur = 0; // reset glow
+
+      // 7. Keyframe Position Ticks (Bottom Notch Marks)
+      if (keyframeRecords && keyframeRecords.length > 0) {
+        ctx.fillStyle = kfTickColor;
+        for (const kf of keyframeRecords) {
+          const kx = timeToX(kf.timestamp, width);
+          if (kx >= 0 && kx <= width) {
+            ctx.fillRect(kx - 0.5, height - 4, 1, 4);
+          }
         }
       }
     }
@@ -266,24 +327,59 @@ export const TimelineHeatmap: React.FC<TimelineHeatmapProps> = ({
       ctx.fill();
     }
 
-    // 9. Playhead Needle
+    // 9. Playhead Needle & Scrubber Marker (Always drawn!)
     if (duration > 0) {
-      const playheadX = timeToX(currentTime, width);
-      ctx.strokeStyle = playheadColor;
-      ctx.lineWidth = 2;
-      ctx.shadowColor = isDarkMode ? "rgba(255, 255, 255, 0.8)" : "rgba(0, 0, 0, 0.3)";
-      ctx.shadowBlur = 4;
+      const playheadX = Math.max(0, Math.min(width, timeToX(currentTime, width)));
+      const isPlayheadDark = isDarkMode;
+
+      // Glow & Vertical Needle Line
+      ctx.strokeStyle = isPlayheadDark ? "#38bdf8" : "#0284c7";
+      ctx.lineWidth = 2.5;
+      ctx.shadowColor = isPlayheadDark ? "rgba(56, 189, 248, 0.9)" : "rgba(2, 132, 199, 0.6)";
+      ctx.shadowBlur = 6;
       ctx.beginPath();
       ctx.moveTo(playheadX, 0);
       ctx.lineTo(playheadX, height);
       ctx.stroke();
       ctx.shadowBlur = 0;
 
-      // Handle Head
-      ctx.fillStyle = playheadColor;
+      // Top Needle Knob
+      ctx.fillStyle = "#ffffff";
+      ctx.strokeStyle = isPlayheadDark ? "#38bdf8" : "#0284c7";
+      ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.arc(playheadX, 3.5, 3.5, 0, Math.PI * 2);
+      ctx.arc(playheadX, 5, 4.5, 0, Math.PI * 2);
       ctx.fill();
+      ctx.stroke();
+
+      // Center Knob on Scrubber Track if no heatmap
+      if (!hasHeatmap) {
+        ctx.fillStyle = "#ffffff";
+        ctx.strokeStyle = isPlayheadDark ? "#38bdf8" : "#0284c7";
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.arc(playheadX, 23, 6, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+      }
+
+      // Bottom Anchor Knob
+      ctx.fillStyle = isPlayheadDark ? "#38bdf8" : "#0284c7";
+      ctx.beginPath();
+      ctx.arc(playheadX, height - 4, 3, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // 10. Hover Scrubbing Line
+    if (hoverState.isActive && hoverState.x >= 0 && hoverState.x <= width) {
+      ctx.strokeStyle = isDarkMode ? "rgba(255, 255, 255, 0.6)" : "rgba(0, 0, 0, 0.45)";
+      ctx.lineWidth = 1;
+      ctx.setLineDash([3, 3]);
+      ctx.beginPath();
+      ctx.moveTo(hoverState.x, 0);
+      ctx.lineTo(hoverState.x, height);
+      ctx.stroke();
+      ctx.setLineDash([]);
     }
   }, [
     heatmapData,
@@ -296,6 +392,9 @@ export const TimelineHeatmap: React.FC<TimelineHeatmapProps> = ({
     keyframeRecords,
     timeToX,
     isDarkMode,
+    hoverState.isActive,
+    hoverState.x,
+    language,
   ]);
 
   // Mouse Move Listener
@@ -362,7 +461,13 @@ export const TimelineHeatmap: React.FC<TimelineHeatmapProps> = ({
           const diff = Math.abs(kf.timestamp - hoverTime);
           if (diff < bestDiff) {
             bestDiff = diff;
-            nearestFrameUrl = kf.thumbnail_url || (kf.frame_path ? apiClient.getFramePreviewUrl(kf.frame_path) : null);
+            if (kf.frame_path) {
+              nearestFrameUrl = apiClient.getFramePreviewUrl(kf.frame_path);
+            } else if (kf.thumbnail_url) {
+              nearestFrameUrl = apiClient.getDownloadUrl(kf.thumbnail_url);
+            } else {
+              nearestFrameUrl = null;
+            }
           }
         }
       }
@@ -463,7 +568,11 @@ export const TimelineHeatmap: React.FC<TimelineHeatmapProps> = ({
         <div className="flex items-center gap-2">
           <span className="flex items-center gap-1.5">
             <span className="w-2 h-2 rounded-full bg-[var(--accent)] animate-pulse" />
-            <span className="text-[var(--text)] font-semibold text-xs">Visual Relevance Heatmap</span>
+            <span className="text-[var(--text)] font-semibold text-xs">
+              {heatmapData && heatmapData.length > 0
+                ? "Visual Relevance Heatmap"
+                : (language === "th" ? "แถบเวลาเล่นวิดีโอ (Playback Timeline)" : "Playback Timeline")}
+            </span>
           </span>
 
           {/* Toggle Pixel Motion Curve */}
@@ -574,13 +683,18 @@ export const TimelineHeatmap: React.FC<TimelineHeatmapProps> = ({
             }}
           >
             <div className="p-1.5 rounded-xl flex flex-col items-center gap-1 shadow-xl bg-[var(--panel)] border border-[var(--line)] w-28 text-center">
-              {hoverState.frameUrl ? (
+              {hoverState.frameUrl && !brokenHoverUrls.has(hoverState.frameUrl) ? (
                 <div className="w-full h-14 rounded-lg overflow-hidden bg-black border border-[var(--line)] relative">
                   <img
                     src={hoverState.frameUrl}
                     alt="Keyframe Preview"
                     className="w-full h-full object-cover"
                     loading="eager"
+                    onError={() => {
+                      if (hoverState.frameUrl) {
+                        setBrokenHoverUrls((prev) => new Set(prev).add(hoverState.frameUrl!));
+                      }
+                    }}
                   />
                   {hoverState.score > 0 && (
                     <span className="absolute bottom-0.5 right-0.5 text-[9px] font-mono font-bold bg-black/80 px-1 py-0.2 rounded text-white">

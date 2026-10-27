@@ -1,6 +1,7 @@
 import os
 import shutil
 import subprocess
+import urllib.parse
 from pathlib import Path
 from typing import List, Optional
 from fastapi import APIRouter, Request, HTTPException, status, Query
@@ -71,9 +72,15 @@ async def stream_video(video_id: str, request: Request):
 @router.get("/frame-preview")
 async def get_frame_preview(path: str = Query(...)):
     """Serves extracted keyframe image thumbnails."""
-    if not os.path.exists(path):
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Keyframe image not found.")
-    return FileResponse(path, media_type="image/jpeg")
+    decoded_path = urllib.parse.unquote(path)
+    if os.path.exists(decoded_path):
+        return FileResponse(decoded_path, media_type="image/jpeg")
+    norm_path = os.path.normpath(decoded_path)
+    if os.path.exists(norm_path):
+        return FileResponse(norm_path, media_type="image/jpeg")
+    if os.path.exists(path):
+        return FileResponse(path, media_type="image/jpeg")
+    raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Keyframe image not found.")
 
 @router.get("/{video_id}/keyframes")
 async def get_video_keyframes(video_id: str):
@@ -92,9 +99,96 @@ async def get_video_keyframes(video_id: str):
         keyframes.append({
             "timestamp": float(r.get("timestamp", 0.0)),
             "frame_path": frame_path,
-            "thumbnail_url": f"/api/v1/videos/frame-preview?path={frame_path}"
+            "thumbnail_url": f"/api/v1/videos/frame-preview?path={urllib.parse.quote(frame_path)}"
         })
     return keyframes
+
+
+@router.get("/{video_id}/scenes")
+async def get_video_scenes(video_id: str):
+    """
+    Returns list of detected scenes with preview thumbnails and CapRL Q6 action captions.
+    """
+    tbl_scenes = db_manager.get_table("scenes_v2")
+    tbl_frames = db_manager.get_table("video_frames_v2")
+    try:
+        scenes = tbl_scenes.search().where(f"video_id = '{video_id}'").limit(5000).to_list()
+    except Exception:
+        scenes = [r for r in tbl_scenes.to_arrow().to_pylist() if r.get("video_id") == video_id]
+
+    if not scenes:
+        return []
+
+    scenes = sorted(scenes, key=lambda s: float(s.get("t_start", 0.0)))
+
+    # Fetch frames to pick representative thumbnail for each scene
+    try:
+        frames = tbl_frames.search().where(f"video_id = '{video_id}'").limit(200000).to_list()
+    except Exception:
+        frames = [r for r in tbl_frames.to_arrow().to_pylist() if r.get("video_id") == video_id]
+
+    scene_frames_map = {}
+    for f in frames:
+        s_id = str(f.get("scene_id", ""))
+        if s_id not in scene_frames_map:
+            scene_frames_map[s_id] = []
+        scene_frames_map[s_id].append(f)
+
+    # Fetch VLM captions
+    from app.retrieval.vlm_artifacts import vlm_artifact_store
+    cap_rows = vlm_artifact_store.caption_rows(
+        video_id, settings.CAPTION_PRIMARY_BACKEND, require_ready=False
+    )
+    cap_map = {str(r.get("id", "")): r for r in cap_rows if r.get("id")}
+
+    result = []
+    for s in scenes:
+        scene_id = str(s.get("id", ""))
+        t_start = float(s.get("t_start", 0.0))
+        t_end = float(s.get("t_end", 0.0))
+        duration = max(0.0, t_end - t_start)
+
+        s_frames = scene_frames_map.get(scene_id, [])
+        thumb_path = ""
+        if s_frames:
+            s_frames_sorted = sorted(s_frames, key=lambda x: float(x.get("timestamp", 0.0)))
+            mid_idx = len(s_frames_sorted) // 2
+            thumb_path = s_frames_sorted[mid_idx].get("frame_path", "")
+
+        import urllib.parse
+        thumbnail_url = f"/api/v1/videos/frame-preview?path={urllib.parse.quote(thumb_path)}" if thumb_path else ""
+
+        cap_row = cap_map.get(scene_id)
+        raw_caption = cap_row.get("caption", "") if cap_row else s.get("caption", "")
+        structured = {}
+        summary = ""
+        if raw_caption:
+            try:
+                import json
+                structured = json.loads(raw_caption)
+                if isinstance(structured, dict):
+                    summary = structured.get("summary", "")
+                else:
+                    summary = str(raw_caption)
+            except Exception:
+                summary = str(raw_caption)
+
+        result.append({
+            "scene_id": scene_id,
+            "scene_index": int(s.get("scene_index", len(result))),
+            "t_start": t_start,
+            "t_end": t_end,
+            "duration_sec": round(duration, 2),
+            "keyframe_count": len(s_frames) or int(s.get("keyframe_count", 0)),
+            "frame_path": thumb_path,
+            "thumbnail_url": thumbnail_url,
+            "summary": summary,
+            "structured": structured,
+            "caption_status": "ready" if summary else "pending",
+        })
+
+
+    return result
 
 
 @router.get("/download-clip/{clip_filename}")

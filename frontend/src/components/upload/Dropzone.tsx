@@ -315,8 +315,25 @@ export const Dropzone: React.FC<DropzoneProps> = ({ onUploadSuccess }) => {
                             {stg.id === "dense_visual_caption" && stageDetails?.scene_idx !== undefined && (
                               <>🤖 Captioned: Scene <b className="text-cyan-300">{stageDetails.scene_idx}</b> / {stageDetails.total_scenes}</>
                             )}
-                            {stg.id === "scene_detect" && stageDetails?.duration_sec !== undefined && (
-                              <>✂️ Length: {stageDetails.duration_sec?.toFixed(1)}s • {stageDetails.resolution} @ {stageDetails.fps}fps</>
+                            {stg.id === "scene_detect" && (
+                              <span className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                                <span>
+                                  ✂️ {stageDetails?.current_sec !== undefined ? `${stageDetails.current_sec.toFixed(1)}s` : "0.0s"} / {stageDetails?.duration_sec !== undefined ? `${stageDetails.duration_sec.toFixed(1)}s` : "..."}
+                                </span>
+                                {stageDetails?.current_frame !== undefined && stageDetails?.total_frames !== undefined && (
+                                  <span className="text-gray-400">
+                                    ({stageDetails.current_frame.toLocaleString()} / {stageDetails.total_frames.toLocaleString()} frames)
+                                  </span>
+                                )}
+                                {stageDetails?.speed_fps !== undefined && stageDetails.speed_fps > 0 && (
+                                  <span className="text-emerald-400">⚡ {stageDetails.speed_fps} fps</span>
+                                )}
+                                {stageDetails?.cuts_found !== undefined && (
+                                  <span className="text-amber-300">
+                                    🎬 {stageDetails.cuts_found} {stageDetails.cuts_found === 1 ? "cut" : "cuts"}
+                                  </span>
+                                )}
+                              </span>
                             )}
                             {stg.id === "lancedb_commit" && stageDetails?.frame_count !== undefined && (
                               <>💾 Indexing: {stageDetails.frame_count || 0} visual frames</>
