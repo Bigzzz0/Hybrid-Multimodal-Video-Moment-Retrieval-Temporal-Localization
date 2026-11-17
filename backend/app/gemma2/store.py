@@ -66,6 +66,14 @@ class Store:
         with self.db() as db:
             db.execute(f"INSERT OR REPLACE INTO {table} VALUES (?,?)", (key, json.dumps(value, ensure_ascii=False)))
 
+    def delete(self, table, key):
+        if table not in ("videos", "jobs", "events"):
+            raise ValueError("Unsupported table")
+        with self.db() as db:
+            db.execute(f"DELETE FROM {table} WHERE id=?", (key,))
+            if table == "videos":
+                db.execute("DELETE FROM events WHERE video_id=?", (key,))
+
     def get(self, table, key):
         if table not in ("videos", "jobs", "events"):
             raise ValueError("Unsupported table")

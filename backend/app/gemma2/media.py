@@ -26,16 +26,28 @@ def metadata(path):
 def ffmpeg():
     binary = shutil.which("ffmpeg")
     if not binary:
+        try:
+            import imageio_ffmpeg
+            return imageio_ffmpeg.get_ffmpeg_exe()
+        except Exception:
+            pass
         raise RuntimeError("ffmpeg is required for synchronized 16 kHz audio")
     return binary
 
 def has_audio(path):
-    # Missing tooling is an error, not an assertion that the video has no audio.
     probe = shutil.which("ffprobe")
-    if not probe:
-        raise RuntimeError("ffprobe is required")
-    result = subprocess.run([probe, "-v", "error", "-select_streams", "a", "-show_entries", "stream=index", "-of", "csv=p=0", str(path)], capture_output=True, text=True, check=True)
-    return bool(result.stdout.strip())
+    if probe:
+        try:
+            result = subprocess.run([probe, "-v", "error", "-select_streams", "a", "-show_entries", "stream=index", "-of", "csv=p=0", str(path)], capture_output=True, text=True, check=True)
+            return bool(result.stdout.strip())
+        except Exception:
+            pass
+    try:
+        binary = ffmpeg()
+        result = subprocess.run([binary, "-i", str(path)], capture_output=True, text=True, errors="ignore")
+        return "Audio:" in (result.stderr or "")
+    except Exception:
+        return False
 
 def extract(path, start, end, folder, config, audio_available):
     import cv2

@@ -1,6 +1,7 @@
 import { afterEach, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor, cleanup } from "@testing-library/react";
 import EventsPage from "./page";
+import { LanguageProvider } from "@/lib/language";
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
@@ -16,7 +17,11 @@ it("updates the selected evidence when a pending verification completes", async 
     if (url.endsWith("/health")) return {};
     return [event];
   }})));
-  render(<EventsPage />);
+  render(
+    <LanguageProvider>
+      <EventsPage />
+    </LanguageProvider>
+  );
   fireEvent.click(await screen.findByRole("button", { name: /ล้ม pending/ }));
   expect(screen.getByText("ยังไม่มีข้อสรุปจากภาพ")).toBeInTheDocument();
   event = { ...event, model_status: "verified", verification: {

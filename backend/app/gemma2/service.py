@@ -99,7 +99,46 @@ class EventService:
         if [path.stat().st_size, path.stat().st_mtime_ns] != video.get("source_stat"):
             raise ReindexRequired("Video fingerprint changed; register and reindex")
 
+    def _sync_lancedb_videos(self):
+        try:
+            from app.db.connection import db_manager
+            tbl = db_manager.get_table("videos")
+            records = tbl.to_arrow().to_pylist()
+            lancedb_ids = {str(r["id"]) for r in records}
+            existing_ids = {v["id"] for v in self.store.list("videos")}
+            for r in records:
+                vid_id = str(r["id"])
+                fpath = str(r.get("filepath", ""))
+                if vid_id not in existing_ids and Path(fpath).exists():
+                    try:
+                        self.register(fpath, video_id=vid_id, name=str(r.get("filename", Path(fpath).name)))
+                    except Exception:
+                        pass
+            # Prune videos deleted from LanceDB and disk
+            for v in self.store.list("videos"):
+                if v["id"] not in lancedb_ids and not Path(v.get("path", "")).exists():
+                    try:
+                        self.store.delete("videos", v["id"])
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+    def _lancedb_ready_ids(self):
+        try:
+            from app.db.connection import db_manager
+            tbl = db_manager.get_table("videos")
+            return {
+                str(r["id"])
+                for r in tbl.to_arrow().to_pylist()
+                if r.get("ingestion_phase") in ("phase1_ready", "phase2_ready", "complete")
+            }
+        except Exception:
+            return set()
+
     def public_videos(self):
+        self._sync_lancedb_videos()
+        lancedb_ready = self._lancedb_ready_ids()
         result = []
         for video in self.store.list("videos"):
             namespace = self.namespace(video)
@@ -108,13 +147,21 @@ class EventService:
                 status = "ready"
             except ReindexRequired:
                 count, status = len(self.store.windows(namespace)), "reindex_required"
+            total_windows = len(windows(video.get("duration", 0.0), self.config.window_seconds, self.config.stride_seconds))
             result.append({key: value for key, value in video.items() if key not in ("path", "captions")} |
-                          {"index_status": status, "completed_windows": count,
-                           "total_windows": len(windows(video["duration"], self.config.window_seconds, self.config.stride_seconds)), "caption_count": len(video["captions"])})
+                          {"index_status": status,
+                           "native_ready": video["id"] in lancedb_ready,
+                           "completed_windows": count,
+                           "total_windows": total_windows,
+                           "caption_count": len(video.get("captions", []))})
         return result
 
     def submit(self, kind, video_id, event_types=None, resume_id=None, mode="specific", profile_id=None):
-        self.store.get("videos", video_id)
+        try:
+            self.store.get("videos", video_id)
+        except KeyError:
+            self._sync_lancedb_videos()
+            self.store.get("videos", video_id)
         if kind not in ("index", "screen") or (not resume_id and mode != "open_anomaly" and not set(event_types or []) <= EVENTS.keys()):
             raise ValueError("Invalid job type/events")
         if mode not in ("specific", "open_anomaly"):
@@ -173,8 +220,11 @@ class EventService:
             if job["kind"] == "index":
                 self.index(job_id, job["video_id"])
             elif job.get("mode") == "open_anomaly":
-                from .open_screening import screen_open
-                screen_open(self, job_id)
+                try:
+                    from .open_screening import screen_open
+                    screen_open(self, job_id)
+                except (ReindexRequired, requests.RequestException):
+                    self._screen_with_native_engine(job_id, job["video_id"], ["open_anomaly"])
             else:
                 self.screen_video(job_id, job["video_id"], job["event_types"])
             self.check_cancel(job_id)
@@ -414,17 +464,128 @@ class EventService:
         event["context_t_end"] = min(video["duration"], event["t_end"]+5)
         return event
 
-    def screen_video(self, job_id, video_id, kinds):
+    def _screen_with_native_engine(self, job_id, video_id, kinds):
+        from app.core.logger import logger
+        from app.retrieval.search_engine import search_engine
         video = self.store.get("videos", video_id)
-        self.validate_source(video)
         namespace = self.namespace(video)
-        timeline = self.store.require(video_id, namespace)
-        self.update(job_id, phase="screen", total=len(timeline), completed=0)
-        threshold, margin, calibration = self.thresholds()
-        with self.gpu_lock:
-            prompts = self.prompt_vectors(kinds)
-        channels = self.store.embeddings(namespace, self.config.dimension)
-        candidates = screen(channels, prompts, kinds, threshold, margin)
+        pending = []
+        policy_name = "siglip2-native-fallback"
+        self.update(
+            job_id,
+            phase="screen",
+            total=len(kinds),
+            completed=0,
+            screening_policy=policy_name,
+            event_types=kinds,
+            namespace=namespace,
+        )
+
+        EVENT_QUERIES = {
+            "pushing_punching": "คนใช้มือผลัก ชกต่อย ทะเลาะวิวาท ใช้ความรุนแรง",
+            "falling": "คนเสียหลักล้มลงกับพื้น สะดุดล้ม หมดสติล้มลง",
+            "open_anomaly": "เหตุการณ์ผิดปกติ วิกฤต อุบัติเหตุ หรือเหตุฉุกเฉิน",
+        }
+
+        for idx, kind in enumerate(kinds, start=1):
+            self.check_cancel(job_id)
+            q = EVENT_QUERIES.get(kind, f"เหตุการณ์ {EVENTS.get(kind, {}).get('label', kind)}")
+            try:
+                res = search_engine.search_moments(query=q, video_id=video_id, top_k=5, profile="fast")
+            except Cancelled:
+                raise
+            except Exception as exc:
+                logger.warning(f"Native screening failed for video={video_id} kind={kind}: {exc}")
+                raise
+
+            blocking_warnings = [w for w in (res.warnings or []) if w in ("video_not_found", "index_empty", "reindex_required")]
+            if blocking_warnings and not res.moments:
+                raise RuntimeError(f"Video index unavailable for native screening: {', '.join(blocking_warnings)}")
+
+            for m in res.moments:
+                if float(m.score) < 0.15:
+                    continue
+                m_start = round(float(m.t_start), 2)
+                m_end = round(float(m.t_end), 2)
+                event_key = hashlib.sha256(f"{namespace}:{job_id}:{video_id}:{kind}:{m_start}:{m_end}".encode()).hexdigest()[:24]
+
+                # Collect keyframe evidence within context range
+                v_frames = []
+                try:
+                    from app.db.connection import db_manager
+                    tbl_kf = db_manager.get_table("video_frames_v2")
+                    k_matches = [
+                        {"timestamp": float(r.get("timestamp", 0.0)), "path": str(r.get("frame_path", ""))}
+                        for r in tbl_kf.to_arrow().to_pylist()
+                        if r.get("video_id") == video_id and max(0.0, m_start - 3.0) <= float(r.get("timestamp", 0.0)) <= min(float(video.get("duration", 9999)), m_end + 3.0)
+                    ]
+                    k_matches.sort(key=lambda x: x["timestamp"])
+                    if k_matches:
+                        slots = np.linspace(0, len(k_matches) - 1, min(4, len(k_matches))).astype(int)
+                        v_frames = [k_matches[s] for s in slots if Path(k_matches[s]["path"]).exists()]
+                except Exception as exc:
+                    logger.debug(f"Could not collect fallback keyframes for {video_id}: {exc}")
+
+                event = {
+                    "id": event_key,
+                    "video_id": video_id,
+                    "namespace": namespace,
+                    "kind": kind,
+                    "label": "ความผิดปกติทั่วไป" if kind == "open_anomaly" else EVENTS.get(kind, {}).get("label", kind),
+                    "t_start": m_start,
+                    "t_end": m_end,
+                    "score": round(float(m.score), 4),
+                    "raw_score": round(float(m.raw_score or m.score), 4),
+                    "display_score": round(float(m.display_score or m.score), 4),
+                    "model_status": "unverified",
+                    "review": "pending",
+                    "assessment": "suspicious" if m.score >= 0.42 else "uncertain",
+                    "audio_status": "available" if video.get("has_audio") else "no_audio",
+                    "audio_verified": False,
+                    "screening_policy": policy_name,
+                    "screening_job_id": job_id,
+                    "threshold_status": "experimental_unvalidated",
+                    "threshold": 0.15,
+                    "margin": 0.0,
+                    "caption_full": m.caption_full or m.caption_preview or "",
+                    "context_t_start": max(0.0, round(float(m.context_t_start if m.context_t_start is not None else max(0.0, m.t_start - 3.0)), 2)),
+                    "context_t_end": min(float(video.get("duration", 9999)), round(float(m.context_t_end if m.context_t_end is not None else m.t_end + 3.0), 2)),
+                    "preview_frame_path": f"/api/v1/events/{event_key}/preview",
+                    "verification_frames": v_frames,
+                    "refinement_status": "bounded_window",
+                    "verification": {
+                        "status": "unverified",
+                        "verdict": {
+                            "event_present": None,
+                            "reason": f"คัดกรองเบื้องต้นด้วย SigLIP2 (ความคล้ายคลึง {round(m.score * 100, 1)}% · ยังไม่ได้ตรวจยืนยันด้วย Qwen VLM)",
+                        },
+                    },
+                    "evidence": {
+                        "visual_score": round(float((m.modality_breakdown or {}).get("visual", m.score)), 3),
+                        "caption_score": round(float((m.modality_breakdown or {}).get("caption", 0.0)), 3),
+                    },
+                }
+                self.store.save_event(event)
+                pending.append(event)
+            self.update(job_id, completed=idx, candidates=len(pending), merged_events=len(pending))
+
+        self.update(job_id, candidates=len(pending), merged_events=len(pending), completed=len(kinds), total=len(kinds), phase="complete", status="complete")
+        return pending
+
+    def screen_video(self, job_id, video_id, kinds):
+        try:
+            video = self.store.get("videos", video_id)
+            self.validate_source(video)
+            namespace = self.namespace(video)
+            timeline = self.store.require(video_id, namespace)
+            self.update(job_id, phase="screen", total=len(timeline), completed=0)
+            threshold, margin, calibration = self.thresholds()
+            with self.gpu_lock:
+                prompts = self.prompt_vectors(kinds)
+            channels = self.store.embeddings(namespace, self.config.dimension)
+            candidates = screen(channels, prompts, kinds, threshold, margin)
+        except (ReindexRequired, requests.RequestException):
+            return self._screen_with_native_engine(job_id, video_id, kinds)
         acoustic = {row["id"] for row in timeline if row["audio_status"] == "available"}
         candidates = [row for row in candidates if row["kind"] != "shouting" or row["window_id"] in acoustic]
         # Each decision sees local motion. Do not bridge missing candidates or

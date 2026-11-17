@@ -12,8 +12,8 @@ it("requires explicit normal-development confirmation before publishing a bank",
   vi.stubGlobal("fetch", fetch);
   render(<NormalityPanel videoId="v" ready busy={false} profileId="p" onProfile={() => {}} />);
   expect(await screen.findByText(/reference_missing/)).toBeInTheDocument();
-  fireEvent.click(screen.getByText("เพิ่มช่วงปกติที่ตรวจแล้วจากวิดีโอนี้"));
-  const button = screen.getByRole("button", { name: "เพิ่มตัวอย่างปกติ" });
+  fireEvent.click(screen.getByText("+ เพิ่มช่วงเวลาปกติเข้าสู่คลังอ้างอิงจากคลิปนี้"));
+  const button = screen.getByRole("button", { name: "เพิ่มเข้าคลังตัวอย่างปกติ" });
   expect(button).toBeDisabled();
   fireEvent.click(screen.getByRole("checkbox"));
   expect(button).toBeEnabled(); fireEvent.click(button);

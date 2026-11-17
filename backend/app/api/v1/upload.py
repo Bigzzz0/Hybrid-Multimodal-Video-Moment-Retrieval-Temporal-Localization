@@ -104,6 +104,14 @@ async def upload_video(file: UploadFile = File(...)):
     with open(saved_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
 
+    # Immediately register with EventService so Anomaly Screening syncs instantly
+    try:
+        from app.gemma2.service import get_service
+        ev_service = get_service()
+        ev_service.register(saved_path, video_id=video_id, name=file.filename)
+    except Exception as exc:
+        logger.warning(f"Notice while registering video for anomaly screening: {exc}")
+
     # Launch dedicated daemon thread to prevent blocking asyncio event loop
     worker_thread = threading.Thread(
         target=run_progressive_pipeline,

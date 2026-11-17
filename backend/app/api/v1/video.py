@@ -286,6 +286,17 @@ async def delete_video(video_id: str):
     except Exception as e:
         logger.warning(f"Notice while deleting index metadata: {e}")
 
+    # Clean up from EventService store (Anomaly screening)
+    try:
+        from app.gemma2.service import get_service
+        ev_service = get_service()
+        ev_service.store.delete("videos", video_id)
+        with ev_service.store.db() as conn:
+            conn.execute("DELETE FROM jobs WHERE video_id = ?", (video_id,))
+            conn.execute("DELETE FROM events WHERE video_id = ?", (video_id,))
+    except Exception as e:
+        logger.warning(f"Notice while deleting from EventService: {e}")
+
     # 2. Delete raw video file
     if filepath and os.path.exists(filepath):
         try:
